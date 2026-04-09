@@ -1675,11 +1675,11 @@ func _internal_probeTransferStarGift(account: Account, prepaid: Bool, reference:
             let requestLine = "payments.transferStarGift request peerId=\(peerId) prepaid=true reference=\(referenceDescription)"
             logStarGiftProbeEvent(requestLine)
             return account.network.request(Api.functions.payments.transferStarGift(stargift: starGift, toId: inputPeer))
-            |> mapToSignal { updates -> Signal<String, NoError> in
+            |> map { updates -> String in
                 let resultLine = "payments.transferStarGift success peerId=\(peerId) prepaid=true reference=\(referenceDescription) updates=\(String(describing: updates))"
                 logStarGiftProbeEvent(resultLine)
                 account.stateManager.addUpdates(updates)
-                return .single("\(requestLine)\n\(resultLine)")
+                return "\(requestLine)\n\(resultLine)"
             }
             |> `catch` { error -> Signal<String, NoError> in
                 let resultLine = "payments.transferStarGift error peerId=\(peerId) prepaid=true reference=\(referenceDescription) error=\(String(describing: error.errorDescription))"
