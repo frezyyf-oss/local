@@ -16,6 +16,7 @@ import TelegramPresentationData
 import PresentationDataUtils
 import PasswordSetupUI
 import InstantPageCache
+import ItemListUI
 
 extension PeerInfoScreenNode {
     func openSettings(section: PeerInfoSettingsSection) {
@@ -23,7 +24,7 @@ extension PeerInfoScreenNode {
             guard let strongSelf = self, let navigationController = strongSelf.controller?.navigationController as? NavigationController else {
                 return
             }
-            
+
             if strongSelf.isMyProfile {
                 navigationController.pushViewController(c)
             } else {
@@ -36,7 +37,7 @@ extension PeerInfoScreenNode {
                     }
                 }
                 updatedControllers.append(c)
-                
+
                 var animated = true
                 if let validLayout = strongSelf.validLayout?.0, case .regular = validLayout.metrics.widthClass {
                     animated = false
@@ -138,11 +139,15 @@ extension PeerInfoScreenNode {
                 }
                 let _ = self.context.engine.notices.dismissServerProvidedSuggestion(suggestion: ServerProvidedSuggestion.setupPassword.id).startStandalone()
             })
-            
+
             let controller = self.context.sharedContext.makeSetupTwoFactorAuthController(context: self.context)
             push(controller)
         case .dataAndStorage:
             push(dataAndStorageController(context: self.context))
+        case .eahatGram:
+            let profileGiftsContext = self.data?.profileGiftsContext ?? ProfileGiftsContext(account: self.context.account, peerId: self.context.account.peerId, filter: .All)
+            profileGiftsContext.loadMore()
+            push(eahatGramScreen(context: self.context, profileGiftsContext: profileGiftsContext))
         case .appearance:
             push(themeSettingsController(context: self.context))
         case .language:
@@ -176,7 +181,7 @@ extension PeerInfoScreenNode {
         case .support:
             let supportPeer = Promise<PeerId?>()
             supportPeer.set(context.engine.peers.supportPeerId())
-            
+
             self.controller?.present(textAlertController(context: self.context, updatedPresentationData: self.controller?.updatedPresentationData, title: nil, text: self.presentationData.strings.Settings_FAQ_Intro, actions: [
                 TextAlertAction(type: .genericAction, title: presentationData.strings.Settings_FAQ_Button, action: { [weak self] in
                     self?.openFaq()
@@ -232,7 +237,7 @@ extension PeerInfoScreenNode {
                         count += 1
                     }
                 }
-                
+
                 if count >= maximumAvailableAccounts {
                     var replaceImpl: ((ViewController) -> Void)?
                     let controller = PremiumLimitScreen(context: strongSelf.context, subject: .accounts, count: Int32(count), action: {
@@ -305,10 +310,10 @@ extension PeerInfoScreenNode {
             self.didSetCachedFaq = true
         }
     }
-    
+
     func openFaq(anchor: String? = nil) {
         self.setupFaqIfNeeded()
-        
+
         let presentationData = self.presentationData
         let progressSignal = Signal<Never, NoError> { [weak self] subscriber in
             let controller = OverlayStatusController(theme: presentationData.theme, type: .loading(cancelled: nil))
@@ -322,7 +327,7 @@ extension PeerInfoScreenNode {
         |> runOn(Queue.mainQueue())
         |> delay(0.15, queue: Queue.mainQueue())
         let progressDisposable = progressSignal.start()
-        
+
         let _ = (self.cachedFaq.get()
         |> filter { $0 != nil }
         |> take(1)
@@ -341,11 +346,11 @@ extension PeerInfoScreenNode {
             }
         })
     }
-    
+
     private func openTips() {
         let controller = OverlayStatusController(theme: self.presentationData.theme, type: .loading(cancelled: nil))
         self.controller?.present(controller, in: .window(.root))
-        
+
         let context = self.context
         let navigationController = self.controller?.navigationController as? NavigationController
         self.tipsPeerDisposable.set((self.context.engine.peers.resolvePeerByName(name: self.presentationData.strings.Settings_TipsUsername, referrer: nil)
@@ -362,4 +367,401 @@ extension PeerInfoScreenNode {
             }
         }))
     }
+}
+
+private final class EahatGramArguments {
+    let context: AccountContext
+    let selectPeer: () -> Void
+    let updateUseDirectRpc: (Bool) -> Void
+    let refreshResponses: () -> Void
+    let runGiftProbe: (Int) -> Void
+
+    init(
+        context: AccountContext,
+        selectPeer: @escaping () -> Void,
+        updateUseDirectRpc: @escaping (Bool) -> Void,
+        refreshResponses: @escaping () -> Void,
+        runGiftProbe: @escaping (Int) -> Void
+    ) {
+        self.context = context
+        self.selectPeer = selectPeer
+        self.updateUseDirectRpc = updateUseDirectRpc
+        self.refreshResponses = refreshResponses
+        self.runGiftProbe = runGiftProbe
+    }
+}
+
+private enum EahatGramSection: Int32 {
+    case controls
+    case gifts
+    case responses
+}
+
+private struct EahatGramState: Equatable {
+    var selectedPeerId: EnginePeer.Id?
+    var selectedPeerTitle: String
+    var useDirectRpc: Bool
+    var responses: [String]
+
+    init() {
+        self.selectedPeerId = nil
+        self.selectedPeerTitle = ""
+        self.useDirectRpc = true
+        self.responses = []
+    }
+}
+
+private enum EahatGramEntry: ItemListNodeEntry {
+    case selectPeer(String)
+    case useDirectRpc(Bool)
+    case refreshResponses
+    case noGifts(String)
+    case gift(Int, String)
+    case giftInfo(Int, String)
+    case noResponses(String)
+    case response(Int, String)
+
+    var section: ItemListSectionId {
+        switch self {
+        case .selectPeer, .useDirectRpc, .refreshResponses:
+            return EahatGramSection.controls.rawValue
+        case .noGifts, .gift, .giftInfo:
+            return EahatGramSection.gifts.rawValue
+        case .noResponses, .response:
+            return EahatGramSection.responses.rawValue
+        }
+    }
+
+    var stableId: Int {
+        switch self {
+        case .selectPeer:
+            return 0
+        case .useDirectRpc:
+            return 1
+        case .refreshResponses:
+            return 2
+        case .noGifts:
+            return 3
+        case let .gift(index, _):
+            return 1000 + index * 2
+        case let .giftInfo(index, _):
+            return 1000 + index * 2 + 1
+        case .noResponses:
+            return 2000
+        case let .response(index, _):
+            return 3000 + index
+        }
+    }
+
+    static func ==(lhs: EahatGramEntry, rhs: EahatGramEntry) -> Bool {
+        switch lhs {
+        case let .selectPeer(text):
+            if case .selectPeer(text) = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .useDirectRpc(value):
+            if case .useDirectRpc(value) = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .refreshResponses:
+            if case .refreshResponses = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .noGifts(text):
+            if case .noGifts(text) = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .gift(index, text):
+            if case .gift(index, text) = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .giftInfo(index, text):
+            if case .giftInfo(index, text) = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .noResponses(text):
+            if case .noResponses(text) = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .response(index, text):
+            if case .response(index, text) = rhs {
+                return true
+            } else {
+                return false
+            }
+        }
+    }
+
+    static func <(lhs: EahatGramEntry, rhs: EahatGramEntry) -> Bool {
+        return lhs.stableId < rhs.stableId
+    }
+
+    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
+        let arguments = arguments as! EahatGramArguments
+        switch self {
+        case let .selectPeer(text):
+            return ItemListDisclosureItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Target Peer",
+                label: text,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.selectPeer()
+                }
+            )
+        case let .useDirectRpc(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Raw Direct payments.transferStarGift",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateUseDirectRpc(value)
+                }
+            )
+        case .refreshResponses:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Refresh Server Responses",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.refreshResponses()
+                }
+            )
+        case let .noGifts(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .gift(index, text):
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: text,
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.runGiftProbe(index)
+                }
+            )
+        case let .giftInfo(_, text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .noResponses(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .response(_, text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        }
+    }
+}
+
+private func eahatGramGiftTitle(_ gift: ProfileGiftsContext.State.StarGift) -> String {
+    switch gift.gift {
+    case let .generic(genericGift):
+        if let title = genericGift.title, !title.isEmpty {
+            return title
+        } else {
+            return "Gift \(genericGift.id)"
+        }
+    case let .unique(uniqueGift):
+        return "\(uniqueGift.title) #\(uniqueGift.number)"
+    }
+}
+
+private func eahatGramGiftInfo(_ gift: ProfileGiftsContext.State.StarGift) -> String {
+    let hostInfo: String
+    let slugInfo: String
+    switch gift.gift {
+    case .generic:
+        hostInfo = "hostPeerId=nil"
+        slugInfo = "slug=nil"
+    case let .unique(uniqueGift):
+        hostInfo = "hostPeerId=\(String(describing: uniqueGift.hostPeerId))"
+        slugInfo = "slug=\(uniqueGift.slug)"
+    }
+    return "reference=\(String(describing: gift.reference)) transferStars=\(String(describing: gift.transferStars)) canTransferDate=\(String(describing: gift.canTransferDate)) \(hostInfo) \(slugInfo)"
+}
+
+private func eahatGramEntries(
+    presentationData: PresentationData,
+    state: EahatGramState,
+    gifts: [ProfileGiftsContext.State.StarGift]
+) -> [EahatGramEntry] {
+    var entries: [EahatGramEntry] = []
+
+    entries.append(.selectPeer(state.selectedPeerTitle.isEmpty ? "Not selected" : state.selectedPeerTitle))
+    entries.append(.useDirectRpc(state.useDirectRpc))
+    entries.append(.refreshResponses)
+
+    if gifts.isEmpty {
+        entries.append(.noGifts("No gifts loaded"))
+    } else {
+        for i in 0 ..< gifts.count {
+            entries.append(.gift(i, eahatGramGiftTitle(gifts[i])))
+            entries.append(.giftInfo(i, eahatGramGiftInfo(gifts[i])))
+        }
+    }
+
+    if state.responses.isEmpty {
+        entries.append(.noResponses("No saved server responses"))
+    } else {
+        for i in 0 ..< state.responses.count {
+            entries.append(.response(i, state.responses[i]))
+        }
+    }
+
+    return entries
+}
+
+private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext) -> ViewController {
+    let initialState = EahatGramState()
+    let statePromise = ValuePromise(initialState, ignoreRepeated: true)
+    let stateValue = Atomic(value: initialState)
+    let currentGifts = Atomic(value: [ProfileGiftsContext.State.StarGift]())
+    let probeDisposable = MetaDisposable()
+
+    let updateState: ((EahatGramState) -> EahatGramState) -> Void = { f in
+        statePromise.set(stateValue.modify { f($0) })
+    }
+
+    let appendResponse: (String) -> Void = { response in
+        Logger.shared.log("eahatGram", response)
+        Logger.shared.shortLog("eahatGram", "[eahatGram] \(response)")
+        updateState { current in
+            var current = current
+            current.responses = [response] + current.responses
+            if current.responses.count > 20 {
+                current.responses.removeSubrange(20 ..< current.responses.count)
+            }
+            return current
+        }
+    }
+
+    let refreshResponses: () -> Void = {
+        let _ = (Logger.shared.collectShortLog()
+        |> deliverOnMainQueue).start(next: { events in
+            let filtered = events.compactMap { _, text -> String? in
+                if text.contains("[StarGiftProbe]") || text.contains("[eahatGram]") {
+                    return text
+                } else {
+                    return nil
+                }
+            }
+            updateState { current in
+                var current = current
+                current.responses = Array(filtered.prefix(20))
+                return current
+            }
+        })
+    }
+
+    var pushControllerImpl: ((ViewController) -> Void)?
+
+    let arguments = EahatGramArguments(
+        context: context,
+        selectPeer: {
+            let controller = context.sharedContext.makePeerSelectionController(PeerSelectionControllerParams(context: context, filter: [.onlyWriteable, .excludeDisabled]))
+            controller.peerSelected = { peer, _ in
+                updateState { current in
+                    var current = current
+                    current.selectedPeerId = peer.id
+                    current.selectedPeerTitle = peer.compactDisplayTitle
+                    return current
+                }
+                controller.dismiss()
+            }
+            pushControllerImpl?(controller)
+        },
+        updateUseDirectRpc: { value in
+            updateState { current in
+                var current = current
+                current.useDirectRpc = value
+                return current
+            }
+        },
+        refreshResponses: refreshResponses,
+        runGiftProbe: { index in
+            let gifts = currentGifts.with { $0 }
+            guard index >= 0 && index < gifts.count else {
+                appendResponse("runGiftProbe failed index=\(index) reason=OUT_OF_RANGE")
+                return
+            }
+            let gift = gifts[index]
+            guard let peerId = stateValue.with({ $0.selectedPeerId }) else {
+                appendResponse("runGiftProbe failed index=\(index) reason=TARGET_PEER_NOT_SELECTED")
+                return
+            }
+            guard let reference = gift.reference else {
+                appendResponse("runGiftProbe failed index=\(index) reason=REFERENCE_IS_NIL")
+                return
+            }
+            let useDirectRpc = stateValue.with { $0.useDirectRpc }
+            let startedLine = "runGiftProbe index=\(index) peerId=\(peerId) prepaid=\(useDirectRpc) title=\(eahatGramGiftTitle(gift))"
+            appendResponse(startedLine)
+            probeDisposable.set((context.engine.payments.probeTransferStarGift(prepaid: useDirectRpc, reference: reference, peerId: peerId)
+            |> deliverOnMainQueue).start(next: { result in
+                appendResponse(result)
+                refreshResponses()
+            }))
+        }
+    )
+
+    let signal = combineLatest(
+        context.sharedContext.presentationData,
+        statePromise.get(),
+        profileGiftsContext.state
+    )
+    |> deliverOnMainQueue
+    |> map { presentationData, state, giftsState -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let gifts = giftsState.gifts
+        _ = currentGifts.swap(gifts)
+
+        let controllerState = ItemListControllerState(
+            presentationData: ItemListPresentationData(presentationData),
+            title: .text("eahatGram"),
+            leftNavigationButton: nil,
+            rightNavigationButton: nil,
+            backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
+            animateChanges: false
+        )
+        let listState = ItemListNodeState(
+            presentationData: ItemListPresentationData(presentationData),
+            entries: eahatGramEntries(presentationData: presentationData, state: state, gifts: gifts),
+            style: .blocks,
+            animateChanges: true
+        )
+        return (controllerState, (listState, arguments))
+    }
+    |> afterDisposed {
+        probeDisposable.dispose()
+    }
+
+    let controller = ItemListController(context: context, state: signal)
+    pushControllerImpl = { [weak controller] c in
+        (controller?.navigationController as? NavigationController)?.pushViewController(c)
+    }
+
+    refreshResponses()
+
+    return controller
 }

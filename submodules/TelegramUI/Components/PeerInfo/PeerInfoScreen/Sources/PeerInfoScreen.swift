@@ -167,6 +167,7 @@ enum PeerInfoSettingsSection {
     case privacyAndSecurity
     case passwordSetup
     case dataAndStorage
+    case eahatGram
     case appearance
     case language
     case stickers
