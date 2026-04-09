@@ -1605,7 +1605,7 @@ func _internal_transferStarGift(account: Account, prepaid: Bool, reference: Star
             Logger.shared.log("StarGiftProbe", "payments.transferStarGift request peerId=\(peerId) prepaid=true reference=\(referenceDescription)")
             return account.network.request(Api.functions.payments.transferStarGift(stargift: starGift, toId: inputPeer))
             |> mapError { error -> TransferStarGiftError in
-                Logger.shared.log("StarGiftProbe", "payments.transferStarGift error peerId=\(peerId) prepaid=true reference=\(referenceDescription) error=\(error.errorDescription)")
+                Logger.shared.log("StarGiftProbe", "payments.transferStarGift error peerId=\(peerId) prepaid=true reference=\(referenceDescription) error=\(String(describing: error.errorDescription))")
                 if error.errorDescription == "USER_DISALLOWED_STARGIFTS" {
                     return .disallowedStarGift
                 }

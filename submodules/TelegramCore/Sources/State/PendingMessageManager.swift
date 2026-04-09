@@ -1894,7 +1894,7 @@ public final class PendingMessageManager {
                         }
                     
                         if let forwardSourceInfoAttribute = forwardSourceInfoAttribute, let sourcePeer = transaction.getPeer(forwardSourceInfoAttribute.messageId.peerId), let sourceInputPeer = apiInputPeer(sourcePeer) {
-                            Logger.shared.log("GiftForwardProbe", "messages.forwardMessages request grouped=false fromPeerId=\(forwardSourceInfoAttribute.messageId.peerId) toPeerId=\(message.id.peerId) ids=\([sourceInfo.messageId.id]) hideNames=\(hideSendersNames) hideCaptions=\(hideCaptions) topMsgId=\(String(describing: topMsgId))")
+                            Logger.shared.log("GiftForwardProbe", "messages.forwardMessages request grouped=false fromPeerId=\(forwardSourceInfoAttribute.messageId.peerId) toPeerId=\(message.id.peerId) ids=\([sourceInfo.messageId.id]) hideNames=\((flags & (1 << 11)) != 0) hideCaptions=\((flags & (1 << 12)) != 0) topMsgId=\(String(describing: topMsgId))")
                             sendMessageRequest = network.request(Api.functions.messages.forwardMessages(flags: flags, fromPeer: sourceInputPeer, id: [sourceInfo.messageId.id], randomId: [uniqueId], toPeer: inputPeer, topMsgId: topMsgId, replyTo: replyTo, scheduleDate: scheduleTime, scheduleRepeatPeriod: scheduleRepeatPeriod, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, effect: nil, videoTimestamp: videoTimestamp, allowPaidStars: allowPaidStars, suggestedPost: suggestedPost), tag: dependencyTag)
                             |> map(NetworkRequestResult.result)
                         } else {
