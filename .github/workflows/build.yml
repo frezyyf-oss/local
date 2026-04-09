@@ -14,7 +14,7 @@ jobs:
     runs-on: macos-26
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
           fetch-depth: '0'
@@ -90,8 +90,9 @@ jobs:
           mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
 
       - name: Build the App
+        shell: bash
         run: |
-          set -x
+          set -xo pipefail
 
           # source code paths are included in the final binary, so we need to make them stable across builds
           SOURCE_DIR=/Users/Shared/telegram-ios
@@ -100,6 +101,9 @@ jobs:
           BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
 
           cd $SOURCE_DIR
+          mkdir -p build
+          BUILD_LOG="build/build.log"
+          : > "$BUILD_LOG"
 
           BUILD_NUMBER_OFFSET="$(cat build_number_offset)"
 
@@ -110,14 +114,92 @@ jobs:
           echo "BUILD_NUMBER=$(echo $BUILD_NUMBER)" >> $GITHUB_ENV
           echo "APP_VERSION=$(echo $APP_VERSION)" >> $GITHUB_ENV
 
-          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
-          python3 -u build-system/Make/Make.py \
-            --bazelUserRoot="$BAZEL_USER_ROOT" \
-            build \
-            --configurationPath="build-system/appstore-configuration.json" \
-            --codesigningInformationPath=build-system/fake-codesigning \
-            --configuration=release_arm64 \
-            --buildNumber="$BUILD_NUMBER"
+          build_exit=0
+          set +e
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs 2>&1 | tee -a "$BUILD_LOG"
+          build_exit=${PIPESTATUS[0]}
+          if [ "$build_exit" -eq 0 ]; then
+            python3 -u build-system/Make/Make.py \
+              --bazelUserRoot="$BAZEL_USER_ROOT" \
+              build \
+              --configurationPath="build-system/appstore-configuration.json" \
+              --codesigningInformationPath=build-system/fake-codesigning \
+              --configuration=release_arm64 \
+              --buildNumber="$BUILD_NUMBER" 2>&1 | tee -a "$BUILD_LOG"
+            build_exit=${PIPESTATUS[0]}
+          fi
+          set -e
+          if [ "$build_exit" -ne 0 ]; then
+            FAILURE_EXCERPT=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          
+          path = Path("build/build.log")
+          if path.exists():
+              lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+          else:
+              lines = []
+          
+          patterns = [
+              re.compile(r"ERROR:"),
+              re.compile(r"error:"),
+              re.compile(r"Traceback"),
+              re.compile(r"returned non-zero exit status"),
+          ]
+          
+          excerpt = []
+          for index, line in enumerate(lines):
+              if any(pattern.search(line) for pattern in patterns):
+                  start = max(0, index - 5)
+                  end = min(len(lines), index + 20)
+                  excerpt = lines[start:end]
+                  break
+          
+          if not excerpt:
+              excerpt = lines[-40:]
+          
+          text = "\n".join(excerpt).strip()
+          escaped = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(escaped)
+          PY
+            )
+            echo "::error::$FAILURE_EXCERPT"
+            {
+              echo "## Build failure excerpt"
+              python3 - <<'PY'
+          import re
+          from pathlib import Path
+          
+          path = Path("build/build.log")
+          if path.exists():
+              lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+          else:
+              lines = []
+          
+          patterns = [
+              re.compile(r"ERROR:"),
+              re.compile(r"error:"),
+              re.compile(r"Traceback"),
+              re.compile(r"returned non-zero exit status"),
+          ]
+          
+          excerpt = []
+          for index, line in enumerate(lines):
+              if any(pattern.search(line) for pattern in patterns):
+                  start = max(0, index - 5)
+                  end = min(len(lines), index + 20)
+                  excerpt = lines[start:end]
+                  break
+          
+          if not excerpt:
+              excerpt = lines[-40:]
+          
+          for line in excerpt:
+              print(line)
+          PY
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$build_exit"
+          fi
 
           # collect ipa
           OUTPUT_PATH="build/artifacts"
@@ -133,6 +215,14 @@ jobs:
             cp -R "$f" build/DSYMs/
           done
           zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: /Users/Shared/telegram-ios/build/build.log
+          if-no-files-found: warn
 
       - name: Create Release
         id: create_release
