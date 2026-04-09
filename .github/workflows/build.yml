@@ -30,6 +30,22 @@ jobs:
           config = configparser.ConfigParser()
           config.read(".gitmodules")
 
+          pinned_commits = {
+              "build-system/bazel-rules/apple_support": "7967e453d1f54963935a1ae06808e1c64420bfb1",
+              "build-system/bazel-rules/rules_apple": "f6aef7db5b649ffc3b7497ecc83a08ad3ab19559",
+              "build-system/bazel-rules/rules_swift": "2b9261134a123ad83f8b1d2dc7fc69ae83fe7172",
+              "build-system/bazel-rules/rules_xcodeproj": "79f26ec1315531a8459fe95934440cb3ca3c16df",
+              "build-system/bazel-rules/sourcekit-bazel-bsp": "feea27cfc88eccc58af0cfe5674444e945cfb75f",
+              "submodules/LottieCpp/lottiecpp": "4a3144b5d527429f7bbd0f07003cb372bf8939ce",
+              "submodules/TgVoipWebrtc/tgcalls": "8099768559edb0efd2d1b300090c18141226e9a8",
+              "submodules/rlottie/rlottie": "67f103bc8b625f2a4a9e94f1d8c7bd84c5a08d1d",
+              "third-party/XcodeGen": "53cb43cb66908a28812d7629d03fed94c9827a24",
+              "third-party/dav1d/dav1d": "330e20672e85f9de1678dccd6957845898ef57a1",
+              "third-party/libvpx/libvpx": "e7bfd8b6c230a6824e7fd1efa2378a7322986128",
+              "third-party/td/td": "e894536b2f46caad93f997448d2daff9431b19dd",
+              "third-party/webrtc/webrtc": "dfd6b604d7194a3d41614afa2c8abd8825a657aa",
+          }
+
           for section in config.sections():
               path_value = config[section]["path"].strip()
               url_value = config[section]["url"].strip()
@@ -49,7 +65,16 @@ jobs:
                   path.rmdir()
 
               path.parent.mkdir(parents=True, exist_ok=True)
-              subprocess.check_call(["git", "clone", "--depth", "1", url_value, path_value])
+              subprocess.check_call(["git", "init", path_value])
+              subprocess.check_call(["git", "-C", path_value, "remote", "add", "origin", url_value])
+
+              pinned_commit = pinned_commits.get(path_value)
+              if pinned_commit is None:
+                  subprocess.check_call(["git", "-C", path_value, "fetch", "--depth", "1", "origin", "HEAD"])
+              else:
+                  subprocess.check_call(["git", "-C", path_value, "fetch", "--depth", "1", "origin", pinned_commit])
+
+              subprocess.check_call(["git", "-C", path_value, "checkout", "FETCH_HEAD"])
           PY
 
       - name: Set active Xcode path
