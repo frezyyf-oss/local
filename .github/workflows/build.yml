@@ -19,6 +19,39 @@ jobs:
           submodules: 'recursive'
           fetch-depth: '0'
 
+      - name: Populate missing submodule directories from .gitmodules
+        run: |
+          set -eux
+          python3 - <<'PY'
+          import configparser
+          import pathlib
+          import subprocess
+
+          config = configparser.ConfigParser()
+          config.read(".gitmodules")
+
+          for section in config.sections():
+              path_value = config[section]["path"].strip()
+              url_value = config[section]["url"].strip()
+
+              if url_value.startswith("../"):
+                  url_value = "https://github.com/TelegramMessenger/" + url_value[3:]
+
+              path = pathlib.Path(path_value)
+              if path.exists():
+                  try:
+                      has_contents = any(path.iterdir())
+                  except NotADirectoryError:
+                      has_contents = True
+                  if has_contents:
+                      print(f"Keeping existing path: {path_value}")
+                      continue
+                  path.rmdir()
+
+              path.parent.mkdir(parents=True, exist_ok=True)
+              subprocess.check_call(["git", "clone", "--depth", "1", url_value, path_value])
+          PY
+
       - name: Set active Xcode path
         run: |
           XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
