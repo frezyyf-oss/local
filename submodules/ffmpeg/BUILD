@@ -269,7 +269,7 @@ genrule(
         chmod +x "$$SOURCE_PATH/build-ffmpeg-bazel.sh"
         chmod +x "$$SOURCE_PATH/gas-preprocessor.pl"
         chmod +x "$$SOURCE_PATH/pkg-config"
-        find "$$SOURCE_PATH/ffmpeg-$$FFMPEG_VERSION" -type f \( -name "*.sh" -o -name "*.pl" -o -name "configure" \) -exec chmod +x {} +
+        find "$$SOURCE_PATH/ffmpeg-$$FFMPEG_VERSION" -type f \\( -name "*.sh" -o -name "*.pl" -o -name "configure" \\) -exec chmod +x {} +
 
         if [ "$(TARGET_CPU)" == "ios_arm64" ]; then
             BUILD_ARCH="arm64"
