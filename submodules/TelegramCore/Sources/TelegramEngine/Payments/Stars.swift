@@ -1591,6 +1591,13 @@ public final class StarsSubscriptionsContext {
     }
 }
 
+private func logStarGiftSendStarsProbeEvent(source: BotPaymentInvoiceSource, text: String) {
+    guard case .starGiftTransfer = source else {
+        return
+    }
+    Logger.shared.log("StarGiftProbe", text)
+    Logger.shared.shortLog("StarGiftProbe", "[StarGiftProbe] \(text)")
+}
 
 func _internal_sendStarsPaymentForm(account: Account, formId: Int64, source: BotPaymentInvoiceSource) -> Signal<SendBotPaymentResult, SendBotPaymentFormError> {
     return account.postbox.transaction { transaction -> Api.InputInvoice? in
@@ -1601,8 +1608,16 @@ func _internal_sendStarsPaymentForm(account: Account, formId: Int64, source: Bot
         guard let invoice = invoice else {
             return .fail(.generic)
         }
+        logStarGiftSendStarsProbeEvent(
+            source: source,
+            text: "payments.sendStarsForm request formId=\(formId) source=\(String(describing: source)) invoice=\(String(describing: invoice))"
+        )
         return account.network.request(Api.functions.payments.sendStarsForm(formId: formId, invoice: invoice))
         |> map { result -> SendBotPaymentResult in
+            logStarGiftSendStarsProbeEvent(
+                source: source,
+                text: "payments.sendStarsForm success formId=\(formId) source=\(String(describing: source)) result=\(String(describing: result))"
+            )
             switch result {
                 case let .paymentResult(paymentResultData):
                     let updates = paymentResultData.updates
@@ -1702,6 +1717,10 @@ func _internal_sendStarsPaymentForm(account: Account, formId: Int64, source: Bot
             }
         }
         |> `catch` { error -> Signal<SendBotPaymentResult, SendBotPaymentFormError> in
+            logStarGiftSendStarsProbeEvent(
+                source: source,
+                text: "payments.sendStarsForm error formId=\(formId) source=\(String(describing: source)) errorCode=\(error.errorCode) error=\(String(describing: error.errorDescription))"
+            )
             if error.errorCode == 406 {
                 return .fail(.serverProvided(error.errorDescription))
             } else if error.errorDescription == "BOT_PRECHECKOUT_FAILED" {
