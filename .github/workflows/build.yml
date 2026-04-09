@@ -12,12 +12,22 @@ permissions:
 jobs:
   build:
     runs-on: macos-26
+    env:
+      BAZEL_CACHE_DIR: /Users/runner/telegram-bazel-cache
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
           fetch-depth: '0'
+
+      - name: Restore Bazel Disk Cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BAZEL_CACHE_DIR }}
+          key: ${{ runner.os }}-telegram-bazel-${{ hashFiles('.bazelrc', 'BUILD.bazel', 'MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE', 'versions.json', 'build-system/**/*.py', 'build-system/**/*.json', 'Telegram/**/BUILD', 'submodules/**/BUILD', 'third-party/**/BUILD', '**/*.bzl') }}
+          restore-keys: |
+            ${{ runner.os }}-telegram-bazel-
 
       - name: Populate missing submodule directories from .gitmodules
         run: |
@@ -120,11 +130,13 @@ jobs:
           build_exit=${PIPESTATUS[0]}
           if [ "$build_exit" -eq 0 ]; then
             python3 -u build-system/Make/Make.py \
+              --cacheDir="$BAZEL_CACHE_DIR" \
               --bazelUserRoot="$BAZEL_USER_ROOT" \
               build \
               --configurationPath="build-system/appstore-configuration.json" \
               --codesigningInformationPath=build-system/fake-codesigning \
               --configuration=release_arm64 \
+              --enableParallelSwiftmoduleGeneration \
               --buildNumber="$BUILD_NUMBER" 2>&1 | tee -a "$BUILD_LOG"
             build_exit=${PIPESTATUS[0]}
           fi
