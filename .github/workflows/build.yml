@@ -5,6 +5,15 @@ on:
     branches: [ main, master ]
 
   workflow_dispatch:
+    inputs:
+      build_mode:
+        description: Build mode
+        required: true
+        default: fast
+        type: choice
+        options:
+          - fast
+          - release
 
 permissions:
   contents: write
@@ -26,7 +35,8 @@ jobs:
           fetch-depth: '0'
 
       - name: Restore Bazel Disk Cache
-        uses: actions/cache@v4
+        id: bazel-cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.BAZEL_CACHE_DIR }}
           key: ${{ runner.os }}-telegram-bazel-${{ hashFiles('.bazelrc', 'BUILD.bazel', 'MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE', 'versions.json', 'build-system/**/*.py', 'build-system/**/*.json', 'Telegram/**/BUILD', 'submodules/**/BUILD', 'third-party/**/BUILD', '**/*.bzl') }}
@@ -128,6 +138,15 @@ jobs:
           echo "BUILD_NUMBER=$(echo $BUILD_NUMBER)" >> $GITHUB_ENV
           echo "APP_VERSION=$(echo $APP_VERSION)" >> $GITHUB_ENV
 
+          BUILD_CONFIGURATION="debug_arm64"
+          COLLECT_DSYMS="0"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.build_mode }}" = "release" ]; then
+            BUILD_CONFIGURATION="release_arm64"
+            COLLECT_DSYMS="1"
+          fi
+          echo "BUILD_CONFIGURATION=$BUILD_CONFIGURATION" >> $GITHUB_ENV
+          echo "COLLECT_DSYMS=$COLLECT_DSYMS" >> $GITHUB_ENV
+
           build_exit=0
           set +e
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs 2>&1 | tee -a "$BUILD_LOG"
@@ -139,7 +158,7 @@ jobs:
               build \
               --configurationPath="build-system/appstore-configuration.json" \
               --codesigningInformationPath=build-system/fake-codesigning \
-              --configuration=release_arm64 \
+              --configuration="$BUILD_CONFIGURATION" \
               --buildNumber="$BUILD_NUMBER" 2>&1 | tee -a "$BUILD_LOG"
             build_exit=${PIPESTATUS[0]}
           fi
@@ -223,11 +242,16 @@ jobs:
           cp "bazel-bin/Telegram/Telegram.ipa" "$OUTPUT_PATH/Telegram.ipa"
 
           # collect dsym
-          mkdir -p build/DSYMs
-          for f in bazel-bin/Telegram/*.dSYM; do
-            cp -R "$f" build/DSYMs/
-          done
-          zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+          if [ "$COLLECT_DSYMS" = "1" ]; then
+            mkdir -p build/DSYMs
+            shopt -s nullglob
+            for f in bazel-bin/Telegram/*.dSYM; do
+              cp -R "$f" build/DSYMs/
+            done
+            if compgen -G "build/DSYMs/*.dSYM" > /dev/null; then
+              zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+            fi
+          fi
 
       - name: Upload Build Log
         if: always()
@@ -237,6 +261,13 @@ jobs:
           path: /Users/Shared/telegram-ios/build/build.log
           if-no-files-found: warn
 
+      - name: Save Bazel Disk Cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.BAZEL_CACHE_DIR }}
+          key: ${{ steps.bazel-cache-restore.outputs.cache-primary-key }}
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -244,9 +275,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: build-${{ env.BUILD_NUMBER }}
-          release_name: Telegram ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
+          release_name: Telegram ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }}) ${{ env.BUILD_CONFIGURATION }}
           body: |
-            An unsigned build of Telegram for iOS ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
+            An unsigned ${{ env.BUILD_CONFIGURATION }} build of Telegram for iOS ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
           draft: false
           prerelease: false
 
@@ -262,6 +293,7 @@ jobs:
           asset_content_type: application/zip
 
       - name: Upload Release DSYM
+        if: env.COLLECT_DSYMS == '1'
         id: upload-release-dsym 
         uses: actions/upload-release-asset@v1
         env:
