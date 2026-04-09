@@ -136,7 +136,6 @@ jobs:
               --configurationPath="build-system/appstore-configuration.json" \
               --codesigningInformationPath=build-system/fake-codesigning \
               --configuration=release_arm64 \
-              --enableParallelSwiftmoduleGeneration \
               --buildNumber="$BUILD_NUMBER" 2>&1 | tee -a "$BUILD_LOG"
             build_exit=${PIPESTATUS[0]}
           fi
