@@ -1136,16 +1136,29 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             let sendGiftTitle: String
             var isIncoming = message.effectivelyIncoming(context.account.peerId)
             var isUniqueGift = false
+            var opensGiftView = false
             for media in message.media {
-                if let action = media as? TelegramMediaAction, case let .starGiftUnique(_, isUpgrade, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = action.action {
-                    isUniqueGift = true
-                    if isUpgrade && message.author?.id == context.account.peerId {
-                        isIncoming = true
+                if let action = media as? TelegramMediaAction {
+                    switch action.action {
+                    case let .starGift(_, _, _, _, _, savedToProfile, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
+                        if savedToProfile {
+                            opensGiftView = true
+                        }
+                    case let .starGiftUnique(_, isUpgrade, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
+                        isUniqueGift = true
+                        opensGiftView = true
+                        if isUpgrade && message.author?.id == context.account.peerId {
+                            isIncoming = true
+                        }
+                    default:
+                        break
                     }
                 }
             }
             if isUniqueGift {
                 sendGiftTitle = chatPresentationInterfaceState.strings.Gift_View_Context_Transfer
+            } else if opensGiftView {
+                sendGiftTitle = chatPresentationInterfaceState.strings.Notification_StarGift_View
             } else if message.id.peerId == context.account.peerId {
                 sendGiftTitle = chatPresentationInterfaceState.strings.Conversation_ContextMenuBuyGift
             } else if isIncoming {
@@ -1157,7 +1170,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             actions.append(.action(ContextMenuActionItem(text: sendGiftTitle, icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: isUniqueGift ? "Chat/Context Menu/Replace" : "Chat/Context Menu/Gift"), color: theme.actionSheet.primaryTextColor)
             }, action: { _, f in
-                if isUniqueGift {
+                if opensGiftView {
                     let _ = controllerInteraction.openMessage(message, OpenMessageParams(mode: .default))
                 } else {
                     let _ = controllerInteraction.sendGift(message.id.peerId)

@@ -147,7 +147,7 @@ extension PeerInfoScreenNode {
         case .eahatGram:
             let profileGiftsContext = self.data?.profileGiftsContext ?? ProfileGiftsContext(account: self.context.account, peerId: self.context.account.peerId, filter: .All)
             profileGiftsContext.loadMore()
-            push(eahatGramScreen(context: self.context, profileGiftsContext: profileGiftsContext))
+            push(eahatGramScreen(context: self.context, profileGiftsContext: profileGiftsContext, hideCurrentAccountGifts: true))
         case .appearance:
             push(themeSettingsController(context: self.context))
         case .language:
@@ -605,7 +605,8 @@ private func eahatGramGiftInfo(_ gift: ProfileGiftsContext.State.StarGift) -> St
 private func eahatGramEntries(
     presentationData: PresentationData,
     state: EahatGramState,
-    gifts: [ProfileGiftsContext.State.StarGift]
+    gifts: [ProfileGiftsContext.State.StarGift],
+    noGiftsText: String
 ) -> [EahatGramEntry] {
     var entries: [EahatGramEntry] = []
 
@@ -614,7 +615,7 @@ private func eahatGramEntries(
     entries.append(.refreshResponses)
 
     if gifts.isEmpty {
-        entries.append(.noGifts("No gifts loaded"))
+        entries.append(.noGifts(noGiftsText))
     } else {
         for i in 0 ..< gifts.count {
             entries.append(.gift(i, eahatGramGiftTitle(gifts[i])))
@@ -633,7 +634,7 @@ private func eahatGramEntries(
     return entries
 }
 
-private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext) -> ViewController {
+private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext, hideCurrentAccountGifts: Bool) -> ViewController {
     let initialState = EahatGramState()
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -733,8 +734,15 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     )
     |> deliverOnMainQueue
     |> map { presentationData, state, giftsState -> (ItemListControllerState, (ItemListNodeState, Any)) in
-        let gifts = giftsState.gifts
+        let gifts = hideCurrentAccountGifts ? [] : giftsState.gifts
         _ = currentGifts.swap(gifts)
+
+        let noGiftsText: String
+        if hideCurrentAccountGifts {
+            noGiftsText = "Current account profile gifts hidden"
+        } else {
+            noGiftsText = "No gifts loaded"
+        }
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
@@ -746,7 +754,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
         )
         let listState = ItemListNodeState(
             presentationData: ItemListPresentationData(presentationData),
-            entries: eahatGramEntries(presentationData: presentationData, state: state, gifts: gifts),
+            entries: eahatGramEntries(presentationData: presentationData, state: state, gifts: gifts, noGiftsText: noGiftsText),
             style: .blocks,
             animateChanges: true
         )
