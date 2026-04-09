@@ -27,6 +27,7 @@ jobs:
     runs-on: macos-26
     env:
       BAZEL_CACHE_DIR: /Users/runner/telegram-bazel-cache
+      BAZEL_REMOTE_CACHE_URL: ${{ vars.BAZEL_REMOTE_CACHE_URL }}
 
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +36,7 @@ jobs:
           fetch-depth: '0'
 
       - name: Restore Bazel Disk Cache
+        if: env.BAZEL_REMOTE_CACHE_URL == ''
         id: bazel-cache-restore
         uses: actions/cache/restore@v4
         with:
@@ -140,12 +142,17 @@ jobs:
 
           BUILD_CONFIGURATION="debug_arm64"
           COLLECT_DSYMS="0"
+          BUILD_CACHE_FLAG="--cacheDir=$BAZEL_CACHE_DIR"
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.build_mode }}" = "release" ]; then
             BUILD_CONFIGURATION="release_arm64"
             COLLECT_DSYMS="1"
           fi
+          if [ -n "$BAZEL_REMOTE_CACHE_URL" ]; then
+            BUILD_CACHE_FLAG="--cacheHost=$BAZEL_REMOTE_CACHE_URL"
+          fi
           echo "BUILD_CONFIGURATION=$BUILD_CONFIGURATION" >> $GITHUB_ENV
           echo "COLLECT_DSYMS=$COLLECT_DSYMS" >> $GITHUB_ENV
+          echo "BUILD_CACHE_FLAG=$BUILD_CACHE_FLAG" >> $GITHUB_ENV
 
           build_exit=0
           set +e
@@ -153,7 +160,7 @@ jobs:
           build_exit=${PIPESTATUS[0]}
           if [ "$build_exit" -eq 0 ]; then
             python3 -u build-system/Make/Make.py \
-              --cacheDir="$BAZEL_CACHE_DIR" \
+              "$BUILD_CACHE_FLAG" \
               --bazelUserRoot="$BAZEL_USER_ROOT" \
               build \
               --configurationPath="build-system/appstore-configuration.json" \
@@ -262,7 +269,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Save Bazel Disk Cache
-        if: always()
+        if: always() && env.BAZEL_REMOTE_CACHE_URL == ''
         uses: actions/cache/save@v4
         with:
           path: ${{ env.BAZEL_CACHE_DIR }}
