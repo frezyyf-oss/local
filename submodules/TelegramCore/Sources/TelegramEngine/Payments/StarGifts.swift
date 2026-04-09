@@ -1691,11 +1691,12 @@ func _internal_probeTransferStarGift(account: Account, prepaid: Bool, reference:
             let requestLine = "payments.transferStarGift request peerId=\(peerId) prepaid=false reference=\(referenceDescription)"
             logStarGiftProbeEvent(requestLine)
             return _internal_fetchBotPaymentForm(accountPeerId: account.peerId, postbox: account.postbox, network: account.network, source: source, themeParams: nil)
-            |> mapToSignal { paymentForm -> Signal<String, NoError> in
+            |> mapToSignal { paymentForm -> Signal<String, BotPaymentFormRequestError> in
                 let formLine = "payments.transferStarGift paymentForm peerId=\(peerId) prepaid=false reference=\(referenceDescription) formId=\(paymentForm.id)"
                 logStarGiftProbeEvent(formLine)
-                return _internal_sendStarsPaymentForm(account: account, formId: paymentForm.id, source: source)
-                |> mapToSignal { result -> Signal<String, NoError> in
+                return (
+                    _internal_sendStarsPaymentForm(account: account, formId: paymentForm.id, source: source)
+                |> map { result -> String in
                     let resultLine: String
                     switch result {
                     case let .done(receiptMessageId, subscriptionPeerId, uniqueStarGift):
@@ -1704,13 +1705,15 @@ func _internal_probeTransferStarGift(account: Account, prepaid: Bool, reference:
                         resultLine = "payments.transferStarGift sendPaymentForm peerId=\(peerId) prepaid=false reference=\(referenceDescription) result=EXTERNAL_VERIFICATION url=\(url)"
                     }
                     logStarGiftProbeEvent(resultLine)
-                    return .single("\(requestLine)\n\(formLine)\n\(resultLine)")
+                    return "\(requestLine)\n\(formLine)\n\(resultLine)"
                 }
                 |> `catch` { error -> Signal<String, NoError> in
                     let resultLine = "payments.transferStarGift sendPaymentForm peerId=\(peerId) prepaid=false reference=\(referenceDescription) result=ERROR error=\(String(describing: error))"
                     logStarGiftProbeEvent(resultLine)
                     return .single("\(requestLine)\n\(formLine)\n\(resultLine)")
                 }
+                )
+                |> castError(BotPaymentFormRequestError.self)
             }
             |> `catch` { error -> Signal<String, NoError> in
                 if case .noPaymentNeeded = error {
