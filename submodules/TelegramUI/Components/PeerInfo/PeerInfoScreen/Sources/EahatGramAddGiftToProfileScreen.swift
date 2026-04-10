@@ -1108,6 +1108,7 @@ func eahatGramAddGiftToProfileScreen(
     let keepUpdatedDisposable = MetaDisposable()
     let giftsDisposable = MetaDisposable()
     let attributesDisposable = MetaDisposable()
+    let insertDisposable = MetaDisposable()
 
     let updateState: ((EahatGramAddGiftState) -> EahatGramAddGiftState) -> Void = { f in
         statePromise.set(stateValue.modify { f($0) })
@@ -1253,10 +1254,12 @@ func eahatGramAddGiftToProfileScreen(
         backdrop: TelegramCore.StarGift.UniqueGift.Attribute?,
         symbol: TelegramCore.StarGift.UniqueGift.Attribute?,
         uniqueGiftId: Int64,
-        giftDate: Int32
+        giftDate: Int32,
+        realUniqueGift: TelegramCore.StarGift.UniqueGift?,
+        valueInfo: TelegramCore.StarGift.UniqueGift.ValueInfo?
     ) -> ProfileGiftsContext.State.StarGift {
-        let issued = eahatGramGiftIssuedCount(baseGift) ?? number
-        let total = baseGift.availability?.total ?? number
+        let issued = realUniqueGift?.availability.issued ?? eahatGramGiftIssuedCount(baseGift) ?? number
+        let total = realUniqueGift?.availability.total ?? baseGift.availability?.total ?? number
         let commentText = state.draft.advancedEnabled ? eahatGramResolvedComment(state.draft.commentText) : nil
         let fromPeer = state.draft.advancedEnabled ? eahatGramResolvedFromPeer(state.draft.fromTagText) : nil
 
@@ -1270,6 +1273,22 @@ func eahatGramAddGiftToProfileScreen(
         if let symbol {
             attributes.append(symbol)
         }
+        if attributes.isEmpty, let realUniqueGift {
+            attributes = realUniqueGift.attributes.filter { $0.attributeType != .originalInfo }
+        }
+
+        let resellAmounts = realUniqueGift?.resellAmounts
+        let valueAmount = realUniqueGift?.valueAmount ?? valueInfo?.value
+        let valueCurrency = realUniqueGift?.valueCurrency ?? valueInfo?.currency
+        let valueUsdAmount = realUniqueGift?.valueUsdAmount
+        let giftAddress = realUniqueGift?.giftAddress
+        let resellForTonOnly = realUniqueGift?.resellForTonOnly ?? false
+        let releasedBy = realUniqueGift?.releasedBy ?? baseGift.releasedBy
+        let themePeerId = realUniqueGift?.themePeerId
+        let peerColor = realUniqueGift?.peerColor
+        let hostPeerId = realUniqueGift?.hostPeerId
+        let minOfferStars = realUniqueGift?.minOfferStars
+        let craftChancePermille = realUniqueGift?.craftChancePermille
 
         let uniqueGift = TelegramCore.StarGift.UniqueGift(
             id: uniqueGiftId,
@@ -1280,19 +1299,19 @@ func eahatGramAddGiftToProfileScreen(
             owner: .peerId(context.account.peerId),
             attributes: attributes,
             availability: .init(issued: issued, total: total),
-            giftAddress: nil,
-            resellAmounts: nil,
-            resellForTonOnly: false,
-            releasedBy: baseGift.releasedBy,
-            valueAmount: nil,
-            valueCurrency: nil,
-            valueUsdAmount: nil,
+            giftAddress: giftAddress,
+            resellAmounts: resellAmounts,
+            resellForTonOnly: resellForTonOnly,
+            releasedBy: releasedBy,
+            valueAmount: valueAmount,
+            valueCurrency: valueCurrency,
+            valueUsdAmount: valueUsdAmount,
             flags: [],
-            themePeerId: nil,
-            peerColor: nil,
-            hostPeerId: nil,
-            minOfferStars: nil,
-            craftChancePermille: nil
+            themePeerId: themePeerId,
+            peerColor: peerColor,
+            hostPeerId: hostPeerId,
+            minOfferStars: minOfferStars,
+            craftChancePermille: craftChancePermille
         )
 
         return ProfileGiftsContext.State.StarGift(
@@ -1320,6 +1339,62 @@ func eahatGramAddGiftToProfileScreen(
             isRefunded: false,
             canCraftAt: nil
         )
+    }
+
+    func enrichedInsertedGiftSignal(
+        baseGift: TelegramCore.StarGift.Gift,
+        state: EahatGramAddGiftState,
+        number: Int32,
+        slug: String,
+        model: TelegramCore.StarGift.UniqueGift.Attribute?,
+        backdrop: TelegramCore.StarGift.UniqueGift.Attribute?,
+        symbol: TelegramCore.StarGift.UniqueGift.Attribute?,
+        uniqueGiftId: Int64,
+        giftDate: Int32
+    ) -> Signal<ProfileGiftsContext.State.StarGift, NoError> {
+        let fallbackGift = makeInsertedGift(
+            baseGift: baseGift,
+            state: state,
+            number: number,
+            slug: slug,
+            model: model,
+            backdrop: backdrop,
+            symbol: symbol,
+            uniqueGiftId: uniqueGiftId,
+            giftDate: giftDate,
+            realUniqueGift: nil,
+            valueInfo: nil
+        )
+
+        let normalizedSlug = slug.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSlug.isEmpty else {
+            return .single(fallbackGift)
+        }
+
+        let uniqueGiftSignal = context.engine.payments.getUniqueStarGift(slug: normalizedSlug)
+        |> map(Optional.init)
+        |> `catch` { _ -> Signal<TelegramCore.StarGift.UniqueGift?, NoError> in
+            return .single(nil)
+        }
+
+        let valueInfoSignal = context.engine.payments.getUniqueStarGiftValueInfo(slug: normalizedSlug)
+
+        return combineLatest(uniqueGiftSignal, valueInfoSignal)
+        |> map { realUniqueGift, valueInfo in
+            return makeInsertedGift(
+                baseGift: baseGift,
+                state: state,
+                number: number,
+                slug: slug,
+                model: model,
+                backdrop: backdrop,
+                symbol: symbol,
+                uniqueGiftId: uniqueGiftId,
+                giftDate: giftDate,
+                realUniqueGift: realUniqueGift,
+                valueInfo: valueInfo
+            )
+        }
     }
 
     func insertLocalGifts(mode: EahatGramInsertActionMode) {
@@ -1360,8 +1435,8 @@ func eahatGramAddGiftToProfileScreen(
         let baseDate = Int32(baseTimestamp)
         let baseUniqueGiftId = Int64(baseTimestamp * 1000.0)
 
-        var insertedGifts: [ProfileGiftsContext.State.StarGift] = []
-        insertedGifts.reserveCapacity(batchCount)
+        var insertSignals: [Signal<ProfileGiftsContext.State.StarGift, NoError>] = []
+        insertSignals.reserveCapacity(batchCount)
 
         var firstSlug: String?
         var lastSlug: String?
@@ -1392,7 +1467,7 @@ func eahatGramAddGiftToProfileScreen(
                 batchIndex: batchCount > 1 ? index : nil,
                 forceNumberSuffix: randomized
             )
-            let insertedGift = makeInsertedGift(
+            let insertedGift = enrichedInsertedGiftSignal(
                 baseGift: baseGift,
                 state: state,
                 number: number,
@@ -1404,7 +1479,7 @@ func eahatGramAddGiftToProfileScreen(
                 giftDate: baseDate + Int32(index)
             )
 
-            insertedGifts.append(insertedGift)
+            insertSignals.append(insertedGift)
             if firstSlug == nil {
                 firstSlug = slug
                 firstNumber = number
@@ -1412,8 +1487,6 @@ func eahatGramAddGiftToProfileScreen(
             lastSlug = slug
             lastNumber = number
         }
-
-        profileGiftsContext.insertStarGifts(gifts: insertedGifts, afterPinned: true)
 
         let modeText: String
         switch mode {
@@ -1426,8 +1499,26 @@ func eahatGramAddGiftToProfileScreen(
         case .selected:
             modeText = "selected"
         }
-        let line = "insertLocalGifts mode=\(modeText) giftId=\(baseGift.id) count=\(batchCount) firstNumber=\(String(describing: firstNumber)) lastNumber=\(String(describing: lastNumber)) firstSlug=\(String(describing: firstSlug)) lastSlug=\(String(describing: lastSlug)) transferStars=\(String(describing: Int64(state.draft.transferStarsText))) canTransferDate=\(String(describing: Int32(state.draft.canTransferDateText))) nftTag=\(state.draft.nftTagText) advanced=\(state.draft.advancedEnabled) comment=\(String(describing: eahatGramResolvedComment(state.draft.commentText))) fromTag=\(eahatGramNormalizedTag(state.draft.fromTagText)) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
-        setStatus(line)
+        let startedLine = "insertLocalGifts mode=\(modeText) giftId=\(baseGift.id) count=\(batchCount) firstNumber=\(String(describing: firstNumber)) lastNumber=\(String(describing: lastNumber)) firstSlug=\(String(describing: firstSlug)) lastSlug=\(String(describing: lastSlug)) transferStars=\(String(describing: Int64(state.draft.transferStarsText))) canTransferDate=\(String(describing: Int32(state.draft.canTransferDateText))) nftTag=\(state.draft.nftTagText) advanced=\(state.draft.advancedEnabled) comment=\(String(describing: eahatGramResolvedComment(state.draft.commentText))) fromTag=\(eahatGramNormalizedTag(state.draft.fromTagText)) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
+        setStatus(startedLine)
+        insertDisposable.set((combineLatest(insertSignals)
+        |> deliverOnMainQueue).start(next: { gifts in
+            profileGiftsContext.insertStarGifts(gifts: gifts, afterPinned: true)
+            let realPrices = gifts.compactMap { gift -> Int64? in
+                guard case let .unique(uniqueGift) = gift.gift else {
+                    return nil
+                }
+                return uniqueGift.resellAmounts?.first(where: { $0.currency == .stars })?.amount.value
+            }
+            let issuedCounts = gifts.compactMap { gift -> String? in
+                guard case let .unique(uniqueGift) = gift.gift else {
+                    return nil
+                }
+                return "\(uniqueGift.availability.issued)/\(uniqueGift.availability.total)"
+            }
+            let completedLine = "insertLocalGifts completed count=\(gifts.count) realPrices=\(realPrices) availability=\(issuedCounts)"
+            setStatus(completedLine)
+        }))
     }
 
     let arguments = EahatGramAddGiftArguments(
@@ -1642,6 +1733,7 @@ func eahatGramAddGiftToProfileScreen(
         keepUpdatedDisposable.dispose()
         giftsDisposable.dispose()
         attributesDisposable.dispose()
+        insertDisposable.dispose()
     }
 
     let controller = ItemListController(context: context, state: signal)
