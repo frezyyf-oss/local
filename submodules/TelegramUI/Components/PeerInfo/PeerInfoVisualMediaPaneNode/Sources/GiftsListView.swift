@@ -502,7 +502,7 @@ final class GiftsListView: UIView {
                     subject = .uniqueGift(gift: gift, price: nil)
                     peer = nil
                     resellAmount = gift.resellAmounts?.first(where: { $0.currency == .stars })
-                    if product.reference == nil && !gift.slug.isEmpty {
+                    if product.reference == nil && !gift.slug.isEmpty && !gift.slug.hasPrefix("eahatgram-") {
                         badgeText = "@\(gift.slug)"
                     }
                     

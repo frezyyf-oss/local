@@ -30,6 +30,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
     private let avatarFrameNode = ASDisplayNode()
     private let avatarNode = AvatarNode(font: avatarPlaceholderFont(size: 16.0))
     private let accentNode = ASDisplayNode()
+    private let accentGradientLayer = CAGradientLayer()
     private let nameNode = ImmediateTextNode()
     private let tagNode = ImmediateTextNode()
     private let idNode = ImmediateTextNode()
@@ -59,6 +60,10 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.avatarNode.cornerRadius = 2.0
 
         self.accentNode.cornerRadius = 1.5
+        self.accentGradientLayer.cornerRadius = 1.5
+        self.accentGradientLayer.startPoint = CGPoint(x: 0.0, y: 0.5)
+        self.accentGradientLayer.endPoint = CGPoint(x: 1.0, y: 0.5)
+        self.accentGradientLayer.masksToBounds = true
 
         for textNode in [self.nameNode, self.tagNode, self.idNode, self.timeNode] {
             textNode.displaysAsynchronously = false
@@ -72,6 +77,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.innerNode.addSubnode(self.avatarFrameNode)
         self.avatarFrameNode.addSubnode(self.avatarNode)
         self.innerNode.addSubnode(self.accentNode)
+        self.accentNode.layer.addSublayer(self.accentGradientLayer)
         self.innerNode.addSubnode(self.nameNode)
         self.innerNode.addSubnode(self.tagNode)
         self.innerNode.addSubnode(self.idNode)
@@ -102,7 +108,14 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.avatarFrameNode.backgroundColor = UIColor(red: 0.11, green: 0.11, blue: 0.11, alpha: 1.0)
         self.avatarFrameNode.borderColor = UIColor(red: 0.24, green: 0.24, blue: 0.24, alpha: 1.0).cgColor
 
-        self.accentNode.backgroundColor = UIColor(red: 0.89, green: 0.75, blue: 0.10, alpha: 1.0)
+        self.accentGradientLayer.colors = [
+            UIColor(red: 1.00, green: 0.91, blue: 0.22, alpha: 1.0).cgColor,
+            UIColor(red: 1.00, green: 0.64, blue: 0.16, alpha: 1.0).cgColor,
+            UIColor(red: 0.98, green: 0.44, blue: 0.22, alpha: 1.0).cgColor,
+            UIColor(red: 0.99, green: 0.86, blue: 0.18, alpha: 1.0).cgColor
+        ]
+        self.accentGradientLayer.locations = [0.0, 0.35, 0.7, 1.0]
+        self.ensureAccentAnimation()
 
         self.nameNode.attributedText = NSAttributedString(
             string: peer.compactDisplayTitle,
@@ -158,6 +171,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.nameNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 6.0), size: nameSize)
 
         self.accentNode.frame = CGRect(x: textOriginX, y: 31.0, width: min(textWidth, 120.0), height: 3.0)
+        self.accentGradientLayer.frame = self.accentNode.bounds
 
         let tagSize = self.tagNode.updateLayout(CGSize(width: textWidth, height: 14.0))
         self.tagNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 39.0), size: tagSize)
@@ -189,6 +203,20 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         default:
             break
         }
+    }
+
+    private func ensureAccentAnimation() {
+        if self.accentGradientLayer.animation(forKey: "eahatGramAccentLocations") != nil {
+            return
+        }
+        let animation = CABasicAnimation(keyPath: "locations")
+        animation.fromValue = [-0.2, 0.1, 0.4, 0.7]
+        animation.toValue = [0.3, 0.6, 0.9, 1.2]
+        animation.duration = 1.8
+        animation.repeatCount = .infinity
+        animation.autoreverses = true
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        self.accentGradientLayer.add(animation, forKey: "eahatGramAccentLocations")
     }
 
     private func clampedOrigin(_ origin: CGPoint, in superview: UIView) -> CGPoint {

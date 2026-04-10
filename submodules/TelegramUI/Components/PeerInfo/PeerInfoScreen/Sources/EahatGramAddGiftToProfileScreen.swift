@@ -127,7 +127,6 @@ private struct EahatGramAddGiftDraft: Equatable {
     var selectedBackdropIndex: Int?
     var selectedSymbolIndex: Int?
     var numberText: String
-    var nftTagText: String
     var advancedEnabled: Bool
     var commentText: String
     var fromTagText: String
@@ -151,7 +150,6 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
     case backdrop(String)
     case symbol(String)
     case number(String)
-    case nftTag(String)
     case comment(String)
     case fromTag(String)
     case transferStars(String)
@@ -171,7 +169,7 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
         switch self {
         case .baseGift, .model, .backdrop, .symbol:
             return EahatGramAddGiftSection.assets.rawValue
-        case .number, .nftTag, .comment, .fromTag, .transferStars, .canTransferDate:
+        case .number, .comment, .fromTag, .transferStars, .canTransferDate:
             return EahatGramAddGiftSection.params.rawValue
         case .advanced, .nameHidden, .savedToProfile, .pinnedToTop:
             return EahatGramAddGiftSection.flags.rawValue
@@ -194,8 +192,6 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
             return 3
         case .number:
             return 4
-        case .nftTag:
-            return 5
         case .comment:
             return 6
         case .fromTag:
@@ -239,7 +235,6 @@ private final class EahatGramAddGiftArguments {
     let selectBackdrop: () -> Void
     let selectSymbol: () -> Void
     let updateNumber: (String) -> Void
-    let updateNftTag: (String) -> Void
     let updateAdvanced: (Bool) -> Void
     let updateComment: (String) -> Void
     let updateFromTag: (String) -> Void
@@ -261,7 +256,6 @@ private final class EahatGramAddGiftArguments {
         selectBackdrop: @escaping () -> Void,
         selectSymbol: @escaping () -> Void,
         updateNumber: @escaping (String) -> Void,
-        updateNftTag: @escaping (String) -> Void,
         updateAdvanced: @escaping (Bool) -> Void,
         updateComment: @escaping (String) -> Void,
         updateFromTag: @escaping (String) -> Void,
@@ -282,7 +276,6 @@ private final class EahatGramAddGiftArguments {
         self.selectBackdrop = selectBackdrop
         self.selectSymbol = selectSymbol
         self.updateNumber = updateNumber
-        self.updateNftTag = updateNftTag
         self.updateAdvanced = updateAdvanced
         self.updateComment = updateComment
         self.updateFromTag = updateFromTag
@@ -689,12 +682,6 @@ extension EahatGramAddGiftEntry {
             } else {
                 return false
             }
-        case let .nftTag(lhsText):
-            if case let .nftTag(rhsText) = rhs {
-                return lhsText == rhsText
-            } else {
-                return false
-            }
         case let .comment(lhsText):
             if case let .comment(rhsText) = rhs {
                 return lhsText == rhsText
@@ -846,21 +833,6 @@ extension EahatGramAddGiftEntry {
                 sectionId: self.section,
                 textUpdated: { value in
                     arguments.updateNumber(value)
-                },
-                action: {}
-            )
-        case let .nftTag(text):
-            return ItemListSingleLineInputItem(
-                context: arguments.context,
-                presentationData: presentationData,
-                systemStyle: .glass,
-                title: NSAttributedString(string: "NFT Tag", textColor: titleColor),
-                text: text,
-                placeholder: "eahatgram",
-                type: .regular(capitalization: false, autocorrection: false),
-                sectionId: self.section,
-                textUpdated: { value in
-                    arguments.updateNftTag(value)
                 },
                 action: {}
             )
@@ -1049,7 +1021,6 @@ private func eahatGramAddGiftEntries(state: EahatGramAddGiftState) -> [EahatGram
         .backdrop(backdropText),
         .symbol(symbolText),
         .number(state.draft.numberText),
-        .nftTag(state.draft.nftTagText),
         .comment(state.draft.commentText),
         .fromTag(state.draft.fromTagText),
         .transferStars(state.draft.transferStarsText),
@@ -1088,7 +1059,6 @@ func eahatGramAddGiftToProfileScreen(
             selectedBackdropIndex: nil,
             selectedSymbolIndex: nil,
             numberText: "1",
-            nftTagText: "",
             advancedEnabled: false,
             commentText: "",
             fromTagText: "",
@@ -1409,13 +1379,6 @@ func eahatGramAddGiftToProfileScreen(
                 return
             }
         }
-        if case .nftTag = mode {
-            let normalizedTag = eahatGramNormalizedTag(state.draft.nftTagText)
-            guard !normalizedTag.isEmpty else {
-                setStatus("insertLocalGift failed reason=NFT_TAG_NOT_SET")
-                return
-            }
-        }
 
         let batchCount = Int(min(1000, max(1, state.draft.batchCount)))
         let fallbackNumber = max(1, eahatGramResolvedGiftNumber(state.draft.numberText, gift: baseGift))
@@ -1426,10 +1389,8 @@ func eahatGramAddGiftToProfileScreen(
         let randomized = mode == .random
         let baseTag: String
         switch mode {
-        case .number:
+        case .number, .nftTag, .random, .selected:
             baseTag = ""
-        case .nftTag, .random, .selected:
-            baseTag = state.draft.nftTagText
         }
         let baseTimestamp = Date().timeIntervalSince1970
         let baseDate = Int32(baseTimestamp)
@@ -1499,7 +1460,7 @@ func eahatGramAddGiftToProfileScreen(
         case .selected:
             modeText = "selected"
         }
-        let startedLine = "insertLocalGifts mode=\(modeText) giftId=\(baseGift.id) count=\(batchCount) firstNumber=\(String(describing: firstNumber)) lastNumber=\(String(describing: lastNumber)) firstSlug=\(String(describing: firstSlug)) lastSlug=\(String(describing: lastSlug)) transferStars=\(String(describing: Int64(state.draft.transferStarsText))) canTransferDate=\(String(describing: Int32(state.draft.canTransferDateText))) nftTag=\(state.draft.nftTagText) advanced=\(state.draft.advancedEnabled) comment=\(String(describing: eahatGramResolvedComment(state.draft.commentText))) fromTag=\(eahatGramNormalizedTag(state.draft.fromTagText)) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
+        let startedLine = "insertLocalGifts mode=\(modeText) giftId=\(baseGift.id) count=\(batchCount) firstNumber=\(String(describing: firstNumber)) lastNumber=\(String(describing: lastNumber)) firstSlug=\(String(describing: firstSlug)) lastSlug=\(String(describing: lastSlug)) transferStars=\(String(describing: Int64(state.draft.transferStarsText))) canTransferDate=\(String(describing: Int32(state.draft.canTransferDateText))) advanced=\(state.draft.advancedEnabled) comment=\(String(describing: eahatGramResolvedComment(state.draft.commentText))) fromTag=\(eahatGramNormalizedTag(state.draft.fromTagText)) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
         setStatus(startedLine)
         insertDisposable.set((combineLatest(insertSignals)
         |> deliverOnMainQueue).start(next: { gifts in
@@ -1620,13 +1581,6 @@ func eahatGramAddGiftToProfileScreen(
             updateState { current in
                 var current = current
                 current.draft.numberText = value
-                return current
-            }
-        },
-        updateNftTag: { value in
-            updateState { current in
-                var current = current
-                current.draft.nftTagText = value
                 return current
             }
         },

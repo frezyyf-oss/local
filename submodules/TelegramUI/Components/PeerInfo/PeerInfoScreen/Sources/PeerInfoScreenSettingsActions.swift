@@ -377,6 +377,7 @@ private final class EahatGramArguments {
     let updateUseDirectRpc: (Bool) -> Void
     let refreshResponses: () -> Void
     let runGiftProbe: (Int) -> Void
+    let showOtherMethod: (Int) -> Void
 
     init(
         context: AccountContext,
@@ -385,7 +386,8 @@ private final class EahatGramArguments {
         updateTargetHudEnabled: @escaping (Bool) -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
         refreshResponses: @escaping () -> Void,
-        runGiftProbe: @escaping (Int) -> Void
+        runGiftProbe: @escaping (Int) -> Void,
+        showOtherMethod: @escaping (Int) -> Void
     ) {
         self.context = context
         self.selectPeer = selectPeer
@@ -394,6 +396,7 @@ private final class EahatGramArguments {
         self.updateUseDirectRpc = updateUseDirectRpc
         self.refreshResponses = refreshResponses
         self.runGiftProbe = runGiftProbe
+        self.showOtherMethod = showOtherMethod
     }
 }
 
@@ -401,11 +404,13 @@ private enum EahatGramSection: Int32 {
     case controls
     case gifts
     case responses
+    case other
 }
 
 private enum EahatGramTab: Int, Equatable {
     case me
     case test
+    case other
 }
 
 private struct EahatGramState: Equatable {
@@ -440,6 +445,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case testGiftInfo(Int, String)
     case noResponses(String)
     case response(Int, String)
+    case otherMethod(Int, String)
+    case otherMethodInfo(Int, String)
 
     var section: ItemListSectionId {
         switch self {
@@ -449,6 +456,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return EahatGramSection.gifts.rawValue
         case .noResponses, .response:
             return EahatGramSection.responses.rawValue
+        case .otherMethod, .otherMethodInfo:
+            return EahatGramSection.other.rawValue
         }
     }
 
@@ -480,6 +489,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 3000000
         case let .response(index, _):
             return 3000001 + index
+        case let .otherMethod(index, _):
+            return 4000000 + index * 2
+        case let .otherMethodInfo(index, _):
+            return 4000000 + index * 2 + 1
         }
     }
 
@@ -559,6 +572,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case let .response(lhsIndex, lhsText):
             if case let .response(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .otherMethod(lhsIndex, lhsText):
+            if case let .otherMethod(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .otherMethodInfo(lhsIndex, lhsText):
+            if case let .otherMethodInfo(rhsIndex, rhsText) = rhs {
                 return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
@@ -662,6 +687,21 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .response(_, text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .otherMethod(index, text):
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: text,
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.showOtherMethod(index)
+                }
+            )
+        case let .otherMethodInfo(_, text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         }
     }
 }
@@ -691,6 +731,39 @@ private func eahatGramGiftInfo(_ gift: ProfileGiftsContext.State.StarGift) -> St
         slugInfo = "slug=\(uniqueGift.slug)"
     }
     return "reference=\(String(describing: gift.reference)) transferStars=\(String(describing: gift.transferStars)) canTransferDate=\(String(describing: gift.canTransferDate)) \(hostInfo) \(slugInfo)"
+}
+
+private func eahatGramOtherMethods() -> [(title: String, info: String)] {
+    return [
+        (
+            title: "sendBotPaymentForm",
+            info: "BotPaymentForm.swift:724-757 builds invoice/credentials/flags and calls payments.sendPaymentForm; 760-762 applies paymentResultData.updates; 819-822 returns done or externalVerificationRequired."
+        ),
+        (
+            title: "sendAppStoreReceipt",
+            info: "AppStore.swift:12-22 defines purpose; 168 builds InputStorePaymentPurpose; 171 calls payments.assignAppStoreTransaction; 179-180 applies updates."
+        ),
+        (
+            title: "applyPremiumGiftCode",
+            info: "GiftCodes.swift:295 calls payments.applyGiftCode; 297-300 maps PREMIUM_SUB_ACTIVE_UNTIL_*; 306-307 applies updates."
+        ),
+        (
+            title: "launchPrepaidGiveaway",
+            info: "GiftCodes.swift:322-347 builds flags and peers; 352-357 chooses inputStorePaymentStarsGiveaway or inputStorePaymentPremiumGiveaway; 360 calls payments.launchPrepaidGiveaway; 364-365 applies updates."
+        ),
+        (
+            title: "sendStarsPaymentForm",
+            info: "Stars.swift:1603-1615 builds invoice and calls payments.sendStarsForm; 1622-1624 applies paymentResultData.updates; 1635-1713 resolves receiptMessageId and uniqueStarGift."
+        ),
+        (
+            title: "resolveStarGiftOffer",
+            info: "StarGiftsOffers.swift:12-15 sets reject flag when accept=false; 16 calls payments.resolveStarGiftOffer; 20-21 applies updates."
+        ),
+        (
+            title: "sendStarGiftOffer",
+            info: "StarGiftsOffers.swift:33-35 sets allowPaidStars flag; 37-45 resolves peer and calls payments.sendStarGiftOffer; 49-50 applies updates."
+        )
+    ]
 }
 
 private func eahatGramEntries(
@@ -740,6 +813,12 @@ private func eahatGramEntries(
             for i in 0 ..< state.responses.count {
                 entries.append(.response(i, state.responses[i]))
             }
+        }
+    case .other:
+        let methods = eahatGramOtherMethods()
+        for i in 0 ..< methods.count {
+            entries.append(.otherMethod(i, methods[i].title))
+            entries.append(.otherMethodInfo(i, methods[i].info))
         }
     }
 
@@ -853,6 +932,14 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                 appendResponse(result)
                 refreshResponses()
             }))
+        },
+        showOtherMethod: { index in
+            let methods = eahatGramOtherMethods()
+            guard index >= 0 && index < methods.count else {
+                appendResponse("showOtherMethod failed index=\(index) reason=OUT_OF_RANGE")
+                return
+            }
+            appendResponse("otherMethod title=\(methods[index].title) info=\(methods[index].info)")
         }
     )
 
@@ -869,7 +956,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .textWithTabs("eahatGram", ["me", "test"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test", "other"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
