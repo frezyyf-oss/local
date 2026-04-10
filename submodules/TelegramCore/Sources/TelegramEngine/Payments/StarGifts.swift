@@ -2020,8 +2020,44 @@ private final class ProfileGiftsContextImpl {
         self.actionDisposable.dispose()
     }
 
+    private func mergedWithLocalInsertedGifts(_ gifts: [ProfileGiftsContext.State.StarGift]) -> [ProfileGiftsContext.State.StarGift] {
+        let localInsertedGifts = self.gifts.filter { $0.reference == nil }
+        guard !localInsertedGifts.isEmpty else {
+            return gifts
+        }
+
+        var mergedGifts = gifts
+        var existingUniqueIds = Set<Int64>()
+        var existingUniqueSlugs = Set<String>()
+        for gift in gifts {
+            if case let .unique(uniqueGift) = gift.gift {
+                existingUniqueIds.insert(uniqueGift.id)
+                existingUniqueSlugs.insert(uniqueGift.slug)
+            }
+        }
+
+        for localGift in localInsertedGifts {
+            if case let .unique(uniqueGift) = localGift.gift {
+                if existingUniqueIds.contains(uniqueGift.id) || existingUniqueSlugs.contains(uniqueGift.slug) {
+                    continue
+                }
+                existingUniqueIds.insert(uniqueGift.id)
+                existingUniqueSlugs.insert(uniqueGift.slug)
+            }
+            mergedGifts.append(localGift)
+        }
+
+        mergedGifts.sort { lhs, rhs in
+            if lhs.pinnedToTop != rhs.pinnedToTop {
+                return lhs.pinnedToTop && !rhs.pinnedToTop
+            }
+            return lhs.date > rhs.date
+        }
+        return mergedGifts
+    }
+
     func reload() {
-        self.gifts = []
+        self.gifts = self.gifts.filter { $0.reference == nil }
         self.dataState = .ready(canLoadMore: true, nextOffset: nil)
         self.loadMore(reload: true)
     }
@@ -2173,6 +2209,7 @@ private final class ProfileGiftsContextImpl {
             guard let self else {
                 return
             }
+            let mergedGifts = self.mergedWithLocalInsertedGifts(gifts)
             if isFiltered {
                 if initialNextOffset == nil || reload {
                     self.filteredGifts = gifts
@@ -2185,9 +2222,10 @@ private final class ProfileGiftsContextImpl {
                 self.filteredDataState = .ready(canLoadMore: count != 0 && updatedCount > self.filteredGifts.count && nextOffset != nil, nextOffset: nextOffset)
             } else {
                 if initialNextOffset == nil || reload {
-                    self.gifts = gifts
+                    self.gifts = mergedGifts
                     self.cacheDisposable.set(self.account.postbox.transaction { transaction in
-                        if let entry = CodableEntry(CachedProfileGifts(gifts: gifts, count: count, notificationsEnabled: notificationsEnabled)) {
+                        let mergedCount = max(count, Int32(mergedGifts.count))
+                        if let entry = CodableEntry(CachedProfileGifts(gifts: mergedGifts, count: mergedCount, notificationsEnabled: notificationsEnabled)) {
                             transaction.putItemCacheEntry(id: giftsEntryId(peerId: peerId, collectionId: collectionId), entry: entry)
                         }
                     }.start())
