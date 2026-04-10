@@ -1291,7 +1291,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
         self.addSubnode(self.headerNode)
         self.targetHudNode.isHidden = true
         self.targetHudNode.positionUpdated = { origin in
-            EahatGramDebugSettings.targetHudOrigin.modify { _ in
+            _ = EahatGramDebugSettings.targetHudOrigin.modify { _ in
                 origin
             }
         }
@@ -2703,7 +2703,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             EahatGramDebugSettings.targetHudOrigin.with({ $0 }) ?? self.defaultTargetHudOrigin(layout: layout),
             layout: layout
         )
-        EahatGramDebugSettings.targetHudOrigin.modify { _ in
+        _ = EahatGramDebugSettings.targetHudOrigin.modify { _ in
             origin
         }
 

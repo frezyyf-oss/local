@@ -752,7 +752,7 @@ func eahatGramAddGiftToProfileScreen(
                 refreshAttributes(gift.id)
                 setStatus("selectedBaseGift giftId=\(gift.id)")
                 if let navigationController = controllerRef?.navigationController as? NavigationController {
-                    navigationController.popViewController(animated: true)
+                    _ = navigationController.popViewController(animated: true)
                 }
             })
             pushControllerImpl?(picker)
@@ -772,7 +772,7 @@ func eahatGramAddGiftToProfileScreen(
                 }
                 setStatus("selectedModel index=\(index)")
                 if let navigationController = controllerRef?.navigationController as? NavigationController {
-                    navigationController.popViewController(animated: true)
+                    _ = navigationController.popViewController(animated: true)
                 }
             })
             pushControllerImpl?(picker)
@@ -792,7 +792,7 @@ func eahatGramAddGiftToProfileScreen(
                 }
                 setStatus("selectedBackdrop index=\(index)")
                 if let navigationController = controllerRef?.navigationController as? NavigationController {
-                    navigationController.popViewController(animated: true)
+                    _ = navigationController.popViewController(animated: true)
                 }
             })
             pushControllerImpl?(picker)
@@ -812,7 +812,7 @@ func eahatGramAddGiftToProfileScreen(
                 }
                 setStatus("selectedSymbol index=\(index)")
                 if let navigationController = controllerRef?.navigationController as? NavigationController {
-                    navigationController.popViewController(animated: true)
+                    _ = navigationController.popViewController(animated: true)
                 }
             })
             pushControllerImpl?(picker)

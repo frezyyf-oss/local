@@ -479,9 +479,9 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     static func ==(lhs: EahatGramEntry, rhs: EahatGramEntry) -> Bool {
         switch lhs {
-        case let .selectPeer(text):
-            if case .selectPeer(text) = rhs {
-                return true
+        case let .selectPeer(lhsText):
+            if case let .selectPeer(rhsText) = rhs {
+                return lhsText == rhsText
             } else {
                 return false
             }
@@ -491,15 +491,15 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
-        case let .targetHud(value):
-            if case .targetHud(value) = rhs {
-                return true
+        case let .targetHud(lhsValue):
+            if case let .targetHud(rhsValue) = rhs {
+                return lhsValue == rhsValue
             } else {
                 return false
             }
-        case let .useDirectRpc(value):
-            if case .useDirectRpc(value) = rhs {
-                return true
+        case let .useDirectRpc(lhsValue):
+            if case let .useDirectRpc(rhsValue) = rhs {
+                return lhsValue == rhsValue
             } else {
                 return false
             }
@@ -509,39 +509,39 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
-        case let .noGifts(text):
-            if case .noGifts(text) = rhs {
-                return true
+        case let .noGifts(lhsText):
+            if case let .noGifts(rhsText) = rhs {
+                return lhsText == rhsText
             } else {
                 return false
             }
-        case let .meGift(index, text):
-            if case .meGift(index, text) = rhs {
-                return true
+        case let .meGift(lhsIndex, lhsText):
+            if case let .meGift(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
             }
-        case let .testGift(index, text):
-            if case .testGift(index, text) = rhs {
-                return true
+        case let .testGift(lhsIndex, lhsText):
+            if case let .testGift(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
             }
-        case let .giftInfo(index, text):
-            if case .giftInfo(index, text) = rhs {
-                return true
+        case let .giftInfo(lhsIndex, lhsText):
+            if case let .giftInfo(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
             }
-        case let .noResponses(text):
-            if case .noResponses(text) = rhs {
-                return true
+        case let .noResponses(lhsText):
+            if case let .noResponses(rhsText) = rhs {
+                return lhsText == rhsText
             } else {
                 return false
             }
-        case let .response(index, text):
-            if case .response(index, text) = rhs {
-                return true
+        case let .response(lhsIndex, lhsText):
+            if case let .response(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
             }
@@ -784,7 +784,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
             pushControllerImpl?(controller)
         },
         updateTargetHudEnabled: { value in
-            EahatGramDebugSettings.targetHudEnabled.modify { _ in
+            _ = EahatGramDebugSettings.targetHudEnabled.modify { _ in
                 value
             }
             updateState { current in
