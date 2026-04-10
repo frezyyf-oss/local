@@ -343,6 +343,13 @@ private func eahatGramResolvedGiftNumber(_ value: String, gift: TelegramCore.Sta
     }
 }
 
+private func eahatGramParsedGiftNumber(_ value: String) -> Int32? {
+    guard let parsed = Int32(value), parsed > 0 else {
+        return nil
+    }
+    return parsed
+}
+
 private func eahatGramResolvedGiftSlug(baseTag: String, number: Int32, batchIndex: Int?, forceNumberSuffix: Bool) -> String {
     let trimmedBaseTag = baseTag.trimmingCharacters(in: .whitespacesAndNewlines)
     var resolved = trimmedBaseTag.isEmpty ? "eahatgram-\(number)" : trimmedBaseTag
@@ -514,7 +521,7 @@ private final class EahatGramInsertCountSliderItemNode: ListViewItemNode, ItemLi
     private let rightTextNode = ImmediateTextNode()
     private let titleTextNode = ImmediateTextNode()
 
-    private var sliderView: TGPhotoEditorSliderView?
+    private var sliderView: UISlider?
     private var item: EahatGramInsertCountSliderItem?
 
     var tag: ItemListItemTag? {
@@ -543,16 +550,9 @@ private final class EahatGramInsertCountSliderItemNode: ListViewItemNode, ItemLi
     override func didLoad() {
         super.didLoad()
 
-        let sliderView = TGPhotoEditorSliderView()
-        sliderView.enableEdgeTap = true
-        sliderView.enablePanHandling = true
-        sliderView.trackCornerRadius = 1.0
-        sliderView.lineSize = 4.0
-        sliderView.disablesInteractiveTransitionGestureRecognizer = true
+        let sliderView = UISlider()
         sliderView.minimumValue = 1.0
-        sliderView.startValue = 1.0
         sliderView.maximumValue = 1000.0
-        sliderView.displayEdges = true
         sliderView.addTarget(self, action: #selector(self.sliderValueChanged), for: .valueChanged)
         self.view.addSubview(sliderView)
         self.sliderView = sliderView
@@ -627,12 +627,12 @@ private final class EahatGramInsertCountSliderItemNode: ListViewItemNode, ItemLi
 
                 if let sliderView = self.sliderView {
                     sliderView.backgroundColor = theme.list.itemBlocksBackgroundColor
-                    sliderView.backColor = theme.list.itemSwitchColors.frameColor
-                    sliderView.trackColor = theme.list.itemAccentColor
-                    sliderView.knobImage = PresentationResourcesItemList.knobImage(theme)
+                    sliderView.minimumTrackTintColor = theme.list.itemAccentColor
+                    sliderView.maximumTrackTintColor = theme.list.itemSwitchColors.frameColor
+                    sliderView.thumbTintColor = theme.list.itemPrimaryTextColor
                     sliderView.frame = CGRect(origin: CGPoint(x: params.leftInset + sideInset, y: 36.0), size: CGSize(width: params.width - params.leftInset - params.rightInset - sideInset * 2.0, height: 44.0))
                     if !sliderView.isTracking {
-                        sliderView.value = CGFloat(item.value)
+                        sliderView.value = Float(item.value)
                     }
                 }
             })
@@ -1343,7 +1343,8 @@ func eahatGramAddGiftToProfileScreen(
         }
 
         let batchCount = Int(min(1000, max(1, state.draft.batchCount)))
-        let selectedNumber = max(1, eahatGramResolvedGiftNumber(state.draft.numberText, gift: baseGift))
+        let fallbackNumber = max(1, eahatGramResolvedGiftNumber(state.draft.numberText, gift: baseGift))
+        let selectedNumber = max(1, eahatGramParsedGiftNumber(state.draft.numberText) ?? fallbackNumber)
         let fixedModel = selectedModel(state: state)
         let fixedBackdrop = selectedBackdrop(state: state)
         let fixedSymbol = selectedSymbol(state: state)

@@ -482,6 +482,7 @@ final class GiftsListView: UIView {
                 var ribbonColor: GiftItemComponent.Ribbon.Color = .blue
                 var ribbonFont: GiftItemComponent.Ribbon.Font = .generic
                 var ribbonOutline: UIColor?
+                var badgeText: String?
                 
                 let peer: GiftItemComponent.Peer?
                 let subject: GiftItemComponent.Subject
@@ -501,6 +502,9 @@ final class GiftsListView: UIView {
                     subject = .uniqueGift(gift: gift, price: nil)
                     peer = nil
                     resellAmount = gift.resellAmounts?.first(where: { $0.currency == .stars })
+                    if product.reference == nil && !gift.slug.isEmpty {
+                        badgeText = "@\(gift.slug)"
+                    }
                     
                     if !(gift.resellAmounts ?? []).isEmpty {
                         ribbonText = params.presentationData.strings.PeerInfo_Gifts_Sale
@@ -542,6 +546,7 @@ final class GiftsListView: UIView {
                             peer: peer,
                             subject: subject,
                             ribbon: ribbonText.flatMap { GiftItemComponent.Ribbon(text: $0, font: ribbonFont, color: ribbonColor, outline: ribbonOutline) },
+                            badge: badgeText,
                             resellPrice: resellAmount?.amount.value,
                             isHidden: !product.savedToProfile,
                             isSelected: self.selectedItemIds.contains(itemReferenceId),
