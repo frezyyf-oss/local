@@ -1,7 +1,9 @@
 import Foundation
 import UIKit
+import AsyncDisplayKit
 import SwiftSignalKit
 import TelegramCore
+import TelegramPresentationData
 import AccountContext
 import ItemListUI
 import Display
@@ -427,6 +429,10 @@ private final class EahatGramInsertCountSliderItemNode: ListViewItemNode, ItemLi
 
     private var sliderView: TGPhotoEditorSliderView?
     private var item: EahatGramInsertCountSliderItem?
+
+    var tag: ItemListItemTag? {
+        return self.item?.tag
+    }
 
     override var canBeSelected: Bool {
         return false
