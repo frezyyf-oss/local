@@ -435,8 +435,9 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case noGifts(String)
     case giftsSummary(String)
     case meGift(Int, String)
+    case meGiftInfo(Int, String)
     case testGift(Int, String)
-    case giftInfo(Int, String)
+    case testGiftInfo(Int, String)
     case noResponses(String)
     case response(Int, String)
 
@@ -444,7 +445,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
         switch self {
         case .selectPeer, .addGiftToProfile, .targetHud, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
-        case .noGifts, .giftsSummary, .meGift, .testGift, .giftInfo:
+        case .noGifts, .giftsSummary, .meGift, .meGiftInfo, .testGift, .testGiftInfo:
             return EahatGramSection.gifts.rawValue
         case .noResponses, .response:
             return EahatGramSection.responses.rawValue
@@ -469,14 +470,16 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 400001
         case let .meGift(index, _):
             return 1000000 + index * 2
+        case let .meGiftInfo(index, _):
+            return 1000000 + index * 2 + 1
         case let .testGift(index, _):
             return 2000000 + index * 2
-        case let .giftInfo(index, _):
-            return 3000000 + index
+        case let .testGiftInfo(index, _):
+            return 2000000 + index * 2 + 1
         case .noResponses:
-            return 4000000
+            return 3000000
         case let .response(index, _):
-            return 5000000 + index
+            return 3000001 + index
         }
     }
 
@@ -530,14 +533,20 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
+        case let .meGiftInfo(lhsIndex, lhsText):
+            if case let .meGiftInfo(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
+            } else {
+                return false
+            }
         case let .testGift(lhsIndex, lhsText):
             if case let .testGift(rhsIndex, rhsText) = rhs {
                 return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
             }
-        case let .giftInfo(lhsIndex, lhsText):
-            if case let .giftInfo(rhsIndex, rhsText) = rhs {
+        case let .testGiftInfo(lhsIndex, lhsText):
+            if case let .testGiftInfo(rhsIndex, rhsText) = rhs {
                 return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
@@ -632,6 +641,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .meGift(_, text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .meGiftInfo(_, text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .testGift(index, text):
             return ItemListActionItem(
                 presentationData: presentationData,
@@ -645,7 +656,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.runGiftProbe(index)
                 }
             )
-        case let .giftInfo(_, text):
+        case let .testGiftInfo(_, text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .noResponses(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
@@ -703,7 +714,7 @@ private func eahatGramEntries(
             }
             for i in 0 ..< visibleGiftCount {
                 entries.append(.meGift(i, eahatGramGiftTitle(gifts[i])))
-                entries.append(.giftInfo(i, eahatGramGiftInfo(gifts[i])))
+                entries.append(.meGiftInfo(i, eahatGramGiftInfo(gifts[i])))
             }
         }
     case .test:
@@ -719,7 +730,7 @@ private func eahatGramEntries(
             }
             for i in 0 ..< visibleGiftCount {
                 entries.append(.testGift(i, eahatGramGiftTitle(gifts[i])))
-                entries.append(.giftInfo(i, eahatGramGiftInfo(gifts[i])))
+                entries.append(.testGiftInfo(i, eahatGramGiftInfo(gifts[i])))
             }
         }
 
