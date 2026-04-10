@@ -433,6 +433,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case useDirectRpc(Bool)
     case refreshResponses
     case noGifts(String)
+    case giftsSummary(String)
     case meGift(Int, String)
     case testGift(Int, String)
     case giftInfo(Int, String)
@@ -443,7 +444,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
         switch self {
         case .selectPeer, .addGiftToProfile, .targetHud, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
-        case .noGifts, .meGift, .testGift, .giftInfo:
+        case .noGifts, .giftsSummary, .meGift, .testGift, .giftInfo:
             return EahatGramSection.gifts.rawValue
         case .noResponses, .response:
             return EahatGramSection.responses.rawValue
@@ -463,17 +464,19 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case .refreshResponses:
             return 4
         case .noGifts:
-            return 4000
+            return 400000
+        case .giftsSummary:
+            return 400001
         case let .meGift(index, _):
-            return 5000 + index * 2
+            return 1000000 + index * 2
         case let .testGift(index, _):
-            return 6000 + index * 2
+            return 2000000 + index * 2
         case let .giftInfo(index, _):
-            return 7000 + index
+            return 3000000 + index
         case .noResponses:
-            return 8000
+            return 4000000
         case let .response(index, _):
-            return 9000 + index
+            return 5000000 + index
         }
     }
 
@@ -511,6 +514,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case let .noGifts(lhsText):
             if case let .noGifts(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .giftsSummary(lhsText):
+            if case let .giftsSummary(rhsText) = rhs {
                 return lhsText == rhsText
             } else {
                 return false
@@ -619,6 +628,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             )
         case let .noGifts(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .giftsSummary(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .meGift(_, text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .testGift(index, text):
@@ -676,6 +687,8 @@ private func eahatGramEntries(
     gifts: [ProfileGiftsContext.State.StarGift],
     noGiftsText: String
 ) -> [EahatGramEntry] {
+    let maxVisibleGifts = 200
+    let visibleGiftCount = min(gifts.count, maxVisibleGifts)
     var entries: [EahatGramEntry] = []
 
     switch state.selectedTab {
@@ -685,7 +698,10 @@ private func eahatGramEntries(
         if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
         } else {
-            for i in 0 ..< gifts.count {
+            if gifts.count > visibleGiftCount {
+                entries.append(.giftsSummary("Showing first \(visibleGiftCount) of \(gifts.count) gifts"))
+            }
+            for i in 0 ..< visibleGiftCount {
                 entries.append(.meGift(i, eahatGramGiftTitle(gifts[i])))
                 entries.append(.giftInfo(i, eahatGramGiftInfo(gifts[i])))
             }
@@ -698,7 +714,10 @@ private func eahatGramEntries(
         if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
         } else {
-            for i in 0 ..< gifts.count {
+            if gifts.count > visibleGiftCount {
+                entries.append(.giftsSummary("Showing first \(visibleGiftCount) of \(gifts.count) gifts"))
+            }
+            for i in 0 ..< visibleGiftCount {
                 entries.append(.testGift(i, eahatGramGiftTitle(gifts[i])))
                 entries.append(.giftInfo(i, eahatGramGiftInfo(gifts[i])))
             }
@@ -784,9 +803,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
             pushControllerImpl?(controller)
         },
         updateTargetHudEnabled: { value in
-            _ = EahatGramDebugSettings.targetHudEnabled.modify { _ in
-                value
-            }
+            EahatGramDebugSettings.setTargetHudEnabled(value)
             updateState { current in
                 var current = current
                 current.targetHudEnabled = value

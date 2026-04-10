@@ -9,8 +9,17 @@ import TelegramPresentationData
 import AvatarNode
 
 final class EahatGramDebugSettings {
-    static let targetHudEnabled = Atomic<Bool>(value: false)
+    private static let targetHudEnabledKey = "eahatGram.targetHudEnabled"
+
+    static let targetHudEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: targetHudEnabledKey) as? Bool ?? false)
     static let targetHudOrigin = Atomic<CGPoint?>(value: nil)
+
+    static func setTargetHudEnabled(_ value: Bool) {
+        _ = self.targetHudEnabled.modify { _ in
+            value
+        }
+        UserDefaults.standard.set(value, forKey: self.targetHudEnabledKey)
+    }
 }
 
 final class EahatGramTargetHudNode: ASDisplayNode {
