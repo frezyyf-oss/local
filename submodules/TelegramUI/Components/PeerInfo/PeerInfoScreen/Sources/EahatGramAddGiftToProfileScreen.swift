@@ -5,6 +5,8 @@ import TelegramCore
 import AccountContext
 import ItemListUI
 import Display
+import LegacyComponents
+import PresentationDataUtils
 
 private enum EahatGramPickerSection: Int32 {
     case main
@@ -123,12 +125,13 @@ private struct EahatGramAddGiftDraft: Equatable {
     var selectedBackdropIndex: Int?
     var selectedSymbolIndex: Int?
     var numberText: String
-    var slugText: String
+    var nftTagText: String
     var transferStarsText: String
     var canTransferDateText: String
     var nameHidden: Bool
     var savedToProfile: Bool
     var pinnedToTop: Bool
+    var batchCount: Int32
 }
 
 private struct EahatGramAddGiftState: Equatable {
@@ -143,24 +146,26 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
     case backdrop(String)
     case symbol(String)
     case number(String)
-    case slug(String)
+    case nftTag(String)
     case transferStars(String)
     case canTransferDate(String)
     case nameHidden(Bool)
     case savedToProfile(Bool)
     case pinnedToTop(Bool)
-    case insert
+    case batchCount(Int32)
+    case addRandom
+    case addSelected
     case status(String)
 
     var section: ItemListSectionId {
         switch self {
         case .baseGift, .model, .backdrop, .symbol:
             return EahatGramAddGiftSection.assets.rawValue
-        case .number, .slug, .transferStars, .canTransferDate:
+        case .number, .nftTag, .transferStars, .canTransferDate:
             return EahatGramAddGiftSection.params.rawValue
         case .nameHidden, .savedToProfile, .pinnedToTop:
             return EahatGramAddGiftSection.flags.rawValue
-        case .insert:
+        case .batchCount, .addRandom, .addSelected:
             return EahatGramAddGiftSection.actions.rawValue
         case .status:
             return EahatGramAddGiftSection.status.rawValue
@@ -179,7 +184,7 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
             return 3
         case .number:
             return 4
-        case .slug:
+        case .nftTag:
             return 5
         case .transferStars:
             return 6
@@ -191,10 +196,14 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
             return 9
         case .pinnedToTop:
             return 10
-        case .insert:
+        case .batchCount:
             return 11
-        case .status:
+        case .addRandom:
             return 12
+        case .addSelected:
+            return 13
+        case .status:
+            return 14
         }
     }
 
@@ -210,13 +219,15 @@ private final class EahatGramAddGiftArguments {
     let selectBackdrop: () -> Void
     let selectSymbol: () -> Void
     let updateNumber: (String) -> Void
-    let updateSlug: (String) -> Void
+    let updateNftTag: (String) -> Void
     let updateTransferStars: (String) -> Void
     let updateCanTransferDate: (String) -> Void
     let updateNameHidden: (Bool) -> Void
     let updateSavedToProfile: (Bool) -> Void
     let updatePinnedToTop: (Bool) -> Void
-    let insert: () -> Void
+    let updateBatchCount: (Int32) -> Void
+    let addRandom: () -> Void
+    let addSelected: () -> Void
 
     init(
         context: AccountContext,
@@ -225,13 +236,15 @@ private final class EahatGramAddGiftArguments {
         selectBackdrop: @escaping () -> Void,
         selectSymbol: @escaping () -> Void,
         updateNumber: @escaping (String) -> Void,
-        updateSlug: @escaping (String) -> Void,
+        updateNftTag: @escaping (String) -> Void,
         updateTransferStars: @escaping (String) -> Void,
         updateCanTransferDate: @escaping (String) -> Void,
         updateNameHidden: @escaping (Bool) -> Void,
         updateSavedToProfile: @escaping (Bool) -> Void,
         updatePinnedToTop: @escaping (Bool) -> Void,
-        insert: @escaping () -> Void
+        updateBatchCount: @escaping (Int32) -> Void,
+        addRandom: @escaping () -> Void,
+        addSelected: @escaping () -> Void
     ) {
         self.context = context
         self.selectBaseGift = selectBaseGift
@@ -239,13 +252,15 @@ private final class EahatGramAddGiftArguments {
         self.selectBackdrop = selectBackdrop
         self.selectSymbol = selectSymbol
         self.updateNumber = updateNumber
-        self.updateSlug = updateSlug
+        self.updateNftTag = updateNftTag
         self.updateTransferStars = updateTransferStars
         self.updateCanTransferDate = updateCanTransferDate
         self.updateNameHidden = updateNameHidden
         self.updateSavedToProfile = updateSavedToProfile
         self.updatePinnedToTop = updatePinnedToTop
-        self.insert = insert
+        self.updateBatchCount = updateBatchCount
+        self.addRandom = addRandom
+        self.addSelected = addSelected
     }
 }
 
@@ -293,6 +308,30 @@ private func eahatGramResolvedGiftNumber(_ value: String, gift: TelegramCore.Sta
     }
 }
 
+private func eahatGramResolvedGiftSlug(baseTag: String, number: Int32, batchIndex: Int?, forceNumberSuffix: Bool) -> String {
+    let trimmedBaseTag = baseTag.trimmingCharacters(in: .whitespacesAndNewlines)
+    var resolved = trimmedBaseTag.isEmpty ? "eahatgram-\(number)" : trimmedBaseTag
+    if resolved.contains("{number}") {
+        resolved = resolved.replacingOccurrences(of: "{number}", with: "\(number)")
+    } else if trimmedBaseTag.isEmpty {
+        resolved = "eahatgram-\(number)"
+    } else if forceNumberSuffix {
+        resolved = "\(trimmedBaseTag)-\(number)"
+    }
+    if let batchIndex, batchIndex > 0 {
+        resolved += "-\(batchIndex + 1)"
+    }
+    return resolved
+}
+
+private func eahatGramRandomAttribute(from attributes: [TelegramCore.StarGift.UniqueGift.Attribute]) -> TelegramCore.StarGift.UniqueGift.Attribute? {
+    guard !attributes.isEmpty else {
+        return nil
+    }
+    let index = Int.random(in: 0 ..< attributes.count)
+    return attributes[index]
+}
+
 private func eahatGramRarityText(_ rarity: TelegramCore.StarGift.UniqueGift.Attribute.Rarity) -> String {
     switch rarity {
     case let .permille(value):
@@ -318,6 +357,209 @@ private func eahatGramAttributeTitle(_ attribute: TelegramCore.StarGift.UniqueGi
         return "\(name) id=\(id) [\(eahatGramRarityText(rarity))]"
     case let .originalInfo(senderPeerId, recipientPeerId, date, _, _):
         return "original sender=\(String(describing: senderPeerId)) recipient=\(recipientPeerId) date=\(date)"
+    }
+}
+
+private final class EahatGramInsertCountSliderItem: ListViewItem, ItemListItem {
+    let presentationData: ItemListPresentationData
+    let systemStyle: ItemListSystemStyle
+    let value: Int32
+    let sectionId: ItemListSectionId
+    let updated: (Int32) -> Void
+
+    init(
+        presentationData: ItemListPresentationData,
+        systemStyle: ItemListSystemStyle,
+        value: Int32,
+        sectionId: ItemListSectionId,
+        updated: @escaping (Int32) -> Void
+    ) {
+        self.presentationData = presentationData
+        self.systemStyle = systemStyle
+        self.value = value
+        self.sectionId = sectionId
+        self.updated = updated
+    }
+
+    func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
+        async {
+            let node = EahatGramInsertCountSliderItemNode()
+            let (layout, apply) = node.asyncLayout()(self, params, itemListNeighbors(item: self, topItem: previousItem as? ItemListItem, bottomItem: nextItem as? ItemListItem))
+
+            node.contentSize = layout.contentSize
+            node.insets = layout.insets
+
+            Queue.mainQueue().async {
+                completion(node, {
+                    return (nil, { _ in apply(.None) })
+                })
+            }
+        }
+    }
+
+    func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, previousItem: ListViewItem?, nextItem: ListViewItem?, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
+        Queue.mainQueue().async {
+            if let nodeValue = node() as? EahatGramInsertCountSliderItemNode {
+                let makeLayout = nodeValue.asyncLayout()
+                async {
+                    let (layout, apply) = makeLayout(self, params, itemListNeighbors(item: self, topItem: previousItem as? ItemListItem, bottomItem: nextItem as? ItemListItem))
+                    Queue.mainQueue().async {
+                        completion(layout, { _ in
+                            apply(animation)
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+    var selectable: Bool = false
+}
+
+private final class EahatGramInsertCountSliderItemNode: ListViewItemNode, ItemListItemNode {
+    private let backgroundNode = ASDisplayNode()
+    private let topStripeNode = ASDisplayNode()
+    private let bottomStripeNode = ASDisplayNode()
+    private let maskNode = ASImageNode()
+    private let leftTextNode = ImmediateTextNode()
+    private let rightTextNode = ImmediateTextNode()
+    private let titleTextNode = ImmediateTextNode()
+
+    private var sliderView: TGPhotoEditorSliderView?
+    private var item: EahatGramInsertCountSliderItem?
+
+    override var canBeSelected: Bool {
+        return false
+    }
+
+    init() {
+        self.backgroundNode.isLayerBacked = true
+        self.topStripeNode.isLayerBacked = true
+        self.bottomStripeNode.isLayerBacked = true
+        self.titleTextNode.displaysAsynchronously = false
+        self.leftTextNode.displaysAsynchronously = false
+        self.rightTextNode.displaysAsynchronously = false
+
+        super.init(layerBacked: false)
+
+        self.addSubnode(self.leftTextNode)
+        self.addSubnode(self.rightTextNode)
+        self.addSubnode(self.titleTextNode)
+    }
+
+    override func didLoad() {
+        super.didLoad()
+
+        let sliderView = TGPhotoEditorSliderView()
+        sliderView.enableEdgeTap = true
+        sliderView.enablePanHandling = true
+        sliderView.trackCornerRadius = 1.0
+        sliderView.lineSize = 4.0
+        sliderView.disablesInteractiveTransitionGestureRecognizer = true
+        sliderView.minimumValue = 1.0
+        sliderView.startValue = 1.0
+        sliderView.maximumValue = 1000.0
+        sliderView.displayEdges = true
+        sliderView.addTarget(self, action: #selector(self.sliderValueChanged), for: .valueChanged)
+        self.view.addSubview(sliderView)
+        self.sliderView = sliderView
+    }
+
+    func asyncLayout() -> (_ item: EahatGramInsertCountSliderItem, _ params: ListViewItemLayoutParams, _ neighbors: ItemListNeighbors) -> (ListViewItemNodeLayout, (ListViewItemUpdateAnimation) -> Void) {
+        return { item, params, neighbors in
+            let separatorHeight = UIScreenPixel
+            let contentSize = CGSize(width: params.width, height: 88.0)
+            let insets = itemListNeighborsGroupedInsets(neighbors, params)
+            let layout = ListViewItemNodeLayout(contentSize: contentSize, insets: insets)
+
+            return (layout, { [weak self] animation in
+                guard let self else {
+                    return
+                }
+                self.item = item
+
+                if self.backgroundNode.supernode == nil {
+                    self.insertSubnode(self.backgroundNode, at: 0)
+                    self.insertSubnode(self.topStripeNode, at: 1)
+                    self.insertSubnode(self.bottomStripeNode, at: 2)
+                    self.addSubnode(self.maskNode)
+                }
+
+                let theme = item.presentationData.theme
+                self.backgroundNode.backgroundColor = theme.list.itemBlocksBackgroundColor
+                self.topStripeNode.backgroundColor = theme.list.itemBlocksSeparatorColor
+                self.bottomStripeNode.backgroundColor = theme.list.itemBlocksSeparatorColor
+
+                let hasCorners = itemListHasRoundedBlockLayout(params)
+                var hasTopCorners = false
+                var hasBottomCorners = false
+                switch neighbors.top {
+                case .sameSection(false):
+                    self.topStripeNode.isHidden = true
+                default:
+                    hasTopCorners = true
+                    self.topStripeNode.isHidden = hasCorners
+                }
+                let bottomStripeInset: CGFloat
+                switch neighbors.bottom {
+                case .sameSection(false):
+                    bottomStripeInset = params.leftInset + 16.0
+                    self.bottomStripeNode.isHidden = false
+                default:
+                    bottomStripeInset = 0.0
+                    hasBottomCorners = true
+                    self.bottomStripeNode.isHidden = hasCorners
+                }
+
+                self.maskNode.image = hasCorners ? PresentationResourcesItemList.cornersImage(theme, top: hasTopCorners, bottom: hasBottomCorners, glass: item.systemStyle == .glass) : nil
+
+                let transition = animation.transition
+                transition.updateFrame(node: self.backgroundNode, frame: CGRect(origin: CGPoint(x: 0.0, y: -min(insets.top, separatorHeight)), size: CGSize(width: params.width, height: contentSize.height + min(insets.top, separatorHeight) + min(insets.bottom, separatorHeight))))
+                transition.updateFrame(node: self.maskNode, frame: self.backgroundNode.frame.insetBy(dx: params.leftInset, dy: 0.0))
+                transition.updateFrame(node: self.topStripeNode, frame: CGRect(origin: CGPoint(x: 0.0, y: -min(insets.top, separatorHeight)), size: CGSize(width: params.width, height: separatorHeight)))
+                transition.updateFrame(node: self.bottomStripeNode, frame: CGRect(origin: CGPoint(x: bottomStripeInset, y: contentSize.height - separatorHeight), size: CGSize(width: params.width - bottomStripeInset, height: separatorHeight)))
+
+                self.leftTextNode.attributedText = NSAttributedString(string: "1", font: Font.regular(13.0), textColor: theme.list.itemSecondaryTextColor)
+                self.rightTextNode.attributedText = NSAttributedString(string: "1000", font: Font.regular(13.0), textColor: theme.list.itemSecondaryTextColor)
+                self.titleTextNode.attributedText = NSAttributedString(string: "Add Count: \(item.value)", font: Font.regular(16.0), textColor: theme.list.itemPrimaryTextColor)
+
+                let sideInset: CGFloat = 18.0
+                let leftTextSize = self.leftTextNode.updateLayout(CGSize(width: 100.0, height: 100.0))
+                let rightTextSize = self.rightTextNode.updateLayout(CGSize(width: 100.0, height: 100.0))
+                let titleTextSize = self.titleTextNode.updateLayout(CGSize(width: params.width - sideInset * 2.0, height: 100.0))
+
+                self.leftTextNode.frame = CGRect(origin: CGPoint(x: params.leftInset + sideInset, y: 15.0), size: leftTextSize)
+                self.rightTextNode.frame = CGRect(origin: CGPoint(x: params.width - params.leftInset - sideInset - rightTextSize.width, y: 15.0), size: rightTextSize)
+                self.titleTextNode.frame = CGRect(origin: CGPoint(x: floorToScreenPixels((params.width - titleTextSize.width) / 2.0), y: 11.0), size: titleTextSize)
+
+                if let sliderView = self.sliderView {
+                    sliderView.backgroundColor = theme.list.itemBlocksBackgroundColor
+                    sliderView.backColor = theme.list.itemSwitchColors.frameColor
+                    sliderView.trackColor = theme.list.itemAccentColor
+                    sliderView.knobImage = PresentationResourcesItemList.knobImage(theme)
+                    sliderView.frame = CGRect(origin: CGPoint(x: params.leftInset + sideInset, y: 36.0), size: CGSize(width: params.width - params.leftInset - params.rightInset - sideInset * 2.0, height: 44.0))
+                    if !sliderView.isTracking {
+                        sliderView.value = CGFloat(item.value)
+                    }
+                }
+            })
+        }
+    }
+
+    @objc private func sliderValueChanged() {
+        guard let item = self.item, let sliderView = self.sliderView else {
+            return
+        }
+        let updatedValue = min(1000, max(1, Int32(sliderView.value.rounded())))
+        item.updated(updatedValue)
+    }
+
+    override func animateInsertion(_ currentTimestamp: Double, duration: Double, options: ListViewItemAnimationOptions) {
+        self.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.4)
+    }
+
+    override func animateRemoved(_ currentTimestamp: Double, duration: Double) {
+        self.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.15, removeOnCompletion: false)
     }
 }
 
@@ -354,8 +596,8 @@ extension EahatGramAddGiftEntry {
             } else {
                 return false
             }
-        case let .slug(lhsText):
-            if case let .slug(rhsText) = rhs {
+        case let .nftTag(lhsText):
+            if case let .nftTag(rhsText) = rhs {
                 return lhsText == rhsText
             } else {
                 return false
@@ -390,8 +632,20 @@ extension EahatGramAddGiftEntry {
             } else {
                 return false
             }
-        case .insert:
-            if case .insert = rhs {
+        case let .batchCount(lhsValue):
+            if case let .batchCount(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case .addRandom:
+            if case .addRandom = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .addSelected:
+            if case .addSelected = rhs {
                 return true
             } else {
                 return false
@@ -462,7 +716,7 @@ extension EahatGramAddGiftEntry {
                 context: arguments.context,
                 presentationData: presentationData,
                 systemStyle: .glass,
-                title: NSAttributedString(string: "Number", textColor: titleColor),
+                title: NSAttributedString(string: "Custom Number", textColor: titleColor),
                 text: text,
                 placeholder: "1",
                 type: .number,
@@ -472,18 +726,18 @@ extension EahatGramAddGiftEntry {
                 },
                 action: {}
             )
-        case let .slug(text):
+        case let .nftTag(text):
             return ItemListSingleLineInputItem(
                 context: arguments.context,
                 presentationData: presentationData,
                 systemStyle: .glass,
-                title: NSAttributedString(string: "Slug", textColor: titleColor),
+                title: NSAttributedString(string: "NFT Tag", textColor: titleColor),
                 text: text,
-                placeholder: "eahatgram-1",
+                placeholder: "eahatgram",
                 type: .regular(capitalization: false, autocorrection: false),
                 sectionId: self.section,
                 textUpdated: { value in
-                    arguments.updateSlug(value)
+                    arguments.updateNftTag(value)
                 },
                 action: {}
             )
@@ -529,17 +783,40 @@ extension EahatGramAddGiftEntry {
             return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Pinned To Top", value: value, sectionId: self.section, style: .blocks, updated: { updated in
                 arguments.updatePinnedToTop(updated)
             })
-        case .insert:
+        case let .batchCount(value):
+            return EahatGramInsertCountSliderItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                value: value,
+                sectionId: self.section,
+                updated: { updated in
+                    arguments.updateBatchCount(updated)
+                }
+            )
+        case .addRandom:
             return ItemListActionItem(
                 presentationData: presentationData,
                 systemStyle: .glass,
-                title: "Insert Local Gift",
+                title: "Add Random Gift",
                 kind: .generic,
                 alignment: .natural,
                 sectionId: self.section,
                 style: .blocks,
                 action: {
-                    arguments.insert()
+                    arguments.addRandom()
+                }
+            )
+        case .addSelected:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add Selected Gift",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addSelected()
                 }
             )
         case let .status(text):
@@ -589,13 +866,15 @@ private func eahatGramAddGiftEntries(state: EahatGramAddGiftState) -> [EahatGram
         .backdrop(backdropText),
         .symbol(symbolText),
         .number(state.draft.numberText),
-        .slug(state.draft.slugText),
+        .nftTag(state.draft.nftTagText),
         .transferStars(state.draft.transferStarsText),
         .canTransferDate(state.draft.canTransferDateText),
         .nameHidden(state.draft.nameHidden),
         .savedToProfile(state.draft.savedToProfile),
         .pinnedToTop(state.draft.pinnedToTop),
-        .insert,
+        .batchCount(state.draft.batchCount),
+        .addRandom,
+        .addSelected,
         .status(state.statusText)
     ]
 }
@@ -614,12 +893,13 @@ func eahatGramAddGiftToProfileScreen(
             selectedBackdropIndex: nil,
             selectedSymbolIndex: nil,
             numberText: "1",
-            slugText: "",
+            nftTagText: "",
             transferStarsText: "25",
             canTransferDateText: "\(now)",
             nameHidden: false,
             savedToProfile: true,
-            pinnedToTop: false
+            pinnedToTop: false,
+            batchCount: 1
         ),
         statusText: "source=local_insert"
     )
@@ -713,14 +993,12 @@ func eahatGramAddGiftToProfileScreen(
                 let randomNumber = eahatGramRandomGiftNumber(firstGift)
                 current.draft.selectedGiftId = firstGift.id
                 current.draft.numberText = "\(randomNumber)"
-                current.draft.slugText = "eahatgram-\(randomNumber)"
                 refreshGiftId = firstGift.id
             } else if let selectedGiftId = current.draft.selectedGiftId, baseGifts.first(where: { $0.id == selectedGiftId }) == nil {
                 if let firstGift = baseGifts.first {
                     let randomNumber = eahatGramRandomGiftNumber(firstGift)
                     current.draft.selectedGiftId = firstGift.id
                     current.draft.numberText = "\(randomNumber)"
-                    current.draft.slugText = "eahatgram-\(randomNumber)"
                 } else {
                     current.draft.selectedGiftId = nil
                 }
@@ -768,6 +1046,157 @@ func eahatGramAddGiftToProfileScreen(
         return state.assets.symbols[index]
     }
 
+    func makeInsertedGift(
+        baseGift: TelegramCore.StarGift.Gift,
+        state: EahatGramAddGiftState,
+        number: Int32,
+        slug: String,
+        model: TelegramCore.StarGift.UniqueGift.Attribute?,
+        backdrop: TelegramCore.StarGift.UniqueGift.Attribute?,
+        symbol: TelegramCore.StarGift.UniqueGift.Attribute?,
+        uniqueGiftId: Int64,
+        giftDate: Int32
+    ) -> ProfileGiftsContext.State.StarGift {
+        let issued = eahatGramGiftIssuedCount(baseGift) ?? number
+        let total = baseGift.availability?.total ?? number
+
+        var attributes: [TelegramCore.StarGift.UniqueGift.Attribute] = []
+        if let model {
+            attributes.append(model)
+        }
+        if let backdrop {
+            attributes.append(backdrop)
+        }
+        if let symbol {
+            attributes.append(symbol)
+        }
+
+        let uniqueGift = TelegramCore.StarGift.UniqueGift(
+            id: uniqueGiftId,
+            giftId: baseGift.id,
+            title: baseGift.title ?? "Gift \(baseGift.id)",
+            number: number,
+            slug: slug,
+            owner: .peerId(context.account.peerId),
+            attributes: attributes,
+            availability: .init(issued: issued, total: total),
+            giftAddress: nil,
+            resellAmounts: nil,
+            resellForTonOnly: false,
+            releasedBy: baseGift.releasedBy,
+            valueAmount: nil,
+            valueCurrency: nil,
+            valueUsdAmount: nil,
+            flags: [],
+            themePeerId: nil,
+            peerColor: nil,
+            hostPeerId: nil,
+            minOfferStars: nil,
+            craftChancePermille: nil
+        )
+
+        return ProfileGiftsContext.State.StarGift(
+            gift: .unique(uniqueGift),
+            reference: nil,
+            fromPeer: nil,
+            date: giftDate,
+            text: nil,
+            entities: nil,
+            nameHidden: state.draft.nameHidden,
+            savedToProfile: state.draft.savedToProfile,
+            pinnedToTop: state.draft.pinnedToTop,
+            convertStars: baseGift.convertStars,
+            canUpgrade: false,
+            canExportDate: nil,
+            upgradeStars: baseGift.upgradeStars,
+            transferStars: Int64(state.draft.transferStarsText),
+            canTransferDate: Int32(state.draft.canTransferDateText),
+            canResaleDate: nil,
+            collectionIds: nil,
+            prepaidUpgradeHash: nil,
+            upgradeSeparate: false,
+            dropOriginalDetailsStars: nil,
+            number: number,
+            isRefunded: false,
+            canCraftAt: nil
+        )
+    }
+
+    func insertLocalGifts(randomized: Bool) {
+        let state = stateValue.with { $0 }
+        guard let baseGift = selectedBaseGift(state: state) else {
+            setStatus("insertLocalGift failed reason=BASE_GIFT_NOT_SELECTED")
+            return
+        }
+
+        let batchCount = Int(min(1000, max(1, state.draft.batchCount)))
+        let selectedNumber = max(1, eahatGramResolvedGiftNumber(state.draft.numberText, gift: baseGift))
+        let fixedModel = selectedModel(state: state)
+        let fixedBackdrop = selectedBackdrop(state: state)
+        let fixedSymbol = selectedSymbol(state: state)
+        let baseTimestamp = Date().timeIntervalSince1970
+        let baseDate = Int32(baseTimestamp)
+        let baseUniqueGiftId = Int64(baseTimestamp * 1000.0)
+
+        var insertedGifts: [ProfileGiftsContext.State.StarGift] = []
+        insertedGifts.reserveCapacity(batchCount)
+
+        var firstSlug: String?
+        var lastSlug: String?
+        var firstNumber: Int32?
+        var lastNumber: Int32?
+
+        for index in 0 ..< batchCount {
+            let number: Int32
+            let model: TelegramCore.StarGift.UniqueGift.Attribute?
+            let backdrop: TelegramCore.StarGift.UniqueGift.Attribute?
+            let symbol: TelegramCore.StarGift.UniqueGift.Attribute?
+
+            if randomized {
+                number = max(1, eahatGramRandomGiftNumber(baseGift))
+                model = eahatGramRandomAttribute(from: state.assets.models)
+                backdrop = eahatGramRandomAttribute(from: state.assets.backdrops)
+                symbol = eahatGramRandomAttribute(from: state.assets.symbols)
+            } else {
+                number = selectedNumber
+                model = fixedModel
+                backdrop = fixedBackdrop
+                symbol = fixedSymbol
+            }
+
+            let slug = eahatGramResolvedGiftSlug(
+                baseTag: state.draft.nftTagText,
+                number: number,
+                batchIndex: batchCount > 1 ? index : nil,
+                forceNumberSuffix: randomized
+            )
+            let insertedGift = makeInsertedGift(
+                baseGift: baseGift,
+                state: state,
+                number: number,
+                slug: slug,
+                model: model,
+                backdrop: backdrop,
+                symbol: symbol,
+                uniqueGiftId: -(baseUniqueGiftId + Int64(index) + 1),
+                giftDate: baseDate + Int32(index)
+            )
+
+            insertedGifts.append(insertedGift)
+            if firstSlug == nil {
+                firstSlug = slug
+                firstNumber = number
+            }
+            lastSlug = slug
+            lastNumber = number
+        }
+
+        profileGiftsContext.insertStarGifts(gifts: insertedGifts, afterPinned: true)
+
+        let line = "insertLocalGifts mode=\(randomized ? "random" : "selected") giftId=\(baseGift.id) count=\(batchCount) firstNumber=\(String(describing: firstNumber)) lastNumber=\(String(describing: lastNumber)) firstSlug=\(String(describing: firstSlug)) lastSlug=\(String(describing: lastSlug)) transferStars=\(String(describing: Int64(state.draft.transferStarsText))) canTransferDate=\(String(describing: Int32(state.draft.canTransferDateText))) nftTag=\(state.draft.nftTagText) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
+        setStatus(line)
+    }
+
     let arguments = EahatGramAddGiftArguments(
         context: context,
         selectBaseGift: {
@@ -791,9 +1220,6 @@ func eahatGramAddGiftToProfileScreen(
                     current.draft.selectedBackdropIndex = nil
                     current.draft.selectedSymbolIndex = nil
                     current.draft.numberText = "\(randomNumber)"
-                    if current.draft.slugText.isEmpty || current.draft.slugText.hasPrefix("eahatgram-") {
-                        current.draft.slugText = "eahatgram-\(randomNumber)"
-                    }
                     return current
                 }
                 refreshAttributes(gift.id)
@@ -870,16 +1296,13 @@ func eahatGramAddGiftToProfileScreen(
             updateState { current in
                 var current = current
                 current.draft.numberText = value
-                if current.draft.slugText.isEmpty || current.draft.slugText.hasPrefix("eahatgram-") {
-                    current.draft.slugText = "eahatgram-\(value.isEmpty ? "1" : value)"
-                }
                 return current
             }
         },
-        updateSlug: { value in
+        updateNftTag: { value in
             updateState { current in
                 var current = current
-                current.draft.slugText = value
+                current.draft.nftTagText = value
                 return current
             }
         },
@@ -918,89 +1341,18 @@ func eahatGramAddGiftToProfileScreen(
                 return current
             }
         },
-        insert: {
-            let state = stateValue.with { $0 }
-            guard let baseGift = selectedBaseGift(state: state) else {
-                setStatus("insertLocalGift failed reason=BASE_GIFT_NOT_SELECTED")
-                return
+        updateBatchCount: { value in
+            updateState { current in
+                var current = current
+                current.draft.batchCount = min(1000, max(1, value))
+                return current
             }
-
-            let number = max(1, eahatGramResolvedGiftNumber(state.draft.numberText, gift: baseGift))
-            let slug = state.draft.slugText.isEmpty ? "eahatgram-\(number)" : state.draft.slugText
-            let transferStars = Int64(state.draft.transferStarsText)
-            let canTransferDate = Int32(state.draft.canTransferDateText)
-            let model = selectedModel(state: state)
-            let backdrop = selectedBackdrop(state: state)
-            let symbol = selectedSymbol(state: state)
-            let issued = eahatGramGiftIssuedCount(baseGift) ?? number
-            let total = baseGift.availability?.total ?? number
-
-            var attributes: [TelegramCore.StarGift.UniqueGift.Attribute] = []
-            if let model {
-                attributes.append(model)
-            }
-            if let backdrop {
-                attributes.append(backdrop)
-            }
-            if let symbol {
-                attributes.append(symbol)
-            }
-
-            let uniqueGiftId = -Int64(Date().timeIntervalSince1970 * 1000.0)
-            let uniqueGift = TelegramCore.StarGift.UniqueGift(
-                id: uniqueGiftId,
-                giftId: baseGift.id,
-                title: baseGift.title ?? "Gift \(baseGift.id)",
-                number: number,
-                slug: slug,
-                owner: .peerId(context.account.peerId),
-                attributes: attributes,
-                availability: .init(issued: issued, total: total),
-                giftAddress: nil,
-                resellAmounts: nil,
-                resellForTonOnly: false,
-                releasedBy: baseGift.releasedBy,
-                valueAmount: nil,
-                valueCurrency: nil,
-                valueUsdAmount: nil,
-                flags: [],
-                themePeerId: nil,
-                peerColor: nil,
-                hostPeerId: nil,
-                minOfferStars: nil,
-                craftChancePermille: nil
-            )
-
-            let insertedGift = ProfileGiftsContext.State.StarGift(
-                gift: .unique(uniqueGift),
-                reference: nil,
-                fromPeer: nil,
-                date: Int32(Date().timeIntervalSince1970),
-                text: nil,
-                entities: nil,
-                nameHidden: state.draft.nameHidden,
-                savedToProfile: state.draft.savedToProfile,
-                pinnedToTop: state.draft.pinnedToTop,
-                convertStars: baseGift.convertStars,
-                canUpgrade: false,
-                canExportDate: nil,
-                upgradeStars: baseGift.upgradeStars,
-                transferStars: transferStars,
-                canTransferDate: canTransferDate,
-                canResaleDate: nil,
-                collectionIds: nil,
-                prepaidUpgradeHash: nil,
-                upgradeSeparate: false,
-                dropOriginalDetailsStars: nil,
-                number: number,
-                isRefunded: false,
-                canCraftAt: nil
-            )
-
-            profileGiftsContext.insertStarGifts(gifts: [insertedGift], afterPinned: true)
-
-            let line = "insertLocalGift giftId=\(baseGift.id) uniqueGiftId=\(uniqueGiftId) number=\(number) issued=\(issued) total=\(total) slug=\(slug) transferStars=\(String(describing: transferStars)) canTransferDate=\(String(describing: canTransferDate)) model=\(String(describing: model.map(eahatGramAttributeTitle))) backdrop=\(String(describing: backdrop.map(eahatGramAttributeTitle))) symbol=\(String(describing: symbol.map(eahatGramAttributeTitle))) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
-            setStatus(line)
+        },
+        addRandom: {
+            insertLocalGifts(randomized: true)
+        },
+        addSelected: {
+            insertLocalGifts(randomized: false)
         }
     )
 
