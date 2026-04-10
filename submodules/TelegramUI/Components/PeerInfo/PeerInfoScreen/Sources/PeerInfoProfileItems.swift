@@ -77,6 +77,7 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
         let ItemAbout = 3003
         let ItemNote = 3004
         let ItemAppFooter = 3005
+        let ItemPeerId = 3006
         let ItemAffiliate = 4000
         let ItemAffiliateInfo = 4001
         let ItemBusinessHours = 5000
@@ -176,6 +177,18 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
                 )
             )
         }
+        items[currentPeerInfoSection]!.append(
+            PeerInfoScreenLabeledValueItem(
+                id: ItemPeerId,
+                label: "Id",
+                text: "\(user.id.id._internalGetInt64Value())",
+                textColor: .accent,
+                action: nil,
+                requestLayout: { animated in
+                    interaction.requestLayout(animated)
+                }
+            )
+        )
         
         if let cachedData = data.cachedData as? CachedUserData {
             if let birthday = cachedData.birthday {
@@ -539,6 +552,7 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
         let ItemBalance = 9
         let ItemEdit = 10
         let ItemPeerPersonalChannel = 11
+        let ItemPeerId = 12
         
         if let _ = data.threadData {
             let mainUsername: String
@@ -584,6 +598,18 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
             } else {
                 items[currentPeerInfoSection]!.append(PeerInfoScreenCommentItem(id: ItemUsernameInfo, text: presentationData.strings.PeerInfo_PrivateShareLinkInfo))
             }
+            items[currentPeerInfoSection]!.append(
+                PeerInfoScreenLabeledValueItem(
+                    id: ItemPeerId,
+                    label: "Id",
+                    text: "\(channel.id.id._internalGetInt64Value())",
+                    textColor: .accent,
+                    action: nil,
+                    requestLayout: { animated in
+                        interaction.requestLayout(animated)
+                    }
+                )
+            )
         } else {
             if let location = (data.cachedData as? CachedChannelData)?.peerGeoLocation {
                 items[.groupLocation]!.append(PeerInfoScreenHeaderItem(id: ItemLocationHeader, text: presentationData.strings.GroupInfo_Location.uppercased()))
@@ -637,6 +663,18 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
                     )
                 )
             }
+            items[currentPeerInfoSection]!.append(
+                PeerInfoScreenLabeledValueItem(
+                    id: ItemPeerId,
+                    label: "Id",
+                    text: "\(channel.id.id._internalGetInt64Value())",
+                    textColor: .accent,
+                    action: nil,
+                    requestLayout: { animated in
+                        interaction.requestLayout(animated)
+                    }
+                )
+            )
             if let cachedData = data.cachedData as? CachedChannelData {
                 let aboutText: String?
                 if channel.isFake {
@@ -794,6 +832,18 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
             }
         }
     } else if let group = data.peer as? TelegramGroup {
+        items[currentPeerInfoSection]!.append(
+            PeerInfoScreenLabeledValueItem(
+                id: 1,
+                label: "Id",
+                text: "\(group.id.id._internalGetInt64Value())",
+                textColor: .accent,
+                action: nil,
+                requestLayout: { animated in
+                    interaction.requestLayout(animated)
+                }
+            )
+        )
         if let cachedData = data.cachedData as? CachedGroupData {
             let aboutText: String?
             if group.isFake {

@@ -372,6 +372,8 @@ extension PeerInfoScreenNode {
 private final class EahatGramArguments {
     let context: AccountContext
     let selectPeer: () -> Void
+    let addGiftToProfile: () -> Void
+    let updateTargetHudEnabled: (Bool) -> Void
     let updateUseDirectRpc: (Bool) -> Void
     let refreshResponses: () -> Void
     let runGiftProbe: (Int) -> Void
@@ -379,12 +381,16 @@ private final class EahatGramArguments {
     init(
         context: AccountContext,
         selectPeer: @escaping () -> Void,
+        addGiftToProfile: @escaping () -> Void,
+        updateTargetHudEnabled: @escaping (Bool) -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
         refreshResponses: @escaping () -> Void,
         runGiftProbe: @escaping (Int) -> Void
     ) {
         self.context = context
         self.selectPeer = selectPeer
+        self.addGiftToProfile = addGiftToProfile
+        self.updateTargetHudEnabled = updateTargetHudEnabled
         self.updateUseDirectRpc = updateUseDirectRpc
         self.refreshResponses = refreshResponses
         self.runGiftProbe = runGiftProbe
@@ -406,6 +412,7 @@ private struct EahatGramState: Equatable {
     var selectedTab: EahatGramTab
     var selectedPeerId: EnginePeer.Id?
     var selectedPeerTitle: String
+    var targetHudEnabled: Bool
     var useDirectRpc: Bool
     var responses: [String]
 
@@ -413,6 +420,7 @@ private struct EahatGramState: Equatable {
         self.selectedTab = .me
         self.selectedPeerId = nil
         self.selectedPeerTitle = ""
+        self.targetHudEnabled = EahatGramDebugSettings.targetHudEnabled.with { $0 }
         self.useDirectRpc = true
         self.responses = []
     }
@@ -420,6 +428,8 @@ private struct EahatGramState: Equatable {
 
 private enum EahatGramEntry: ItemListNodeEntry {
     case selectPeer(String)
+    case addGiftToProfile
+    case targetHud(Bool)
     case useDirectRpc(Bool)
     case refreshResponses
     case noGifts(String)
@@ -431,7 +441,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .targetHud, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .noGifts, .meGift, .testGift, .giftInfo:
             return EahatGramSection.gifts.rawValue
@@ -444,22 +454,26 @@ private enum EahatGramEntry: ItemListNodeEntry {
         switch self {
         case .selectPeer:
             return 0
-        case .useDirectRpc:
+        case .addGiftToProfile:
             return 1
-        case .refreshResponses:
+        case .targetHud:
             return 2
-        case .noGifts:
+        case .useDirectRpc:
             return 3
-        case let .meGift(index, _):
-            return 1000 + index * 2
-        case let .testGift(index, _):
-            return 2000 + index * 2
-        case let .giftInfo(index, _):
-            return 3000 + index
-        case .noResponses:
+        case .refreshResponses:
+            return 4
+        case .noGifts:
             return 4000
+        case let .meGift(index, _):
+            return 5000 + index * 2
+        case let .testGift(index, _):
+            return 6000 + index * 2
+        case let .giftInfo(index, _):
+            return 7000 + index
+        case .noResponses:
+            return 8000
         case let .response(index, _):
-            return 5000 + index
+            return 9000 + index
         }
     }
 
@@ -467,6 +481,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
         switch lhs {
         case let .selectPeer(text):
             if case .selectPeer(text) = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .addGiftToProfile:
+            if case .addGiftToProfile = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .targetHud(value):
+            if case .targetHud(value) = rhs {
                 return true
             } else {
                 return false
@@ -539,6 +565,31 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 style: .blocks,
                 action: {
                     arguments.selectPeer()
+                }
+            )
+        case .addGiftToProfile:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add Gift To Profile",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addGiftToProfile()
+                }
+            )
+        case let .targetHud(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "TargetHUD",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateTargetHudEnabled(value)
                 }
             )
         case let .useDirectRpc(value):
@@ -629,6 +680,8 @@ private func eahatGramEntries(
 
     switch state.selectedTab {
     case .me:
+        entries.append(.addGiftToProfile)
+        entries.append(.targetHud(state.targetHudEnabled))
         if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
         } else {
@@ -721,6 +774,25 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                 controller.dismiss()
             }
             pushControllerImpl?(controller)
+        },
+        addGiftToProfile: {
+            let controller = eahatGramAddGiftToProfileScreen(
+                context: context,
+                profileGiftsContext: profileGiftsContext,
+                appendStatus: appendResponse
+            )
+            pushControllerImpl?(controller)
+        },
+        updateTargetHudEnabled: { value in
+            EahatGramDebugSettings.targetHudEnabled.modify { _ in
+                value
+            }
+            updateState { current in
+                var current = current
+                current.targetHudEnabled = value
+                return current
+            }
+            appendResponse("targetHud enabled=\(value)")
         },
         updateUseDirectRpc: { value in
             updateState { current in

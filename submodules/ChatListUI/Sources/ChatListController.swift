@@ -2406,18 +2406,6 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             return
         }
         
-        #if true && DEBUG
-        DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 1.0, execute: { [weak self] in
-            guard let strongSelf = self else {
-                return
-            }
-            let count = ChatControllerCount.with({ $0 })
-            if count > 1 {
-                strongSelf.present(textAlertController(context: strongSelf.context, title: "", text: "ChatControllerCount \(count)", actions: [TextAlertAction(type: .defaultAction, title: "OK", action: {})]), in: .window(.root))
-            }
-        })
-        #endif
-
         if let componentView = self.chatListHeaderView(), let storyPeerListView = componentView.storyPeerListView(), let _ = storyPeerListView.lockViewFrame(), !self.didShowPasscodeLockTooltipController, !"".isEmpty {
             self.passcodeLockTooltipDisposable.set(combineLatest(queue: .mainQueue(), ApplicationSpecificNotice.getPasscodeLockTips(accountManager: self.context.sharedContext.accountManager), self.context.sharedContext.accountManager.accessChallengeData() |> take(1)).startStrict(next: { [weak self] tooltipValue, passcodeView in
                     if let strongSelf = self {

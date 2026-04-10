@@ -342,6 +342,8 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
     var personalChannelsDisposable: Disposable?
     
     var effectiveAreaExpansionFraction: CGFloat = 0.0
+    private let targetHudNode = EahatGramTargetHudNode()
+    private var targetHudTimer: SwiftSignalKit.Timer?
     
     private let _ready = Promise<Bool>()
     var ready: Promise<Bool> {
@@ -1287,6 +1289,13 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
         self.view.addSubview(self.edgeEffectView)
         
         self.addSubnode(self.headerNode)
+        self.targetHudNode.isHidden = true
+        self.targetHudNode.positionUpdated = { origin in
+            EahatGramDebugSettings.targetHudOrigin.modify { _ in
+                origin
+            }
+        }
+        self.addSubnode(self.targetHudNode)
         self.scrollNode.view.isScrollEnabled = !self.isMediaOnly
         
         self.paneContainerNode.chatControllerInteraction = self.chatInterfaceInteraction
@@ -2632,6 +2641,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
         self.boostStatusDisposable?.dispose()
         self.personalChannelsDisposable?.dispose()
         self.autoTranslateDisposable?.dispose()
+        self.targetHudTimer?.invalidate()
     }
     
     override func didLoad() {
@@ -2643,6 +2653,77 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             } else {
                 return false
             }
+        }
+    }
+
+    private func targetHudTimeText() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: Date())
+    }
+
+    private func clampedTargetHudOrigin(_ origin: CGPoint, layout: ContainerViewLayout) -> CGPoint {
+        let size = EahatGramTargetHudNode.preferredSize
+        let minX = layout.safeInsets.left + 12.0
+        let minY = (layout.statusBarHeight ?? 0.0) + 58.0
+        let maxX = max(minX, layout.size.width - layout.safeInsets.right - size.width - 12.0)
+        let maxY = max(minY, layout.size.height - layout.intrinsicInsets.bottom - size.height - 12.0)
+        return CGPoint(
+            x: min(max(origin.x, minX), maxX),
+            y: min(max(origin.y, minY), maxY)
+        )
+    }
+
+    private func defaultTargetHudOrigin(layout: ContainerViewLayout) -> CGPoint {
+        return self.clampedTargetHudOrigin(
+            CGPoint(
+                x: layout.size.width - layout.safeInsets.right - EahatGramTargetHudNode.preferredSize.width - 12.0,
+                y: (layout.statusBarHeight ?? 0.0) + 74.0
+            ),
+            layout: layout
+        )
+    }
+
+    private func updateTargetHud() {
+        guard
+            EahatGramDebugSettings.targetHudEnabled.with({ $0 }),
+            !self.isSettings,
+            !self.isMyProfile,
+            let user = self.data?.peer as? TelegramUser,
+            let (layout, _) = self.validLayout
+        else {
+            self.targetHudNode.isHidden = true
+            self.targetHudTimer?.invalidate()
+            self.targetHudTimer = nil
+            return
+        }
+
+        let origin = self.clampedTargetHudOrigin(
+            EahatGramDebugSettings.targetHudOrigin.with({ $0 }) ?? self.defaultTargetHudOrigin(layout: layout),
+            layout: layout
+        )
+        EahatGramDebugSettings.targetHudOrigin.modify { _ in
+            origin
+        }
+
+        self.targetHudNode.isHidden = false
+        self.targetHudNode.update(
+            context: self.context,
+            theme: self.presentationData.theme,
+            peer: EnginePeer(user),
+            username: user.addressName,
+            peerId: user.id.id._internalGetInt64Value(),
+            timeText: self.targetHudTimeText()
+        )
+        self.targetHudNode.updateFrame(origin: origin)
+
+        if self.targetHudTimer == nil {
+            let timer = SwiftSignalKit.Timer(timeout: 1.0, repeat: true, completion: { [weak self] in
+                self?.updateTargetHud()
+            }, queue: .mainQueue())
+            self.targetHudTimer = timer
+            timer.start()
         }
     }
         
@@ -2689,6 +2770,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             }
         }
         self.data = data
+        self.updateTargetHud()
         if previousData?.members?.membersContext !== data.members?.membersContext {
             if let peer = data.peer, let _ = data.members {
                 self.groupMembersSearchContext = GroupMembersSearchContext(context: self.context, peerId: peer.id)
@@ -5886,6 +5968,8 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             }
             self.headerNode.navigationButtonContainer.update(size: CGSize(width: layout.size.width - layout.safeInsets.left * 2.0, height: navigationBarHeight), presentationData: self.presentationData, leftButtons: leftNavigationButtons, rightButtons: rightNavigationButtons, expandFraction: effectiveAreaExpansionFraction, shouldAnimateIn: animateHeader, transition: transition)
         }
+
+        self.updateTargetHud()
     }
     
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
