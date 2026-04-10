@@ -769,7 +769,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .sectionControl(["me", "test"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
