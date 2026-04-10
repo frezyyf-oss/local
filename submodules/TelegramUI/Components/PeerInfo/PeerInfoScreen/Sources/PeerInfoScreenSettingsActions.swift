@@ -147,7 +147,7 @@ extension PeerInfoScreenNode {
         case .eahatGram:
             let profileGiftsContext = self.data?.profileGiftsContext ?? ProfileGiftsContext(account: self.context.account, peerId: self.context.account.peerId, filter: .All)
             profileGiftsContext.loadMore()
-            push(eahatGramScreen(context: self.context, profileGiftsContext: profileGiftsContext, hideCurrentAccountGifts: true))
+            push(eahatGramScreen(context: self.context, profileGiftsContext: profileGiftsContext))
         case .appearance:
             push(themeSettingsController(context: self.context))
         case .language:
@@ -397,13 +397,20 @@ private enum EahatGramSection: Int32 {
     case responses
 }
 
+private enum EahatGramTab: Int, Equatable {
+    case me
+    case test
+}
+
 private struct EahatGramState: Equatable {
+    var selectedTab: EahatGramTab
     var selectedPeerId: EnginePeer.Id?
     var selectedPeerTitle: String
     var useDirectRpc: Bool
     var responses: [String]
 
     init() {
+        self.selectedTab = .me
         self.selectedPeerId = nil
         self.selectedPeerTitle = ""
         self.useDirectRpc = true
@@ -416,7 +423,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case useDirectRpc(Bool)
     case refreshResponses
     case noGifts(String)
-    case gift(Int, String)
+    case meGift(Int, String)
+    case testGift(Int, String)
     case giftInfo(Int, String)
     case noResponses(String)
     case response(Int, String)
@@ -425,7 +433,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
         switch self {
         case .selectPeer, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
-        case .noGifts, .gift, .giftInfo:
+        case .noGifts, .meGift, .testGift, .giftInfo:
             return EahatGramSection.gifts.rawValue
         case .noResponses, .response:
             return EahatGramSection.responses.rawValue
@@ -442,14 +450,16 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 2
         case .noGifts:
             return 3
-        case let .gift(index, _):
+        case let .meGift(index, _):
             return 1000 + index * 2
+        case let .testGift(index, _):
+            return 2000 + index * 2
         case let .giftInfo(index, _):
-            return 1000 + index * 2 + 1
-        case .noResponses:
-            return 2000
-        case let .response(index, _):
             return 3000 + index
+        case .noResponses:
+            return 4000
+        case let .response(index, _):
+            return 5000 + index
         }
     }
 
@@ -479,8 +489,14 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
-        case let .gift(index, text):
-            if case .gift(index, text) = rhs {
+        case let .meGift(index, text):
+            if case .meGift(index, text) = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .testGift(index, text):
+            if case .testGift(index, text) = rhs {
                 return true
             } else {
                 return false
@@ -552,7 +568,9 @@ private enum EahatGramEntry: ItemListNodeEntry {
             )
         case let .noGifts(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
-        case let .gift(index, text):
+        case let .meGift(_, text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .testGift(index, text):
             return ItemListActionItem(
                 presentationData: presentationData,
                 systemStyle: .glass,
@@ -603,38 +621,49 @@ private func eahatGramGiftInfo(_ gift: ProfileGiftsContext.State.StarGift) -> St
 }
 
 private func eahatGramEntries(
-    presentationData: PresentationData,
     state: EahatGramState,
     gifts: [ProfileGiftsContext.State.StarGift],
     noGiftsText: String
 ) -> [EahatGramEntry] {
     var entries: [EahatGramEntry] = []
 
-    entries.append(.selectPeer(state.selectedPeerTitle.isEmpty ? "Not selected" : state.selectedPeerTitle))
-    entries.append(.useDirectRpc(state.useDirectRpc))
-    entries.append(.refreshResponses)
-
-    if gifts.isEmpty {
-        entries.append(.noGifts(noGiftsText))
-    } else {
-        for i in 0 ..< gifts.count {
-            entries.append(.gift(i, eahatGramGiftTitle(gifts[i])))
-            entries.append(.giftInfo(i, eahatGramGiftInfo(gifts[i])))
+    switch state.selectedTab {
+    case .me:
+        if gifts.isEmpty {
+            entries.append(.noGifts(noGiftsText))
+        } else {
+            for i in 0 ..< gifts.count {
+                entries.append(.meGift(i, eahatGramGiftTitle(gifts[i])))
+                entries.append(.giftInfo(i, eahatGramGiftInfo(gifts[i])))
+            }
         }
-    }
+    case .test:
+        entries.append(.selectPeer(state.selectedPeerTitle.isEmpty ? "Not selected" : state.selectedPeerTitle))
+        entries.append(.useDirectRpc(state.useDirectRpc))
+        entries.append(.refreshResponses)
 
-    if state.responses.isEmpty {
-        entries.append(.noResponses("No saved server responses"))
-    } else {
-        for i in 0 ..< state.responses.count {
-            entries.append(.response(i, state.responses[i]))
+        if gifts.isEmpty {
+            entries.append(.noGifts(noGiftsText))
+        } else {
+            for i in 0 ..< gifts.count {
+                entries.append(.testGift(i, eahatGramGiftTitle(gifts[i])))
+                entries.append(.giftInfo(i, eahatGramGiftInfo(gifts[i])))
+            }
+        }
+
+        if state.responses.isEmpty {
+            entries.append(.noResponses("No saved server responses"))
+        } else {
+            for i in 0 ..< state.responses.count {
+                entries.append(.response(i, state.responses[i]))
+            }
         }
     }
 
     return entries
 }
 
-private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext, hideCurrentAccountGifts: Bool) -> ViewController {
+private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext) -> ViewController {
     let initialState = EahatGramState()
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -734,19 +763,13 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     )
     |> deliverOnMainQueue
     |> map { presentationData, state, giftsState -> (ItemListControllerState, (ItemListNodeState, Any)) in
-        let gifts = hideCurrentAccountGifts ? [] : giftsState.gifts
+        let gifts = giftsState.gifts
         _ = currentGifts.swap(gifts)
-
-        let noGiftsText: String
-        if hideCurrentAccountGifts {
-            noGiftsText = "Current account profile gifts hidden"
-        } else {
-            noGiftsText = "No gifts loaded"
-        }
+        let noGiftsText = "No gifts loaded"
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .text("eahatGram"),
+            title: .sectionControl(["me", "test"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
@@ -754,7 +777,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
         )
         let listState = ItemListNodeState(
             presentationData: ItemListPresentationData(presentationData),
-            entries: eahatGramEntries(presentationData: presentationData, state: state, gifts: gifts, noGiftsText: noGiftsText),
+            entries: eahatGramEntries(state: state, gifts: gifts, noGiftsText: noGiftsText),
             style: .blocks,
             animateChanges: true
         )
@@ -765,6 +788,16 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     }
 
     let controller = ItemListController(context: context, state: signal)
+    controller.titleControlValueChanged = { index in
+        guard let selectedTab = EahatGramTab(rawValue: index) else {
+            return
+        }
+        updateState { current in
+            var current = current
+            current.selectedTab = selectedTab
+            return current
+        }
+    }
     pushControllerImpl = { [weak controller] c in
         (controller?.navigationController as? NavigationController)?.pushViewController(c)
     }
