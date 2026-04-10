@@ -137,6 +137,7 @@ class BazelCommandLine:
         self.profile_swift = value
 
     def set_configuration(self, configuration):
+        debug_configuration_args = [] if self.split_submodules else self.common_debug_args
         if configuration == 'debug_arm64':
             self.configuration_args = [
                 # bazel debug build configuration
@@ -147,7 +148,7 @@ class BazelCommandLine:
 
                 # Always build universal Watch binaries.
                 '--watchos_cpus=arm64_32'
-            ] + self.common_debug_args
+            ] + debug_configuration_args
         elif configuration == 'debug_sim_arm64':
             self.configuration_args = [
                 # bazel debug build configuration
@@ -158,7 +159,7 @@ class BazelCommandLine:
 
                 # Always build universal Watch binaries.
                 '--watchos_cpus=arm64_32'
-            ] + self.common_debug_args
+            ] + debug_configuration_args
         elif configuration == 'release_sim_arm64':
             self.configuration_args = [
                 # bazel optimized build configuration
@@ -169,7 +170,7 @@ class BazelCommandLine:
 
                 # Always build universal Watch binaries.
                 '--watchos_cpus=arm64_32'
-            ] + self.common_debug_args
+            ] + debug_configuration_args
         elif configuration == 'release_arm64':
             self.configuration_args = [
                 # bazel optimized build configuration
@@ -608,6 +609,7 @@ def build(bazel, arguments):
         additional_codesigning_output_path=None
     )
 
+    bazel_command_line.set_split_swiftmodules(arguments.enableParallelSwiftmoduleGeneration)
     bazel_command_line.set_configuration(arguments.configuration)
     bazel_command_line.set_build_number(arguments.buildNumber)
     bazel_command_line.set_custom_target(arguments.target)
@@ -615,8 +617,6 @@ def build(bazel, arguments):
     bazel_command_line.set_show_actions(arguments.showActions)
     bazel_command_line.set_enable_sandbox(arguments.sandbox)
     bazel_command_line.set_profile_swift(arguments.profileSwift)
-
-    bazel_command_line.set_split_swiftmodules(arguments.enableParallelSwiftmoduleGeneration)
 
     bazel_command_line.invoke_build()
 
