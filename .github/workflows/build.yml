@@ -159,27 +159,6 @@ jobs:
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs 2>&1 | tee -a "$BUILD_LOG"
           build_exit=${PIPESTATUS[0]}
           if [ "$build_exit" -eq 0 ]; then
-            if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-              BASE_SHA="${{ github.event.before }}"
-              if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
-                CHANGED_PEERINFO_FILES="$(git diff --name-only "$BASE_SHA" HEAD -- submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources)"
-                if [ -n "$CHANGED_PEERINFO_FILES" ]; then
-                  echo "Running PeerInfoScreen preflight build" | tee -a "$BUILD_LOG"
-                  python3 -u build-system/Make/Make.py \
-                    "$BUILD_CACHE_FLAG" \
-                    --bazelUserRoot="$BAZEL_USER_ROOT" \
-                    build \
-                    --configurationPath="build-system/appstore-configuration.json" \
-                    --codesigningInformationPath=build-system/fake-codesigning \
-                    --configuration="$BUILD_CONFIGURATION" \
-                    --buildNumber="$BUILD_NUMBER" \
-                    --target="submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen:PeerInfoScreen" 2>&1 | tee -a "$BUILD_LOG"
-                  build_exit=${PIPESTATUS[0]}
-                fi
-              fi
-            fi
-          fi
-          if [ "$build_exit" -eq 0 ]; then
             python3 -u build-system/Make/Make.py \
               "$BUILD_CACHE_FLAG" \
               --bazelUserRoot="$BAZEL_USER_ROOT" \
@@ -187,7 +166,8 @@ jobs:
               --configurationPath="build-system/appstore-configuration.json" \
               --codesigningInformationPath=build-system/fake-codesigning \
               --configuration="$BUILD_CONFIGURATION" \
-              --buildNumber="$BUILD_NUMBER" 2>&1 | tee -a "$BUILD_LOG"
+              --buildNumber="$BUILD_NUMBER" \
+              --enableParallelSwiftmoduleGeneration 2>&1 | tee -a "$BUILD_LOG"
             build_exit=${PIPESTATUS[0]}
           fi
           set -e
