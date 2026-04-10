@@ -250,10 +250,46 @@ private final class EahatGramAddGiftArguments {
 }
 
 private func eahatGramBaseGiftTitle(_ gift: TelegramCore.StarGift.Gift) -> String {
-    if let title = gift.title, !title.isEmpty {
-        return "\(title) (\(gift.id))"
+    let availabilitySuffix: String
+    if let availability = gift.availability {
+        let issued = max(0, availability.total - availability.remains)
+        availabilitySuffix = " issued=\(issued)/\(availability.total)"
     } else {
-        return "Gift \(gift.id)"
+        availabilitySuffix = ""
+    }
+    if let title = gift.title, !title.isEmpty {
+        return "\(title) (\(gift.id))\(availabilitySuffix)"
+    } else {
+        return "Gift \(gift.id)\(availabilitySuffix)"
+    }
+}
+
+private func eahatGramGiftIssuedCount(_ gift: TelegramCore.StarGift.Gift) -> Int32? {
+    guard let availability = gift.availability else {
+        return nil
+    }
+    return max(0, availability.total - availability.remains)
+}
+
+private func eahatGramRandomGiftNumber(_ gift: TelegramCore.StarGift.Gift) -> Int32 {
+    if let issued = eahatGramGiftIssuedCount(gift), issued > 1 {
+        return Int32.random(in: 1 ... issued)
+    } else if let issued = eahatGramGiftIssuedCount(gift), issued == 1 {
+        return 1
+    } else {
+        return 1
+    }
+}
+
+private func eahatGramResolvedGiftNumber(_ value: String, gift: TelegramCore.StarGift.Gift) -> Int32 {
+    let fallback = eahatGramRandomGiftNumber(gift)
+    guard let parsed = Int32(value), parsed > 0 else {
+        return fallback
+    }
+    if let issued = eahatGramGiftIssuedCount(gift), issued > 0 {
+        return min(parsed, issued)
+    } else {
+        return parsed
     }
 }
 
@@ -674,11 +710,20 @@ func eahatGramAddGiftToProfileScreen(
             var current = current
             current.assets.baseGifts = baseGifts
             if current.draft.selectedGiftId == nil, let firstGift = baseGifts.first {
+                let randomNumber = eahatGramRandomGiftNumber(firstGift)
                 current.draft.selectedGiftId = firstGift.id
-                current.draft.slugText = "eahatgram-\(current.draft.numberText)"
+                current.draft.numberText = "\(randomNumber)"
+                current.draft.slugText = "eahatgram-\(randomNumber)"
                 refreshGiftId = firstGift.id
             } else if let selectedGiftId = current.draft.selectedGiftId, baseGifts.first(where: { $0.id == selectedGiftId }) == nil {
-                current.draft.selectedGiftId = baseGifts.first?.id
+                if let firstGift = baseGifts.first {
+                    let randomNumber = eahatGramRandomGiftNumber(firstGift)
+                    current.draft.selectedGiftId = firstGift.id
+                    current.draft.numberText = "\(randomNumber)"
+                    current.draft.slugText = "eahatgram-\(randomNumber)"
+                } else {
+                    current.draft.selectedGiftId = nil
+                }
                 current.draft.selectedModelIndex = nil
                 current.draft.selectedBackdropIndex = nil
                 current.draft.selectedSymbolIndex = nil
@@ -738,19 +783,23 @@ func eahatGramAddGiftToProfileScreen(
                     return
                 }
                 let gift = stateValue.with { $0.assets.baseGifts[index] }
+                let randomNumber = eahatGramRandomGiftNumber(gift)
                 updateState { current in
                     var current = current
                     current.draft.selectedGiftId = gift.id
                     current.draft.selectedModelIndex = nil
                     current.draft.selectedBackdropIndex = nil
                     current.draft.selectedSymbolIndex = nil
+                    current.draft.numberText = "\(randomNumber)"
                     if current.draft.slugText.isEmpty || current.draft.slugText.hasPrefix("eahatgram-") {
-                        current.draft.slugText = "eahatgram-\(current.draft.numberText)"
+                        current.draft.slugText = "eahatgram-\(randomNumber)"
                     }
                     return current
                 }
                 refreshAttributes(gift.id)
-                setStatus("selectedBaseGift giftId=\(gift.id)")
+                let issued = eahatGramGiftIssuedCount(gift)
+                let total = gift.availability?.total
+                setStatus("selectedBaseGift giftId=\(gift.id) issued=\(String(describing: issued)) total=\(String(describing: total)) randomNumber=\(randomNumber)")
                 if let navigationController = controllerRef?.navigationController as? NavigationController {
                     _ = navigationController.popViewController(animated: true)
                 }
@@ -876,13 +925,15 @@ func eahatGramAddGiftToProfileScreen(
                 return
             }
 
-            let number = max(1, Int32(state.draft.numberText) ?? 1)
+            let number = max(1, eahatGramResolvedGiftNumber(state.draft.numberText, gift: baseGift))
             let slug = state.draft.slugText.isEmpty ? "eahatgram-\(number)" : state.draft.slugText
             let transferStars = Int64(state.draft.transferStarsText)
             let canTransferDate = Int32(state.draft.canTransferDateText)
             let model = selectedModel(state: state)
             let backdrop = selectedBackdrop(state: state)
             let symbol = selectedSymbol(state: state)
+            let issued = eahatGramGiftIssuedCount(baseGift) ?? number
+            let total = baseGift.availability?.total ?? number
 
             var attributes: [TelegramCore.StarGift.UniqueGift.Attribute] = []
             if let model {
@@ -904,7 +955,7 @@ func eahatGramAddGiftToProfileScreen(
                 slug: slug,
                 owner: .peerId(context.account.peerId),
                 attributes: attributes,
-                availability: .init(issued: number, total: number),
+                availability: .init(issued: issued, total: total),
                 giftAddress: nil,
                 resellAmounts: nil,
                 resellForTonOnly: false,
@@ -948,7 +999,7 @@ func eahatGramAddGiftToProfileScreen(
 
             profileGiftsContext.insertStarGifts(gifts: [insertedGift], afterPinned: true)
 
-            let line = "insertLocalGift giftId=\(baseGift.id) uniqueGiftId=\(uniqueGiftId) number=\(number) slug=\(slug) transferStars=\(String(describing: transferStars)) canTransferDate=\(String(describing: canTransferDate)) model=\(String(describing: model.map(eahatGramAttributeTitle))) backdrop=\(String(describing: backdrop.map(eahatGramAttributeTitle))) symbol=\(String(describing: symbol.map(eahatGramAttributeTitle))) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
+            let line = "insertLocalGift giftId=\(baseGift.id) uniqueGiftId=\(uniqueGiftId) number=\(number) issued=\(issued) total=\(total) slug=\(slug) transferStars=\(String(describing: transferStars)) canTransferDate=\(String(describing: canTransferDate)) model=\(String(describing: model.map(eahatGramAttributeTitle))) backdrop=\(String(describing: backdrop.map(eahatGramAttributeTitle))) symbol=\(String(describing: symbol.map(eahatGramAttributeTitle))) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
             setStatus(line)
         }
     )
