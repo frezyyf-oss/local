@@ -183,6 +183,33 @@ private func canEditMessage(accountPeerId: PeerId, limitsConfiguration: EngineCo
     return false
 }
 
+private func canLocalVisualEditMessage(accountPeerId: PeerId, message: Message) -> Bool {
+    if message.id.namespace != Namespaces.Message.Cloud {
+        return false
+    }
+    if message.id.peerId.namespace == Namespaces.Peer.SecretChat {
+        return false
+    }
+    if message.author?.id == accountPeerId && !message.flags.contains(.Incoming) {
+        return false
+    }
+    if message.text.isEmpty {
+        return false
+    }
+    if message.forwardInfo != nil {
+        return false
+    }
+    if !message.media.isEmpty {
+        return false
+    }
+    for attribute in message.attributes {
+        if attribute is InlineBotMessageAttribute {
+            return false
+        }
+    }
+    return true
+}
+
 private func canEditFactCheck(appConfig: AppConfiguration) -> Bool {
     if let data = appConfig.data, let value = data["can_edit_factcheck"] as? Bool {
         return value
@@ -1557,6 +1584,14 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                         f(.custom(transition))
                     })
                 }
+            })))
+        } else if canLocalVisualEditMessage(accountPeerId: context.account.peerId, message: message) && !isPinnedMessages && !isMigrated {
+            actions.append(.action(ContextMenuActionItem(text: chatPresentationInterfaceState.strings.Conversation_MessageDialogEdit, icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Edit"), color: theme.actionSheet.primaryTextColor)
+            }, action: { c, f in
+                interfaceInteraction.setupEditMessage(messages[0].id, { transition in
+                    f(.custom(transition))
+                })
             })))
         }
         

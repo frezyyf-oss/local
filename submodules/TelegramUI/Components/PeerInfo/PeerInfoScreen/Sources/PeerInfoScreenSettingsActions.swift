@@ -427,8 +427,6 @@ private enum EahatGramSection: Int32 {
 private enum EahatGramTab: Int, Equatable {
     case me
     case test
-    case custom
-    case stars
     case other
 }
 
@@ -925,6 +923,7 @@ private func eahatGramEntries(
     switch state.selectedTab {
     case .me:
         entries.append(.addGiftToProfile)
+        entries.append(.addCustomGiftToProfile)
         entries.append(.clearGifts)
         entries.append(.addNftUsernameTag)
         entries.append(.targetHud(state.targetHudEnabled))
@@ -938,15 +937,6 @@ private func eahatGramEntries(
                 entries.append(.meGift(i, eahatGramGiftTitle(gifts[i])))
                 entries.append(.meGiftInfo(i, eahatGramGiftInfo(gifts[i])))
             }
-        }
-    case .custom:
-        entries.append(.addCustomGiftToProfile)
-        entries.append(.clearGifts)
-    case .stars:
-        entries.append(.starsAmount(state.starsAmount))
-        entries.append(.addStars)
-        if !hasStarsContext {
-            entries.append(.starsStatus("starsContext=nil"))
         }
     case .test:
         entries.append(.selectPeer(state.selectedPeerTitle.isEmpty ? "Not selected" : state.selectedPeerTitle))
@@ -973,6 +963,12 @@ private func eahatGramEntries(
             }
         }
     case .other:
+        entries.append(.starsAmount(state.starsAmount))
+        entries.append(.addStars)
+        if !hasStarsContext {
+            entries.append(.starsStatus("starsContext=nil"))
+        }
+
         let methods = eahatGramOtherMethods()
         for i in 0 ..< methods.count {
             entries.append(.otherMethod(i, methods[i].title))
@@ -1147,7 +1143,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .textWithTabs("eahatGram", ["me", "test", "custom", "stars", "other"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test", "other"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),

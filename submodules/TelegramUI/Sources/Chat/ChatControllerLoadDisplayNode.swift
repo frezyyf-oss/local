@@ -2256,8 +2256,36 @@ extension ChatControllerImpl {
                         if let currentMessage = currentMessage {
                             let currentEntities = currentMessage.textEntitiesAttribute?.entities ?? []
                             let currentWebpagePreviewAttribute = currentMessage.webpagePreviewAttribute ?? WebpagePreviewMessageAttribute(leadingPreview: false, forceLargeMedia: nil, isManuallyAdded: true, isSafe: false)
+                            let canPerformLocalVisualEdit = currentMessage.id.namespace == Namespaces.Message.Cloud && currentMessage.id.peerId.namespace != Namespaces.Peer.SecretChat && (currentMessage.flags.contains(.Incoming) || currentMessage.author?.id != strongSelf.context.account.peerId) && !currentMessage.text.isEmpty && currentMessage.media.isEmpty && currentMessage.forwardInfo == nil
                             
-                            if currentMessage.text != text.string || currentEntities != entities || updatingMedia || webpagePreviewAttribute != currentWebpagePreviewAttribute || disableUrlPreview {
+                            if canPerformLocalVisualEdit && (currentMessage.text != text.string || currentEntities != entities) {
+                                let localEntitiesAttribute = entitiesAttribute
+                                let localInvertedMediaAttribute = invertedMediaAttribute
+                                let _ = (strongSelf.context.account.postbox.transaction { transaction -> Void in
+                                    transaction.updateMessage(editMessage.messageId, update: { currentMessage in
+                                        var updatedAttributes: [MessageAttribute] = currentMessage.attributes.filter { attribute in
+                                            if attribute is TextEntitiesMessageAttribute {
+                                                return false
+                                            }
+                                            if attribute is WebpagePreviewMessageAttribute {
+                                                return false
+                                            }
+                                            if attribute is InvertMediaMessageAttribute {
+                                                return false
+                                            }
+                                            return true
+                                        }
+                                        if let localEntitiesAttribute {
+                                            updatedAttributes.append(localEntitiesAttribute)
+                                        }
+                                        if let localInvertedMediaAttribute {
+                                            updatedAttributes.append(localInvertedMediaAttribute)
+                                        }
+                                        return .update(currentMessage.withUpdatedText(text.string).withUpdatedAttributes(updatedAttributes))
+                                    })
+                                }
+                                |> deliverOnMainQueue).startStandalone()
+                            } else if currentMessage.text != text.string || currentEntities != entities || updatingMedia || webpagePreviewAttribute != currentWebpagePreviewAttribute || disableUrlPreview {
                                 strongSelf.context.account.pendingUpdateMessageManager.add(messageId: editMessage.messageId, text: text.string, media: media, entities: entitiesAttribute, inlineStickers: inlineStickers, webpagePreviewAttribute: webpagePreviewAttribute, invertMediaAttribute: invertedMediaAttribute, disableUrlPreview: disableUrlPreview)
                             }
                         }
