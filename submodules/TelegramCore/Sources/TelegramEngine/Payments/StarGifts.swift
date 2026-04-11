@@ -2560,6 +2560,29 @@ private final class ProfileGiftsContextImpl {
         }.start())
     }
 
+    func clearLocalInsertedStarGifts() {
+        self.gifts.removeAll(where: { $0.reference == nil })
+        self.filteredGifts.removeAll(where: { $0.reference == nil })
+        self.pushState()
+
+        let peerId = self.peerId
+        let collectionId = self.collectionId
+        self.cacheDisposable.set(self.account.postbox.transaction { transaction in
+            var updatedGifts: [ProfileGiftsContext.State.StarGift] = []
+            var updatedCount: Int32 = 0
+            if let cachedGifts = transaction.retrieveItemCacheEntry(id: giftsEntryId(peerId: peerId, collectionId: collectionId))?.get(CachedProfileGifts.self) {
+                updatedGifts = cachedGifts.gifts
+                updatedCount = cachedGifts.count
+            }
+            let removedCount = updatedGifts.filter { $0.reference == nil }.count
+            updatedGifts.removeAll(where: { $0.reference == nil })
+            updatedCount = max(0, updatedCount - Int32(removedCount))
+            if let entry = CodableEntry(CachedProfileGifts(gifts: updatedGifts, count: updatedCount, notificationsEnabled: nil)) {
+                transaction.putItemCacheEntry(id: giftsEntryId(peerId: peerId, collectionId: collectionId), entry: entry)
+            }
+        }.start())
+    }
+
     func removeStarGifts(references: [StarGiftReference]) {
         self.gifts.removeAll(where: { gift in
             if let reference = gift.reference, references.contains(reference) {
@@ -3255,6 +3278,12 @@ public final class ProfileGiftsContext {
     public func insertStarGifts(gifts: [ProfileGiftsContext.State.StarGift], afterPinned: Bool = false) {
         self.impl.with { impl in
             impl.insertStarGifts(gifts: gifts, afterPinned: afterPinned)
+        }
+    }
+
+    public func clearLocalInsertedStarGifts() {
+        self.impl.with { impl in
+            impl.clearLocalInsertedStarGifts()
         }
     }
 

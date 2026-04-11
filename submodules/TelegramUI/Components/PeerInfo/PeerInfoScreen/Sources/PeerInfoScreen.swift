@@ -2659,8 +2659,24 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
     private func targetHudTimeText() -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm:ss"
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        if let exactTimestamp = self.data?.status?.exactTimestamp, exactTimestamp > 0 {
+            return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(exactTimestamp)))
+        }
         return formatter.string(from: Date())
+    }
+
+    private func targetHudDcId(user: TelegramUser) -> Int? {
+        for representation in user.photo {
+            if let resource = representation.resource as? CloudPeerPhotoSizeMediaResource {
+                return resource.datacenterId
+            } else if let resource = representation.resource as? CloudPhotoSizeMediaResource {
+                return resource.datacenterId
+            } else if let resource = representation.resource as? CloudFileMediaResource {
+                return resource.datacenterId
+            }
+        }
+        return nil
     }
 
     private func clampedTargetHudOrigin(_ origin: CGPoint, layout: ContainerViewLayout) -> CGPoint {
@@ -2714,6 +2730,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             peer: EnginePeer(user),
             username: user.addressName,
             peerId: user.id.id._internalGetInt64Value(),
+            dcId: self.targetHudDcId(user: user),
             timeText: self.targetHudTimeText()
         )
         self.targetHudNode.updateFrame(origin: origin)

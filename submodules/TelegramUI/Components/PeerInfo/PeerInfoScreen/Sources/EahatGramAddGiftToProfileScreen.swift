@@ -127,6 +127,11 @@ private struct EahatGramAddGiftDraft: Equatable {
     var selectedBackdropIndex: Int?
     var selectedSymbolIndex: Int?
     var numberText: String
+    var customTitleText: String
+    var customSlugText: String
+    var customAvatarText: String
+    var customPriceText: String
+    var customTotalText: String
     var advancedEnabled: Bool
     var commentText: String
     var fromTagText: String
@@ -150,6 +155,11 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
     case backdrop(String)
     case symbol(String)
     case number(String)
+    case customTitle(String)
+    case customSlug(String)
+    case customAvatar(String)
+    case customPrice(String)
+    case customTotal(String)
     case comment(String)
     case fromTag(String)
     case transferStars(String)
@@ -169,7 +179,7 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
         switch self {
         case .baseGift, .model, .backdrop, .symbol:
             return EahatGramAddGiftSection.assets.rawValue
-        case .number, .comment, .fromTag, .transferStars, .canTransferDate:
+        case .number, .customTitle, .customSlug, .customAvatar, .customPrice, .customTotal, .comment, .fromTag, .transferStars, .canTransferDate:
             return EahatGramAddGiftSection.params.rawValue
         case .advanced, .nameHidden, .savedToProfile, .pinnedToTop:
             return EahatGramAddGiftSection.flags.rawValue
@@ -192,34 +202,44 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
             return 3
         case .number:
             return 4
-        case .comment:
+        case .customTitle:
+            return 5
+        case .customSlug:
             return 6
-        case .fromTag:
+        case .customAvatar:
             return 7
-        case .transferStars:
+        case .customPrice:
             return 8
-        case .canTransferDate:
+        case .customTotal:
             return 9
-        case .advanced:
+        case .comment:
             return 10
-        case .nameHidden:
+        case .fromTag:
             return 11
-        case .savedToProfile:
+        case .transferStars:
             return 12
-        case .pinnedToTop:
+        case .canTransferDate:
             return 13
-        case .batchCount:
+        case .advanced:
             return 14
-        case .addNumber:
+        case .nameHidden:
             return 15
-        case .addNftTag:
+        case .savedToProfile:
             return 16
-        case .addRandom:
+        case .pinnedToTop:
             return 17
-        case .addSelected:
+        case .batchCount:
             return 18
-        case .status:
+        case .addNumber:
             return 19
+        case .addNftTag:
+            return 20
+        case .addRandom:
+            return 21
+        case .addSelected:
+            return 22
+        case .status:
+            return 23
         }
     }
 
@@ -235,6 +255,11 @@ private final class EahatGramAddGiftArguments {
     let selectBackdrop: () -> Void
     let selectSymbol: () -> Void
     let updateNumber: (String) -> Void
+    let updateCustomTitle: (String) -> Void
+    let updateCustomSlug: (String) -> Void
+    let updateCustomAvatar: (String) -> Void
+    let updateCustomPrice: (String) -> Void
+    let updateCustomTotal: (String) -> Void
     let updateAdvanced: (Bool) -> Void
     let updateComment: (String) -> Void
     let updateFromTag: (String) -> Void
@@ -256,6 +281,11 @@ private final class EahatGramAddGiftArguments {
         selectBackdrop: @escaping () -> Void,
         selectSymbol: @escaping () -> Void,
         updateNumber: @escaping (String) -> Void,
+        updateCustomTitle: @escaping (String) -> Void,
+        updateCustomSlug: @escaping (String) -> Void,
+        updateCustomAvatar: @escaping (String) -> Void,
+        updateCustomPrice: @escaping (String) -> Void,
+        updateCustomTotal: @escaping (String) -> Void,
         updateAdvanced: @escaping (Bool) -> Void,
         updateComment: @escaping (String) -> Void,
         updateFromTag: @escaping (String) -> Void,
@@ -276,6 +306,11 @@ private final class EahatGramAddGiftArguments {
         self.selectBackdrop = selectBackdrop
         self.selectSymbol = selectSymbol
         self.updateNumber = updateNumber
+        self.updateCustomTitle = updateCustomTitle
+        self.updateCustomSlug = updateCustomSlug
+        self.updateCustomAvatar = updateCustomAvatar
+        self.updateCustomPrice = updateCustomPrice
+        self.updateCustomTotal = updateCustomTotal
         self.updateAdvanced = updateAdvanced
         self.updateComment = updateComment
         self.updateFromTag = updateFromTag
@@ -449,9 +484,12 @@ private func eahatGramAttributeTitle(_ attribute: TelegramCore.StarGift.UniqueGi
     }
 }
 
-private final class EahatGramInsertCountSliderItem: ListViewItem, ItemListItem {
+final class EahatGramInsertCountSliderItem: ListViewItem, ItemListItem {
     let presentationData: ItemListPresentationData
     let systemStyle: ItemListSystemStyle
+    let title: String
+    let minimumValue: Int32
+    let maximumValue: Int32
     let value: Int32
     let sectionId: ItemListSectionId
     let updated: (Int32) -> Void
@@ -459,12 +497,18 @@ private final class EahatGramInsertCountSliderItem: ListViewItem, ItemListItem {
     init(
         presentationData: ItemListPresentationData,
         systemStyle: ItemListSystemStyle,
+        title: String = "Add Count",
+        minimumValue: Int32 = 1,
+        maximumValue: Int32 = 1000,
         value: Int32,
         sectionId: ItemListSectionId,
         updated: @escaping (Int32) -> Void
     ) {
         self.presentationData = presentationData
         self.systemStyle = systemStyle
+        self.title = title
+        self.minimumValue = minimumValue
+        self.maximumValue = maximumValue
         self.value = value
         self.sectionId = sectionId
         self.updated = updated
@@ -544,8 +588,6 @@ private final class EahatGramInsertCountSliderItemNode: ListViewItemNode, ItemLi
         super.didLoad()
 
         let sliderView = UISlider()
-        sliderView.minimumValue = 1.0
-        sliderView.maximumValue = 1000.0
         sliderView.addTarget(self, action: #selector(self.sliderValueChanged), for: .valueChanged)
         self.view.addSubview(sliderView)
         self.sliderView = sliderView
@@ -605,9 +647,9 @@ private final class EahatGramInsertCountSliderItemNode: ListViewItemNode, ItemLi
                 transition.updateFrame(node: self.topStripeNode, frame: CGRect(origin: CGPoint(x: 0.0, y: -min(insets.top, separatorHeight)), size: CGSize(width: params.width, height: separatorHeight)))
                 transition.updateFrame(node: self.bottomStripeNode, frame: CGRect(origin: CGPoint(x: bottomStripeInset, y: contentSize.height - separatorHeight), size: CGSize(width: params.width - bottomStripeInset, height: separatorHeight)))
 
-                self.leftTextNode.attributedText = NSAttributedString(string: "1", font: Font.regular(13.0), textColor: theme.list.itemSecondaryTextColor)
-                self.rightTextNode.attributedText = NSAttributedString(string: "1000", font: Font.regular(13.0), textColor: theme.list.itemSecondaryTextColor)
-                self.titleTextNode.attributedText = NSAttributedString(string: "Add Count: \(item.value)", font: Font.regular(16.0), textColor: theme.list.itemPrimaryTextColor)
+                self.leftTextNode.attributedText = NSAttributedString(string: "\(item.minimumValue)", font: Font.regular(13.0), textColor: theme.list.itemSecondaryTextColor)
+                self.rightTextNode.attributedText = NSAttributedString(string: "\(item.maximumValue)", font: Font.regular(13.0), textColor: theme.list.itemSecondaryTextColor)
+                self.titleTextNode.attributedText = NSAttributedString(string: "\(item.title): \(item.value)", font: Font.regular(16.0), textColor: theme.list.itemPrimaryTextColor)
 
                 let sideInset: CGFloat = 18.0
                 let leftTextSize = self.leftTextNode.updateLayout(CGSize(width: 100.0, height: 100.0))
@@ -620,6 +662,8 @@ private final class EahatGramInsertCountSliderItemNode: ListViewItemNode, ItemLi
 
                 if let sliderView = self.sliderView {
                     sliderView.backgroundColor = theme.list.itemBlocksBackgroundColor
+                    sliderView.minimumValue = Float(item.minimumValue)
+                    sliderView.maximumValue = Float(item.maximumValue)
                     sliderView.minimumTrackTintColor = theme.list.itemAccentColor
                     sliderView.maximumTrackTintColor = theme.list.itemSwitchColors.frameColor
                     sliderView.thumbTintColor = theme.list.itemPrimaryTextColor
@@ -636,7 +680,7 @@ private final class EahatGramInsertCountSliderItemNode: ListViewItemNode, ItemLi
         guard let item = self.item, let sliderView = self.sliderView else {
             return
         }
-        let updatedValue = min(1000, max(1, Int32(sliderView.value.rounded())))
+        let updatedValue = min(item.maximumValue, max(item.minimumValue, Int32(sliderView.value.rounded())))
         item.updated(updatedValue)
     }
 
@@ -678,6 +722,36 @@ extension EahatGramAddGiftEntry {
             }
         case let .number(lhsText):
             if case let .number(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .customTitle(lhsText):
+            if case let .customTitle(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .customSlug(lhsText):
+            if case let .customSlug(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .customAvatar(lhsText):
+            if case let .customAvatar(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .customPrice(lhsText):
+            if case let .customPrice(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .customTotal(lhsText):
+            if case let .customTotal(rhsText) = rhs {
                 return lhsText == rhsText
             } else {
                 return false
@@ -836,6 +910,81 @@ extension EahatGramAddGiftEntry {
                 },
                 action: {}
             )
+        case let .customTitle(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: NSAttributedString(string: "Custom Gift Name", textColor: titleColor),
+                text: text,
+                placeholder: "Gift name",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateCustomTitle(value)
+                },
+                action: {}
+            )
+        case let .customSlug(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: NSAttributedString(string: "Custom NFT Tag", textColor: titleColor),
+                text: text,
+                placeholder: "custom-tag or custom-{number}",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateCustomSlug(value)
+                },
+                action: {}
+            )
+        case let .customAvatar(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: NSAttributedString(string: "Avatar Source", textColor: titleColor),
+                text: text,
+                placeholder: "uses selected gift file",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateCustomAvatar(value)
+                },
+                action: {}
+            )
+        case let .customPrice(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: NSAttributedString(string: "Custom Price", textColor: titleColor),
+                text: text,
+                placeholder: "25",
+                type: .number,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateCustomPrice(value)
+                },
+                action: {}
+            )
+        case let .customTotal(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: NSAttributedString(string: "Custom Total", textColor: titleColor),
+                text: text,
+                placeholder: "1000",
+                type: .number,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateCustomTotal(value)
+                },
+                action: {}
+            )
         case let .comment(text):
             return ItemListSingleLineInputItem(
                 context: arguments.context,
@@ -984,7 +1133,7 @@ extension EahatGramAddGiftEntry {
     }
 }
 
-private func eahatGramAddGiftEntries(state: EahatGramAddGiftState) -> [EahatGramAddGiftEntry] {
+private func eahatGramAddGiftEntries(state: EahatGramAddGiftState, customMode: Bool) -> [EahatGramAddGiftEntry] {
     let baseGiftText: String
     if let selectedGiftId = state.draft.selectedGiftId, let gift = state.assets.baseGifts.first(where: { $0.id == selectedGiftId }) {
         baseGiftText = eahatGramBaseGiftTitle(gift)
@@ -1015,7 +1164,7 @@ private func eahatGramAddGiftEntries(state: EahatGramAddGiftState) -> [EahatGram
         symbolText = state.assets.symbols.isEmpty ? "Not available" : "Select"
     }
 
-    return [
+    var entries: [EahatGramAddGiftEntry] = [
         .baseGift(baseGiftText),
         .model(modelText),
         .backdrop(backdropText),
@@ -1035,7 +1184,17 @@ private func eahatGramAddGiftEntries(state: EahatGramAddGiftState) -> [EahatGram
         .addRandom,
         .addSelected,
         .status(state.statusText)
-    ].filter { entry in
+    ]
+    if customMode {
+        entries.insert(contentsOf: [
+            .customTitle(state.draft.customTitleText),
+            .customSlug(state.draft.customSlugText),
+            .customAvatar(state.draft.customAvatarText),
+            .customPrice(state.draft.customPriceText),
+            .customTotal(state.draft.customTotalText)
+        ], at: 5)
+    }
+    return entries.filter { entry in
         switch entry {
         case .comment, .fromTag:
             return state.draft.advancedEnabled
@@ -1048,7 +1207,8 @@ private func eahatGramAddGiftEntries(state: EahatGramAddGiftState) -> [EahatGram
 func eahatGramAddGiftToProfileScreen(
     context: AccountContext,
     profileGiftsContext: ProfileGiftsContext,
-    appendStatus: @escaping (String) -> Void
+    appendStatus: @escaping (String) -> Void,
+    customMode: Bool = false
 ) -> ViewController {
     let now = Int32(Date().timeIntervalSince1970)
     let initialState = EahatGramAddGiftState(
@@ -1059,6 +1219,11 @@ func eahatGramAddGiftToProfileScreen(
             selectedBackdropIndex: nil,
             selectedSymbolIndex: nil,
             numberText: "1",
+            customTitleText: "",
+            customSlugText: "",
+            customAvatarText: "",
+            customPriceText: "",
+            customTotalText: "",
             advancedEnabled: false,
             commentText: "",
             fromTagText: "",
@@ -1162,12 +1327,18 @@ func eahatGramAddGiftToProfileScreen(
                 let randomNumber = eahatGramRandomGiftNumber(firstGift)
                 current.draft.selectedGiftId = firstGift.id
                 current.draft.numberText = "\(randomNumber)"
+                if current.draft.customAvatarText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    current.draft.customAvatarText = "baseGift:\(firstGift.id)"
+                }
                 refreshGiftId = firstGift.id
             } else if let selectedGiftId = current.draft.selectedGiftId, baseGifts.first(where: { $0.id == selectedGiftId }) == nil {
                 if let firstGift = baseGifts.first {
                     let randomNumber = eahatGramRandomGiftNumber(firstGift)
                     current.draft.selectedGiftId = firstGift.id
                     current.draft.numberText = "\(randomNumber)"
+                    if current.draft.customAvatarText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        current.draft.customAvatarText = "baseGift:\(firstGift.id)"
+                    }
                 } else {
                     current.draft.selectedGiftId = nil
                 }
@@ -1228,8 +1399,13 @@ func eahatGramAddGiftToProfileScreen(
         realUniqueGift: TelegramCore.StarGift.UniqueGift?,
         valueInfo: TelegramCore.StarGift.UniqueGift.ValueInfo?
     ) -> ProfileGiftsContext.State.StarGift {
-        let issued = realUniqueGift?.availability.issued ?? eahatGramGiftIssuedCount(baseGift) ?? number
-        let total = realUniqueGift?.availability.total ?? baseGift.availability?.total ?? number
+        let customTotal = Int32(state.draft.customTotalText).flatMap { $0 > 0 ? $0 : nil }
+        let fallbackIssued = eahatGramGiftIssuedCount(baseGift) ?? number
+        let issued = realUniqueGift?.availability.issued ?? max(number, customTotal ?? fallbackIssued)
+        let total = realUniqueGift?.availability.total ?? max(issued, customTotal ?? baseGift.availability?.total ?? number)
+        let customTitle = eahatGramResolvedComment(state.draft.customTitleText)
+        let title = customTitle ?? baseGift.title ?? "Gift \(baseGift.id)"
+        let customPrice = Int64(state.draft.customPriceText).flatMap { $0 > 0 ? $0 : nil }
         let commentText = state.draft.advancedEnabled ? eahatGramResolvedComment(state.draft.commentText) : nil
         let fromPeer = state.draft.advancedEnabled ? eahatGramResolvedFromPeer(state.draft.fromTagText) : nil
 
@@ -1247,7 +1423,7 @@ func eahatGramAddGiftToProfileScreen(
             attributes = realUniqueGift.attributes.filter { $0.attributeType != .originalInfo }
         }
 
-        let resellAmounts = realUniqueGift?.resellAmounts
+        let resellAmounts = realUniqueGift?.resellAmounts ?? customPrice.map { [CurrencyAmount(amount: StarsAmount(value: $0, nanos: 0), currency: .stars)] }
         let valueAmount = realUniqueGift?.valueAmount ?? valueInfo?.value
         let valueCurrency = realUniqueGift?.valueCurrency ?? valueInfo?.currency
         let valueUsdAmount = realUniqueGift?.valueUsdAmount
@@ -1263,7 +1439,7 @@ func eahatGramAddGiftToProfileScreen(
         let uniqueGift = TelegramCore.StarGift.UniqueGift(
             id: uniqueGiftId,
             giftId: baseGift.id,
-            title: baseGift.title ?? "Gift \(baseGift.id)",
+            title: title,
             number: number,
             slug: slug,
             owner: .peerId(context.account.peerId),
@@ -1389,7 +1565,9 @@ func eahatGramAddGiftToProfileScreen(
         let randomized = mode == .random
         let baseTag: String
         switch mode {
-        case .number, .nftTag, .random, .selected:
+        case .nftTag:
+            baseTag = eahatGramNormalizedTag(state.draft.customSlugText)
+        case .number, .random, .selected:
             baseTag = ""
         }
         let baseTimestamp = Date().timeIntervalSince1970
@@ -1460,7 +1638,7 @@ func eahatGramAddGiftToProfileScreen(
         case .selected:
             modeText = "selected"
         }
-        let startedLine = "insertLocalGifts mode=\(modeText) giftId=\(baseGift.id) count=\(batchCount) firstNumber=\(String(describing: firstNumber)) lastNumber=\(String(describing: lastNumber)) firstSlug=\(String(describing: firstSlug)) lastSlug=\(String(describing: lastSlug)) transferStars=\(String(describing: Int64(state.draft.transferStarsText))) canTransferDate=\(String(describing: Int32(state.draft.canTransferDateText))) advanced=\(state.draft.advancedEnabled) comment=\(String(describing: eahatGramResolvedComment(state.draft.commentText))) fromTag=\(eahatGramNormalizedTag(state.draft.fromTagText)) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
+        let startedLine = "insertLocalGifts mode=\(modeText) giftId=\(baseGift.id) count=\(batchCount) firstNumber=\(String(describing: firstNumber)) lastNumber=\(String(describing: lastNumber)) firstSlug=\(String(describing: firstSlug)) lastSlug=\(String(describing: lastSlug)) transferStars=\(String(describing: Int64(state.draft.transferStarsText))) canTransferDate=\(String(describing: Int32(state.draft.canTransferDateText))) advanced=\(state.draft.advancedEnabled) comment=\(String(describing: eahatGramResolvedComment(state.draft.commentText))) fromTag=\(eahatGramNormalizedTag(state.draft.fromTagText)) customTitle=\(String(describing: eahatGramResolvedComment(state.draft.customTitleText))) customSlug=\(eahatGramNormalizedTag(state.draft.customSlugText)) customAvatar=\(String(describing: eahatGramResolvedComment(state.draft.customAvatarText))) customPrice=\(String(describing: Int64(state.draft.customPriceText))) customTotal=\(String(describing: Int32(state.draft.customTotalText))) savedToProfile=\(state.draft.savedToProfile) pinnedToTop=\(state.draft.pinnedToTop) nameHidden=\(state.draft.nameHidden)"
         setStatus(startedLine)
         insertDisposable.set((combineLatest(insertSignals)
         |> deliverOnMainQueue).start(next: { gifts in
@@ -1505,6 +1683,9 @@ func eahatGramAddGiftToProfileScreen(
                     current.draft.selectedBackdropIndex = nil
                     current.draft.selectedSymbolIndex = nil
                     current.draft.numberText = "\(randomNumber)"
+                    if current.draft.customAvatarText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        current.draft.customAvatarText = "baseGift:\(gift.id)"
+                    }
                     return current
                 }
                 refreshAttributes(gift.id)
@@ -1581,6 +1762,41 @@ func eahatGramAddGiftToProfileScreen(
             updateState { current in
                 var current = current
                 current.draft.numberText = value
+                return current
+            }
+        },
+        updateCustomTitle: { value in
+            updateState { current in
+                var current = current
+                current.draft.customTitleText = value
+                return current
+            }
+        },
+        updateCustomSlug: { value in
+            updateState { current in
+                var current = current
+                current.draft.customSlugText = value
+                return current
+            }
+        },
+        updateCustomAvatar: { value in
+            updateState { current in
+                var current = current
+                current.draft.customAvatarText = value
+                return current
+            }
+        },
+        updateCustomPrice: { value in
+            updateState { current in
+                var current = current
+                current.draft.customPriceText = value
+                return current
+            }
+        },
+        updateCustomTotal: { value in
+            updateState { current in
+                var current = current
+                current.draft.customTotalText = value
                 return current
             }
         },
@@ -1669,7 +1885,7 @@ func eahatGramAddGiftToProfileScreen(
     |> map { presentationData, state -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .text("Add Gift To Profile"),
+            title: .text(customMode ? "Custom Gift" : "Add Gift To Profile"),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
@@ -1677,7 +1893,7 @@ func eahatGramAddGiftToProfileScreen(
         )
         let listState = ItemListNodeState(
             presentationData: ItemListPresentationData(presentationData),
-            entries: eahatGramAddGiftEntries(state: state),
+            entries: eahatGramAddGiftEntries(state: state, customMode: customMode),
             style: .blocks,
             animateChanges: true
         )

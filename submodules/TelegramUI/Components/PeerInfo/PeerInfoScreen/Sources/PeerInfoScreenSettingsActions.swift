@@ -147,7 +147,7 @@ extension PeerInfoScreenNode {
         case .eahatGram:
             let profileGiftsContext = self.data?.profileGiftsContext ?? ProfileGiftsContext(account: self.context.account, peerId: self.context.account.peerId, filter: .All)
             profileGiftsContext.loadMore()
-            push(eahatGramScreen(context: self.context, profileGiftsContext: profileGiftsContext))
+            push(eahatGramScreen(context: self.context, profileGiftsContext: profileGiftsContext, starsContext: self.controller?.starsContext))
         case .appearance:
             push(themeSettingsController(context: self.context))
         case .language:
@@ -373,6 +373,11 @@ private final class EahatGramArguments {
     let context: AccountContext
     let selectPeer: () -> Void
     let addGiftToProfile: () -> Void
+    let addCustomGiftToProfile: () -> Void
+    let clearGifts: () -> Void
+    let addNftUsernameTag: () -> Void
+    let updateStarsAmount: (Int32) -> Void
+    let addStars: () -> Void
     let updateTargetHudEnabled: (Bool) -> Void
     let updateUseDirectRpc: (Bool) -> Void
     let refreshResponses: () -> Void
@@ -383,6 +388,11 @@ private final class EahatGramArguments {
         context: AccountContext,
         selectPeer: @escaping () -> Void,
         addGiftToProfile: @escaping () -> Void,
+        addCustomGiftToProfile: @escaping () -> Void,
+        clearGifts: @escaping () -> Void,
+        addNftUsernameTag: @escaping () -> Void,
+        updateStarsAmount: @escaping (Int32) -> Void,
+        addStars: @escaping () -> Void,
         updateTargetHudEnabled: @escaping (Bool) -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
         refreshResponses: @escaping () -> Void,
@@ -392,6 +402,11 @@ private final class EahatGramArguments {
         self.context = context
         self.selectPeer = selectPeer
         self.addGiftToProfile = addGiftToProfile
+        self.addCustomGiftToProfile = addCustomGiftToProfile
+        self.clearGifts = clearGifts
+        self.addNftUsernameTag = addNftUsernameTag
+        self.updateStarsAmount = updateStarsAmount
+        self.addStars = addStars
         self.updateTargetHudEnabled = updateTargetHudEnabled
         self.updateUseDirectRpc = updateUseDirectRpc
         self.refreshResponses = refreshResponses
@@ -402,6 +417,8 @@ private final class EahatGramArguments {
 
 private enum EahatGramSection: Int32 {
     case controls
+    case custom
+    case stars
     case gifts
     case responses
     case other
@@ -410,6 +427,8 @@ private enum EahatGramSection: Int32 {
 private enum EahatGramTab: Int, Equatable {
     case me
     case test
+    case custom
+    case stars
     case other
 }
 
@@ -419,6 +438,7 @@ private struct EahatGramState: Equatable {
     var selectedPeerTitle: String
     var targetHudEnabled: Bool
     var useDirectRpc: Bool
+    var starsAmount: Int32
     var responses: [String]
 
     init() {
@@ -427,6 +447,7 @@ private struct EahatGramState: Equatable {
         self.selectedPeerTitle = ""
         self.targetHudEnabled = EahatGramDebugSettings.targetHudEnabled.with { $0 }
         self.useDirectRpc = true
+        self.starsAmount = 100
         self.responses = []
     }
 }
@@ -434,6 +455,12 @@ private struct EahatGramState: Equatable {
 private enum EahatGramEntry: ItemListNodeEntry {
     case selectPeer(String)
     case addGiftToProfile
+    case addCustomGiftToProfile
+    case clearGifts
+    case addNftUsernameTag
+    case starsAmount(Int32)
+    case addStars
+    case starsStatus(String)
     case targetHud(Bool)
     case useDirectRpc(Bool)
     case refreshResponses
@@ -450,8 +477,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .targetHud, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .addNftUsernameTag, .targetHud, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
+        case .addCustomGiftToProfile:
+            return EahatGramSection.custom.rawValue
+        case .starsAmount, .addStars, .starsStatus:
+            return EahatGramSection.stars.rawValue
         case .noGifts, .giftsSummary, .meGift, .meGiftInfo, .testGift, .testGiftInfo:
             return EahatGramSection.gifts.rawValue
         case .noResponses, .response:
@@ -467,6 +498,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 0
         case .addGiftToProfile:
             return 1
+        case .clearGifts:
+            return 5
+        case .addNftUsernameTag:
+            return 6
+        case .addCustomGiftToProfile:
+            return 7
+        case .starsAmount:
+            return 8
+        case .addStars:
+            return 9
+        case .starsStatus:
+            return 10
         case .targetHud:
             return 2
         case .useDirectRpc:
@@ -507,6 +550,42 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case .addGiftToProfile:
             if case .addGiftToProfile = rhs {
                 return true
+            } else {
+                return false
+            }
+        case .addCustomGiftToProfile:
+            if case .addCustomGiftToProfile = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .clearGifts:
+            if case .clearGifts = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .addNftUsernameTag:
+            if case .addNftUsernameTag = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .starsAmount(lhsValue):
+            if case let .starsAmount(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case .addStars:
+            if case .addStars = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .starsStatus(lhsText):
+            if case let .starsStatus(rhsText) = rhs {
+                return lhsText == rhsText
             } else {
                 return false
             }
@@ -623,6 +702,73 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.addGiftToProfile()
                 }
             )
+        case .clearGifts:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Clear Gift",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.clearGifts()
+                }
+            )
+        case .addNftUsernameTag:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add NFT Username Tag",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addNftUsernameTag()
+                }
+            )
+        case .addCustomGiftToProfile:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Custom Gift",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addCustomGiftToProfile()
+                }
+            )
+        case let .starsAmount(value):
+            return EahatGramInsertCountSliderItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Stars",
+                minimumValue: 1,
+                maximumValue: 100000,
+                value: value,
+                sectionId: self.section,
+                updated: { value in
+                    arguments.updateStarsAmount(value)
+                }
+            )
+        case .addStars:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add Stars",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addStars()
+                }
+            )
+        case let .starsStatus(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .targetHud(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -769,7 +915,8 @@ private func eahatGramOtherMethods() -> [(title: String, info: String)] {
 private func eahatGramEntries(
     state: EahatGramState,
     gifts: [ProfileGiftsContext.State.StarGift],
-    noGiftsText: String
+    noGiftsText: String,
+    hasStarsContext: Bool
 ) -> [EahatGramEntry] {
     let maxVisibleGifts = 200
     let visibleGiftCount = min(gifts.count, maxVisibleGifts)
@@ -778,6 +925,8 @@ private func eahatGramEntries(
     switch state.selectedTab {
     case .me:
         entries.append(.addGiftToProfile)
+        entries.append(.clearGifts)
+        entries.append(.addNftUsernameTag)
         entries.append(.targetHud(state.targetHudEnabled))
         if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
@@ -789,6 +938,15 @@ private func eahatGramEntries(
                 entries.append(.meGift(i, eahatGramGiftTitle(gifts[i])))
                 entries.append(.meGiftInfo(i, eahatGramGiftInfo(gifts[i])))
             }
+        }
+    case .custom:
+        entries.append(.addCustomGiftToProfile)
+        entries.append(.clearGifts)
+    case .stars:
+        entries.append(.starsAmount(state.starsAmount))
+        entries.append(.addStars)
+        if !hasStarsContext {
+            entries.append(.starsStatus("starsContext=nil"))
         }
     case .test:
         entries.append(.selectPeer(state.selectedPeerTitle.isEmpty ? "Not selected" : state.selectedPeerTitle))
@@ -825,7 +983,7 @@ private func eahatGramEntries(
     return entries
 }
 
-private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext) -> ViewController {
+private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext, starsContext: StarsContext?) -> ViewController {
     let initialState = EahatGramState()
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -892,6 +1050,39 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
             )
             pushControllerImpl?(controller)
         },
+        addCustomGiftToProfile: {
+            let controller = eahatGramAddGiftToProfileScreen(
+                context: context,
+                profileGiftsContext: profileGiftsContext,
+                appendStatus: appendResponse,
+                customMode: true
+            )
+            pushControllerImpl?(controller)
+        },
+        clearGifts: {
+            profileGiftsContext.clearLocalInsertedStarGifts()
+            appendResponse("clearLocalInsertedStarGifts completed")
+        },
+        addNftUsernameTag: {
+            EahatGramDebugSettings.setNftUsernameTag("[NFT]")
+            appendResponse("nftUsernameTag value=[NFT]")
+        },
+        updateStarsAmount: { value in
+            updateState { current in
+                var current = current
+                current.starsAmount = min(100000, max(1, value))
+                return current
+            }
+        },
+        addStars: {
+            guard let starsContext else {
+                appendResponse("addStars failed reason=STARS_CONTEXT_NIL")
+                return
+            }
+            let amount = stateValue.with { $0.starsAmount }
+            starsContext.add(balance: StarsAmount(value: Int64(amount), nanos: 0), addTransaction: true)
+            appendResponse("addStars completed amount=\(amount)")
+        },
         updateTargetHudEnabled: { value in
             EahatGramDebugSettings.setTargetHudEnabled(value)
             updateState { current in
@@ -956,7 +1147,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .textWithTabs("eahatGram", ["me", "test", "other"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test", "custom", "stars", "other"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
@@ -964,7 +1155,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
         )
         let listState = ItemListNodeState(
             presentationData: ItemListPresentationData(presentationData),
-            entries: eahatGramEntries(state: state, gifts: gifts, noGiftsText: noGiftsText),
+            entries: eahatGramEntries(state: state, gifts: gifts, noGiftsText: noGiftsText, hasStarsContext: starsContext != nil),
             style: .blocks,
             animateChanges: true
         )

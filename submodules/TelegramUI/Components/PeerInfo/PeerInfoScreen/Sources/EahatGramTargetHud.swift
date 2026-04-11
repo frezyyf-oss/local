@@ -10,8 +10,10 @@ import AvatarNode
 
 final class EahatGramDebugSettings {
     private static let targetHudEnabledKey = "eahatGram.targetHudEnabled"
+    private static let nftUsernameTagKey = "eahatGram.nftUsernameTag"
 
     static let targetHudEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: targetHudEnabledKey) as? Bool ?? false)
+    static let nftUsernameTag = Atomic<String>(value: UserDefaults.standard.string(forKey: nftUsernameTagKey) ?? "")
     static let targetHudOrigin = Atomic<CGPoint?>(value: nil)
 
     static func setTargetHudEnabled(_ value: Bool) {
@@ -19,6 +21,13 @@ final class EahatGramDebugSettings {
             value
         }
         UserDefaults.standard.set(value, forKey: self.targetHudEnabledKey)
+    }
+
+    static func setNftUsernameTag(_ value: String) {
+        _ = self.nftUsernameTag.modify { _ in
+            value
+        }
+        UserDefaults.standard.set(value, forKey: self.nftUsernameTagKey)
     }
 }
 
@@ -39,12 +48,16 @@ final class EahatGramTargetHudNode: ASDisplayNode {
     var positionUpdated: ((CGPoint) -> Void)?
 
     private var panStartOrigin: CGPoint = .zero
+    private var copiedPeerIdText: String?
 
     override init() {
         super.init()
 
         self.isUserInteractionEnabled = true
         self.clipsToBounds = false
+
+        self.outerNode.isUserInteractionEnabled = true
+        self.innerNode.isUserInteractionEnabled = true
 
         self.outerNode.cornerRadius = 6.0
         self.outerNode.borderWidth = UIScreenPixel
@@ -71,6 +84,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
             textNode.truncationMode = .byTruncatingTail
             textNode.isUserInteractionEnabled = false
         }
+        self.idNode.isUserInteractionEnabled = true
 
         self.addSubnode(self.outerNode)
         self.outerNode.addSubnode(self.innerNode)
@@ -89,6 +103,9 @@ final class EahatGramTargetHudNode: ASDisplayNode {
 
         let recognizer = UIPanGestureRecognizer(target: self, action: #selector(self.handlePan(_:)))
         self.view.addGestureRecognizer(recognizer)
+
+        let idTapRecognizer = UITapGestureRecognizer(target: self, action: #selector(self.handleIdTap))
+        self.idNode.view.addGestureRecognizer(idTapRecognizer)
     }
 
     func update(
@@ -97,6 +114,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         peer: EnginePeer,
         username: String?,
         peerId: Int64,
+        dcId: Int?,
         timeText: String
     ) {
         self.outerNode.backgroundColor = UIColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 0.96)
@@ -109,16 +127,22 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.avatarFrameNode.borderColor = UIColor(red: 0.24, green: 0.24, blue: 0.24, alpha: 1.0).cgColor
 
         self.accentGradientLayer.colors = [
-            UIColor(red: 1.00, green: 0.91, blue: 0.22, alpha: 1.0).cgColor,
-            UIColor(red: 1.00, green: 0.64, blue: 0.16, alpha: 1.0).cgColor,
-            UIColor(red: 0.98, green: 0.44, blue: 0.22, alpha: 1.0).cgColor,
-            UIColor(red: 0.99, green: 0.86, blue: 0.18, alpha: 1.0).cgColor
+            UIColor(red: 1.00, green: 0.18, blue: 0.18, alpha: 1.0).cgColor,
+            UIColor(red: 1.00, green: 0.58, blue: 0.10, alpha: 1.0).cgColor,
+            UIColor(red: 1.00, green: 0.92, blue: 0.16, alpha: 1.0).cgColor,
+            UIColor(red: 0.15, green: 0.86, blue: 0.28, alpha: 1.0).cgColor,
+            UIColor(red: 0.10, green: 0.78, blue: 0.96, alpha: 1.0).cgColor,
+            UIColor(red: 0.24, green: 0.36, blue: 1.00, alpha: 1.0).cgColor,
+            UIColor(red: 0.66, green: 0.26, blue: 1.00, alpha: 1.0).cgColor,
+            UIColor(red: 1.00, green: 0.18, blue: 0.18, alpha: 1.0).cgColor
         ]
-        self.accentGradientLayer.locations = [0.0, 0.35, 0.7, 1.0]
+        self.accentGradientLayer.locations = [0.0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 1.0]
         self.ensureAccentAnimation()
 
+        let nftUsernameTag = EahatGramDebugSettings.nftUsernameTag.with { $0 }.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = nftUsernameTag.isEmpty ? peer.compactDisplayTitle : "\(peer.compactDisplayTitle) \(nftUsernameTag)"
         self.nameNode.attributedText = NSAttributedString(
-            string: peer.compactDisplayTitle,
+            string: displayTitle,
             font: Font.semibold(18.0),
             textColor: .white
         )
@@ -127,8 +151,10 @@ final class EahatGramTargetHudNode: ASDisplayNode {
             font: Font.regular(11.0),
             textColor: UIColor(red: 0.86, green: 0.86, blue: 0.86, alpha: 1.0)
         )
+        self.copiedPeerIdText = "\(peerId)"
+        let dcText = dcId.map { "dc \($0)" } ?? "dc ?"
         self.idNode.attributedText = NSAttributedString(
-            string: "id \(peerId)",
+            string: "id \(peerId) \(dcText)",
             font: Font.with(size: 11.0, weight: .medium, traits: .monospacedNumbers),
             textColor: UIColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1.0)
         )
@@ -205,17 +231,25 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         }
     }
 
+    @objc private func handleIdTap() {
+        guard let copiedPeerIdText = self.copiedPeerIdText else {
+            return
+        }
+        UIPasteboard.general.string = copiedPeerIdText
+        self.idNode.layer.animateAlpha(from: 0.35, to: 1.0, duration: 0.2)
+    }
+
     private func ensureAccentAnimation() {
         if self.accentGradientLayer.animation(forKey: "eahatGramAccentLocations") != nil {
             return
         }
         let animation = CABasicAnimation(keyPath: "locations")
-        animation.fromValue = [-0.2, 0.1, 0.4, 0.7]
-        animation.toValue = [0.3, 0.6, 0.9, 1.2]
-        animation.duration = 1.8
+        animation.fromValue = [-0.35, -0.2, -0.05, 0.1, 0.25, 0.4, 0.55, 0.7]
+        animation.toValue = [0.3, 0.45, 0.6, 0.75, 0.9, 1.05, 1.2, 1.35]
+        animation.duration = 2.0
         animation.repeatCount = .infinity
-        animation.autoreverses = true
-        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.autoreverses = false
+        animation.timingFunction = CAMediaTimingFunction(name: .linear)
         self.accentGradientLayer.add(animation, forKey: "eahatGramAccentLocations")
     }
 

@@ -17,6 +17,13 @@ import PhotoResources
 import PeerInfoPaneNode
 import WebUI
 
+private func eahatGramExactPresenceText(timestamp: Int32) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    return "lastActivity \(formatter.string(from: Date(timeIntervalSince1970: TimeInterval(timestamp))))"
+}
+
 enum PeerInfoUpdatingAvatar {
     case none
     case image(TelegramMediaImageRepresentation)
@@ -1180,7 +1187,14 @@ func peerInfoScreenData(
                     let data = manager.with { manager -> PeerInfoStatusData? in
                         if let presence = manager.currentValue {
                             let timestamp = CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970
-                            let (text, isActivity) = stringAndActivityForUserPresence(strings: strings, dateTimeFormat: dateTimeFormat, presence: EnginePeer.Presence(presence), relativeTo: Int32(timestamp), expanded: true)
+                            var (text, isActivity) = stringAndActivityForUserPresence(strings: strings, dateTimeFormat: dateTimeFormat, presence: EnginePeer.Presence(presence), relativeTo: Int32(timestamp), expanded: true)
+                            let exactTimestamp: Int32?
+                            if presence.lastActivity > 0 {
+                                exactTimestamp = presence.lastActivity
+                                text = eahatGramExactPresenceText(timestamp: presence.lastActivity)
+                            } else {
+                                exactTimestamp = nil
+                            }
                             var isHiddenStatus = false
                             switch presence.status {
                             case .recently(let isHidden), .lastWeek(let isHidden), .lastMonth(let isHidden):
@@ -1188,7 +1202,7 @@ func peerInfoScreenData(
                             default:
                                 break
                             }
-                            return PeerInfoStatusData(text: text, isActivity: isActivity, isHiddenStatus: isHiddenStatus, key: nil)
+                            return PeerInfoStatusData(text: text, isActivity: isActivity, isHiddenStatus: isHiddenStatus, exactTimestamp: exactTimestamp, key: nil)
                         } else {
                             return nil
                         }

@@ -74,17 +74,20 @@ public struct PeerInfoStatusData: Equatable {
     public var text: String
     public var isActivity: Bool
     public var isHiddenStatus: Bool
+    public var exactTimestamp: Int32?
     public var key: PeerInfoPaneKey?
     
     public init(
         text: String,
         isActivity: Bool,
         isHiddenStatus: Bool = false,
+        exactTimestamp: Int32? = nil,
         key: PeerInfoPaneKey?
     ) {
         self.text = text
         self.isActivity = isActivity
         self.isHiddenStatus = isHiddenStatus
+        self.exactTimestamp = exactTimestamp
         self.key = key
     }
 }
