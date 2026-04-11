@@ -1861,7 +1861,23 @@ extension ChatControllerImpl {
                                         if let localInvertedMediaAttribute {
                                             updatedAttributes.append(localInvertedMediaAttribute)
                                         }
-                                        return .update(currentMessage.withUpdatedText(text.string).withUpdatedAttributes(updatedAttributes))
+                                        return .update(StoreMessage(
+                                            id: currentMessage.id,
+                                            customStableId: nil,
+                                            globallyUniqueId: currentMessage.globallyUniqueId,
+                                            groupingKey: currentMessage.groupingKey,
+                                            threadId: currentMessage.threadId,
+                                            timestamp: currentMessage.timestamp,
+                                            flags: StoreMessageFlags(currentMessage.flags),
+                                            tags: currentMessage.tags,
+                                            globalTags: currentMessage.globalTags,
+                                            localTags: currentMessage.localTags,
+                                            forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init),
+                                            authorId: currentMessage.author?.id,
+                                            text: text.string,
+                                            attributes: updatedAttributes,
+                                            media: currentMessage.media
+                                        ))
                                     })
                                 }
                                 |> deliverOnMainQueue).startStandalone()
