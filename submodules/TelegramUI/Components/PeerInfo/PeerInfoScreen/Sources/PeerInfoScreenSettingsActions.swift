@@ -493,27 +493,27 @@ private enum EahatGramEntry: ItemListNodeEntry {
     var stableId: Int {
         switch self {
         case .selectPeer:
-            return 0
+            return 100
         case .addGiftToProfile:
-            return 1
+            return 0
         case .clearGifts:
-            return 5
-        case .addNftUsernameTag:
-            return 6
-        case .addCustomGiftToProfile:
-            return 7
-        case .starsAmount:
-            return 8
-        case .addStars:
-            return 9
-        case .starsStatus:
-            return 10
-        case .targetHud:
             return 2
-        case .useDirectRpc:
+        case .addNftUsernameTag:
             return 3
-        case .refreshResponses:
+        case .addCustomGiftToProfile:
+            return 1
+        case .starsAmount:
+            return 200
+        case .addStars:
+            return 201
+        case .starsStatus:
+            return 202
+        case .targetHud:
             return 4
+        case .useDirectRpc:
+            return 101
+        case .refreshResponses:
+            return 102
         case .noGifts:
             return 400000
         case .giftsSummary:
