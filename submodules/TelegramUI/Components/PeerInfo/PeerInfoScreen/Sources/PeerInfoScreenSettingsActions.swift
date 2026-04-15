@@ -17,6 +17,64 @@ import PresentationDataUtils
 import PasswordSetupUI
 import InstantPageCache
 import ItemListUI
+import ObjectiveC.runtime
+
+private var eahatGramDismissGestureTargetKey: UInt8 = 0
+
+private final class EahatGramDismissGestureTarget: NSObject {
+    weak var view: UIView?
+
+    init(view: UIView?) {
+        self.view = view
+    }
+
+    @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+        guard let view = self.view, recognizer.state == .ended else {
+            return
+        }
+        let location = recognizer.location(in: view)
+        if let hitView = view.hitTest(location, with: nil), hitView is UITextField || hitView is UITextView {
+            return
+        }
+        view.endEditing(true)
+    }
+}
+
+private func eahatGramInstallDismissKeyboardGesture(controller: ViewController) {
+    let target = EahatGramDismissGestureTarget(view: controller.view)
+    let recognizer = UITapGestureRecognizer(target: target, action: #selector(EahatGramDismissGestureTarget.handleTap(_:)))
+    recognizer.cancelsTouchesInView = false
+    controller.view.addGestureRecognizer(recognizer)
+    objc_setAssociatedObject(controller, &eahatGramDismissGestureTargetKey, target, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+}
+
+private func eahatGramInputTitle(_ presentationData: ItemListPresentationData, _ text: String) -> NSAttributedString {
+    return NSAttributedString(string: text, textColor: presentationData.theme.list.itemPrimaryTextColor)
+}
+
+private func eahatGramNormalizedNumericText(_ value: String, maxLength: Int) -> String {
+    let filtered = value.filter(\.isNumber)
+    if filtered.count <= maxLength {
+        return filtered
+    } else {
+        return String(filtered.prefix(maxLength))
+    }
+}
+
+private func eahatGramPositiveInt(_ value: String, defaultValue: Int, minValue: Int, maxValue: Int) -> Int {
+    guard let parsed = Int(value), parsed >= minValue else {
+        return defaultValue
+    }
+    return min(maxValue, parsed)
+}
+
+private func eahatGramPeerIdFromText(_ value: String) -> EnginePeer.Id? {
+    let normalized = eahatGramNormalizedNumericText(value, maxLength: 18)
+    guard let parsed = Int64(normalized), parsed > 0 else {
+        return nil
+    }
+    return EnginePeer.Id(namespace: Namespaces.Peer.CloudUser, id: EnginePeer.Id.Id._internalFromInt64Value(parsed))
+}
 
 extension PeerInfoScreenNode {
     func openSettings(section: PeerInfoSettingsSection) {
@@ -380,6 +438,10 @@ private final class EahatGramArguments {
     let addStars: () -> Void
     let updateTargetHudEnabled: (Bool) -> Void
     let updateUseDirectRpc: (Bool) -> Void
+    let updateChainPeerId: (String) -> Void
+    let updateChainDepth: (String) -> Void
+    let updateChainPeerLimit: (String) -> Void
+    let runChainScan: () -> Void
     let refreshResponses: () -> Void
     let runGiftProbe: (Int) -> Void
     let showOtherMethod: (Int) -> Void
@@ -395,6 +457,10 @@ private final class EahatGramArguments {
         addStars: @escaping () -> Void,
         updateTargetHudEnabled: @escaping (Bool) -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
+        updateChainPeerId: @escaping (String) -> Void,
+        updateChainDepth: @escaping (String) -> Void,
+        updateChainPeerLimit: @escaping (String) -> Void,
+        runChainScan: @escaping () -> Void,
         refreshResponses: @escaping () -> Void,
         runGiftProbe: @escaping (Int) -> Void,
         showOtherMethod: @escaping (Int) -> Void
@@ -409,6 +475,10 @@ private final class EahatGramArguments {
         self.addStars = addStars
         self.updateTargetHudEnabled = updateTargetHudEnabled
         self.updateUseDirectRpc = updateUseDirectRpc
+        self.updateChainPeerId = updateChainPeerId
+        self.updateChainDepth = updateChainDepth
+        self.updateChainPeerLimit = updateChainPeerLimit
+        self.runChainScan = runChainScan
         self.refreshResponses = refreshResponses
         self.runGiftProbe = runGiftProbe
         self.showOtherMethod = showOtherMethod
@@ -419,6 +489,7 @@ private enum EahatGramSection: Int32 {
     case controls
     case custom
     case stars
+    case chain
     case gifts
     case responses
     case other
@@ -427,6 +498,7 @@ private enum EahatGramSection: Int32 {
 private enum EahatGramTab: Int, Equatable {
     case me
     case test
+    case chain
     case other
 }
 
@@ -437,6 +509,10 @@ private struct EahatGramState: Equatable {
     var targetHudEnabled: Bool
     var useDirectRpc: Bool
     var starsAmount: Int32
+    var chainPeerIdText: String
+    var chainDepthText: String
+    var chainPeerLimitText: String
+    var chainStatusText: String
     var responses: [String]
 
     init() {
@@ -446,6 +522,10 @@ private struct EahatGramState: Equatable {
         self.targetHudEnabled = EahatGramDebugSettings.targetHudEnabled.with { $0 }
         self.useDirectRpc = true
         self.starsAmount = 100
+        self.chainPeerIdText = ""
+        self.chainDepthText = "5"
+        self.chainPeerLimitText = "5"
+        self.chainStatusText = "No chain scan started"
         self.responses = []
     }
 }
@@ -461,6 +541,11 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case starsStatus(String)
     case targetHud(Bool)
     case useDirectRpc(Bool)
+    case chainPeerId(String)
+    case chainDepth(String)
+    case chainPeerLimit(String)
+    case runChainScan
+    case chainStatus(String)
     case refreshResponses
     case noGifts(String)
     case giftsSummary(String)
@@ -481,6 +566,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return EahatGramSection.custom.rawValue
         case .starsAmount, .addStars, .starsStatus:
             return EahatGramSection.stars.rawValue
+        case .chainPeerId, .chainDepth, .chainPeerLimit, .runChainScan, .chainStatus:
+            return EahatGramSection.chain.rawValue
         case .noGifts, .giftsSummary, .meGift, .meGiftInfo, .testGift, .testGiftInfo:
             return EahatGramSection.gifts.rawValue
         case .noResponses, .response:
@@ -512,6 +599,16 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 4
         case .useDirectRpc:
             return 101
+        case .chainPeerId:
+            return 103
+        case .chainDepth:
+            return 104
+        case .chainPeerLimit:
+            return 105
+        case .runChainScan:
+            return 106
+        case .chainStatus:
+            return 107
         case .refreshResponses:
             return 102
         case .noGifts:
@@ -596,6 +693,36 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case let .useDirectRpc(lhsValue):
             if case let .useDirectRpc(rhsValue) = rhs {
                 return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .chainPeerId(lhsText):
+            if case let .chainPeerId(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .chainDepth(lhsText):
+            if case let .chainDepth(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .chainPeerLimit(lhsText):
+            if case let .chainPeerLimit(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case .runChainScan:
+            if case .runChainScan = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .chainStatus(lhsText):
+            if case let .chainStatus(rhsText) = rhs {
+                return lhsText == rhsText
             } else {
                 return false
             }
@@ -791,6 +918,68 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateUseDirectRpc(value)
                 }
             )
+        case let .chainPeerId(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Peer Id"),
+                text: text,
+                placeholder: "7582246143",
+                type: .number,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateChainPeerId(value)
+                },
+                action: {}
+            )
+        case let .chainDepth(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Chains"),
+                text: text,
+                placeholder: "5",
+                type: .number,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateChainDepth(value)
+                },
+                action: {}
+            )
+        case let .chainPeerLimit(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Limit"),
+                text: text,
+                placeholder: "5",
+                type: .number,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateChainPeerLimit(value)
+                },
+                action: {
+                    arguments.runChainScan()
+                }
+            )
+        case .runChainScan:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Build Gift Chain",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.runChainScan()
+                }
+            )
+        case let .chainStatus(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case .refreshResponses:
             return ItemListActionItem(
                 presentationData: presentationData,
@@ -962,6 +1151,12 @@ private func eahatGramEntries(
                 entries.append(.response(i, state.responses[i]))
             }
         }
+    case .chain:
+        entries.append(.chainPeerId(state.chainPeerIdText))
+        entries.append(.chainDepth(state.chainDepthText))
+        entries.append(.chainPeerLimit(state.chainPeerLimitText))
+        entries.append(.runChainScan)
+        entries.append(.chainStatus(state.chainStatusText))
     case .other:
         entries.append(.starsAmount(state.starsAmount))
         entries.append(.addStars)
@@ -985,9 +1180,18 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     let stateValue = Atomic(value: initialState)
     let currentGifts = Atomic(value: [ProfileGiftsContext.State.StarGift]())
     let probeDisposable = MetaDisposable()
+    let chainBuildDisposable = MetaDisposable()
 
     let updateState: ((EahatGramState) -> EahatGramState) -> Void = { f in
         statePromise.set(stateValue.modify { f($0) })
+    }
+
+    let setChainStatus: (String) -> Void = { text in
+        updateState { current in
+            var current = current
+            current.chainStatusText = text
+            return current
+        }
     }
 
     let appendResponse: (String) -> Void = { response in
@@ -1032,6 +1236,9 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                     var current = current
                     current.selectedPeerId = peer.id
                     current.selectedPeerTitle = peer.compactDisplayTitle
+                    if peer.id.namespace == Namespaces.Peer.CloudUser {
+                        current.chainPeerIdText = "\(peer.id.id._internalGetInt64Value())"
+                    }
                     return current
                 }
                 controller.dismiss()
@@ -1095,6 +1302,60 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                 return current
             }
         },
+        updateChainPeerId: { value in
+            updateState { current in
+                var current = current
+                current.chainPeerIdText = eahatGramNormalizedNumericText(value, maxLength: 18)
+                return current
+            }
+        },
+        updateChainDepth: { value in
+            updateState { current in
+                var current = current
+                current.chainDepthText = eahatGramNormalizedNumericText(value, maxLength: 2)
+                return current
+            }
+        },
+        updateChainPeerLimit: { value in
+            updateState { current in
+                var current = current
+                current.chainPeerLimitText = eahatGramNormalizedNumericText(value, maxLength: 2)
+                return current
+            }
+        },
+        runChainScan: {
+            let currentState = stateValue.with { $0 }
+            guard let rootPeerId = eahatGramPeerIdFromText(currentState.chainPeerIdText) else {
+                let line = "giftChain failed reason=PEER_ID_INVALID value=\(currentState.chainPeerIdText)"
+                setChainStatus(line)
+                appendResponse(line)
+                return
+            }
+
+            let maxDepth = eahatGramPositiveInt(currentState.chainDepthText, defaultValue: 1, minValue: 1, maxValue: 9)
+            let peerLimit = eahatGramPositiveInt(currentState.chainPeerLimitText, defaultValue: 1, minValue: 1, maxValue: 25)
+            let startLine = "giftChain started peerId=\(rootPeerId.id._internalGetInt64Value()) depth=\(maxDepth) limit=\(peerLimit)"
+            setChainStatus(startLine)
+            appendResponse(startLine)
+
+            chainBuildDisposable.set((eahatGramBuildGiftChainSignal(
+                context: context,
+                rootPeerId: rootPeerId,
+                maxDepth: maxDepth,
+                peerLimit: peerLimit
+            )
+            |> deliverOnMainQueue).start(next: { event in
+                switch event {
+                case let .progress(text):
+                    setChainStatus(text)
+                case let .completed(graph):
+                    let completedLine = "giftChain completed peerId=\(rootPeerId.id._internalGetInt64Value()) nodes=\(graph.nodes.count) edges=\(graph.edges.count)"
+                    setChainStatus(completedLine)
+                    appendResponse(completedLine)
+                    pushControllerImpl?(EahatGramGiftChainScreen(context: context, graph: graph))
+                }
+            }))
+        },
         refreshResponses: refreshResponses,
         runGiftProbe: { index in
             let gifts = currentGifts.with { $0 }
@@ -1143,7 +1404,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .textWithTabs("eahatGram", ["me", "test", "other"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test", "chain", "other"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
@@ -1159,9 +1420,11 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     }
     |> afterDisposed {
         probeDisposable.dispose()
+        chainBuildDisposable.dispose()
     }
 
     let controller = ItemListController(context: context, state: signal)
+    eahatGramInstallDismissKeyboardGesture(controller: controller)
     controller.titleControlValueChanged = { index in
         guard let selectedTab = EahatGramTab(rawValue: index) else {
             return
