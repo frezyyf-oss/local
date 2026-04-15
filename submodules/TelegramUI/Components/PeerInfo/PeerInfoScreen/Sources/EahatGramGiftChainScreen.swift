@@ -476,6 +476,10 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
         node: EahatGramGiftChainNode,
         isRoot: Bool
     ) {
+        let rawPeerId = eahatGramRawPeerId(node.peerId)
+        let tagText = node.peer.addressName.flatMap { "@\($0)" } ?? "@-"
+        self.copyText = "\(tagText) \(rawPeerId)"
+
         super.init()
 
         self.backgroundNode.cornerRadius = 16.0
@@ -493,10 +497,6 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
         self.depthNode.maximumNumberOfLines = 1
         self.mutualNode.displaysAsynchronously = false
         self.mutualNode.maximumNumberOfLines = 1
-
-        let rawPeerId = eahatGramRawPeerId(node.peerId)
-        let tagText = node.peer.addressName.flatMap { "@\($0)" } ?? "@-"
-        self.copyText = "\(tagText) \(rawPeerId)"
 
         self.nameNode.attributedText = NSAttributedString(
             string: node.peer.compactDisplayTitle,
