@@ -126,11 +126,11 @@ final class EahatGramTargetHudStatsContext {
             }
         }
 
-        self.stateValue.set(.single(EahatGramTargetHudStats(
+        self.stateValue.set(EahatGramTargetHudStats(
             giftsCount: gifts.count,
             giftsStarsCount: hasMissingGiftPrice ? nil : giftsStarsCount,
             nftCount: nftCount
-        )))
+        ))
     }
 }
 
