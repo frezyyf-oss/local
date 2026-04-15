@@ -1151,8 +1151,21 @@ func peerInfoScreenData(
             let profileGiftsCollectionsContext: ProfileGiftsCollectionsContext?
             if case .user = kind {
                 if isMyProfile || userPeerId != context.account.peerId {
-                    profileGiftsContext = existingProfileGiftsContext ?? ProfileGiftsContext(account: context.account, peerId: userPeerId)
-                    profileGiftsCollectionsContext = existingProfileGiftsCollectionsContext ?? ProfileGiftsCollectionsContext(account: context.account, peerId: userPeerId, allGiftsContext: profileGiftsContext)
+                    let reusableProfileGiftsContext = existingProfileGiftsContext.flatMap { existingContext -> ProfileGiftsContext? in
+                        guard existingContext.peerId == userPeerId, existingContext.collectionId == nil else {
+                            return nil
+                        }
+                        return existingContext
+                    }
+                    let reusableProfileGiftsCollectionsContext = existingProfileGiftsCollectionsContext.flatMap { existingContext -> ProfileGiftsCollectionsContext? in
+                        guard existingContext.peerId == userPeerId else {
+                            return nil
+                        }
+                        return existingContext
+                    }
+
+                    profileGiftsContext = reusableProfileGiftsContext ?? ProfileGiftsContext(account: context.account, peerId: userPeerId)
+                    profileGiftsCollectionsContext = reusableProfileGiftsCollectionsContext ?? ProfileGiftsCollectionsContext(account: context.account, peerId: userPeerId, allGiftsContext: profileGiftsContext)
                     
                     if switchToUpgradableGifts {
                         profileGiftsContext?.updateFilter([.displayed, .hidden, .limitedUpgradable])

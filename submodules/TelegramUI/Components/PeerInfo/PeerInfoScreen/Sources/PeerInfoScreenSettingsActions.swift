@@ -1349,7 +1349,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                 case let .progress(text):
                     setChainStatus(text)
                 case let .completed(graph):
-                    let completedLine = "giftChain completed peerId=\(rootPeerId.id._internalGetInt64Value()) nodes=\(graph.nodes.count) edges=\(graph.edges.count)"
+                    let completedLine = "giftChain completed peerId=\(rootPeerId.id._internalGetInt64Value()) nodes=\(graph.nodes.count) edges=\(graph.edges.count) truncated=\(graph.isTruncated ? 1 : 0)"
                     setChainStatus(completedLine)
                     appendResponse(completedLine)
                     pushControllerImpl?(EahatGramGiftChainScreen(context: context, graph: graph))

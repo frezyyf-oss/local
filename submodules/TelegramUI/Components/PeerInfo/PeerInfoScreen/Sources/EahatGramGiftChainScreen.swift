@@ -9,10 +9,24 @@ import TelegramPresentationData
 import AvatarNode
 import Postbox
 
+private let eahatGramGiftChainQueue = Queue(name: "EahatGramGiftChain", qos: .userInitiated)
+private let eahatGramGiftChainMaximumNodes = 180
+
+private func eahatGramRawPeerId(_ peerId: EnginePeer.Id) -> Int64 {
+    return peerId.id._internalGetInt64Value()
+}
+
+private func eahatGramGiftChainEdgeKey(fromPeerId: EnginePeer.Id, toPeerId: EnginePeer.Id) -> String {
+    return "\(fromPeerId.toInt64()):\(toPeerId.toInt64())"
+}
+
 struct EahatGramGiftChainNode: Equatable {
     let peerId: EnginePeer.Id
     let peer: EnginePeer
     let depth: Int
+    let parentPeerId: EnginePeer.Id?
+    let incomingGiftCount: Int
+    let mutualGiftCount: Int
 }
 
 struct EahatGramGiftChainEdge: Equatable {
@@ -25,6 +39,8 @@ struct EahatGramGiftChainGraph: Equatable {
     let rootPeerId: EnginePeer.Id
     let nodes: [EahatGramGiftChainNode]
     let edges: [EahatGramGiftChainEdge]
+    let highlightEdges: [EahatGramGiftChainEdge]
+    let isTruncated: Bool
 }
 
 enum EahatGramGiftChainBuildEvent: Equatable {
@@ -41,13 +57,55 @@ private struct EahatGramGiftChainFetchResult: Equatable {
     let targetPeer: EnginePeer?
     let senders: [EahatGramGiftChainSenderSummary]
     let totalGiftCount: Int
+    let trackedPeerGiftCount: Int
+}
+
+private func eahatGramGiftChainSenderSummaries(
+    gifts: [ProfileGiftsContext.State.StarGift],
+    peerLimit: Int
+) -> [EahatGramGiftChainSenderSummary] {
+    guard peerLimit > 0 else {
+        return []
+    }
+
+    var senders: [EahatGramGiftChainSenderSummary] = []
+    var senderIndices: [EnginePeer.Id: Int] = [:]
+    for gift in gifts {
+        guard let fromPeer = gift.fromPeer else {
+            continue
+        }
+        if let existingIndex = senderIndices[fromPeer.id] {
+            let existing = senders[existingIndex]
+            senders[existingIndex] = EahatGramGiftChainSenderSummary(peer: existing.peer, giftCount: existing.giftCount + 1)
+        } else if senders.count < peerLimit {
+            senderIndices[fromPeer.id] = senders.count
+            senders.append(EahatGramGiftChainSenderSummary(peer: fromPeer, giftCount: 1))
+        }
+    }
+    return senders
+}
+
+private func eahatGramGiftChainGiftCount(
+    gifts: [ProfileGiftsContext.State.StarGift],
+    fromPeerId: EnginePeer.Id?
+) -> Int {
+    guard let fromPeerId else {
+        return 0
+    }
+    var count = 0
+    for gift in gifts {
+        if gift.fromPeer?.id == fromPeerId {
+            count += 1
+        }
+    }
+    return count
 }
 
 private func eahatGramGiftChainPlaceholderPeer(peerId: EnginePeer.Id) -> EnginePeer {
     return .user(TelegramUser(
         id: peerId,
         accessHash: nil,
-        firstName: "User \(peerId.id._internalGetInt64Value())",
+        firstName: "User \(eahatGramRawPeerId(peerId))",
         lastName: nil,
         username: nil,
         phone: nil,
@@ -70,6 +128,7 @@ private func eahatGramGiftChainPlaceholderPeer(peerId: EnginePeer.Id) -> EngineP
 private func eahatGramLoadGiftChainBranch(
     context: AccountContext,
     peerId: EnginePeer.Id,
+    trackedPeerId: EnginePeer.Id?,
     peerLimit: Int
 ) -> Signal<EahatGramGiftChainFetchResult, NoError> {
     return Signal { subscriber in
@@ -85,44 +144,34 @@ private func eahatGramLoadGiftChainBranch(
             }
             completed = true
 
-            var senders: [EahatGramGiftChainSenderSummary] = []
-            var senderIndices: [EnginePeer.Id: Int] = [:]
-            for gift in state.gifts {
-                guard let fromPeer = gift.fromPeer else {
-                    continue
-                }
-                if let existingIndex = senderIndices[fromPeer.id] {
-                    let existing = senders[existingIndex]
-                    senders[existingIndex] = EahatGramGiftChainSenderSummary(peer: existing.peer, giftCount: existing.giftCount + 1)
-                } else if senders.count < peerLimit {
-                    senderIndices[fromPeer.id] = senders.count
-                    senders.append(EahatGramGiftChainSenderSummary(peer: fromPeer, giftCount: 1))
-                }
-            }
+            let senders = eahatGramGiftChainSenderSummaries(gifts: state.gifts, peerLimit: peerLimit)
+            let trackedPeerGiftCount = eahatGramGiftChainGiftCount(gifts: state.gifts, fromPeerId: trackedPeerId)
 
             peerDisposable.set((context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: peerId))
             |> take(1)
-            |> deliverOnMainQueue).start(next: { peer in
+            |> deliverOn(eahatGramGiftChainQueue)).start(next: { peer in
                 subscriber.putNext(EahatGramGiftChainFetchResult(
                     targetPeer: peer,
                     senders: senders,
-                    totalGiftCount: state.gifts.count
+                    totalGiftCount: state.gifts.count,
+                    trackedPeerGiftCount: trackedPeerGiftCount
                 ))
                 subscriber.putCompletion()
             }))
         }
 
         stateDisposable.set((giftsContext.state
-        |> deliverOnMainQueue).start(next: { state in
+        |> deliverOn(eahatGramGiftChainQueue)).start(next: { state in
             guard !completed else {
                 return
             }
+            let senderCount = eahatGramGiftChainSenderSummaries(gifts: state.gifts, peerLimit: peerLimit).count
             switch state.dataState {
             case let .ready(canLoadMore, _):
-                if canLoadMore {
-                    giftsContext.loadMore()
-                } else {
+                if senderCount >= peerLimit || !canLoadMore {
                     completeWithState(state)
+                } else {
+                    giftsContext.loadMore()
                 }
             case .loading:
                 break
@@ -146,34 +195,65 @@ func eahatGramBuildGiftChainSignal(
         let operationDisposable = MetaDisposable()
 
         var pending: [(peerId: EnginePeer.Id, depth: Int)] = [(rootPeerId, 0)]
+        var pendingIndex = 0
         var visited = Set<EnginePeer.Id>([rootPeerId])
         var nodes: [EnginePeer.Id: EahatGramGiftChainNode] = [
             rootPeerId: EahatGramGiftChainNode(
                 peerId: rootPeerId,
                 peer: eahatGramGiftChainPlaceholderPeer(peerId: rootPeerId),
-                depth: 0
+                depth: 0,
+                parentPeerId: nil,
+                incomingGiftCount: 0,
+                mutualGiftCount: 0
             )
         ]
         var edges: [EahatGramGiftChainEdge] = []
+        var edgeKeys = Set<String>()
+        var highlightEdges: [EahatGramGiftChainEdge] = []
+        var highlightEdgeKeys = Set<String>()
+        var rootDirectGiftCounts: [EnginePeer.Id: Int] = [:]
         var isDisposed = false
+        var isTruncated = false
+
+        let addHighlightEdge: (EnginePeer.Id) -> Void = { peerId in
+            guard peerId != rootPeerId, let giftCount = rootDirectGiftCounts[peerId], nodes[peerId] != nil else {
+                return
+            }
+            let key = eahatGramGiftChainEdgeKey(fromPeerId: peerId, toPeerId: rootPeerId)
+            if highlightEdgeKeys.insert(key).inserted {
+                highlightEdges.append(EahatGramGiftChainEdge(
+                    fromPeerId: peerId,
+                    toPeerId: rootPeerId,
+                    giftCount: giftCount
+                ))
+            }
+        }
 
         let finish: () -> Void = {
             let sortedNodes = nodes.values.sorted { lhs, rhs in
                 if lhs.depth != rhs.depth {
                     return lhs.depth < rhs.depth
                 }
-                return lhs.peerId.toInt64() < rhs.peerId.toInt64()
+                return eahatGramRawPeerId(lhs.peerId) < eahatGramRawPeerId(rhs.peerId)
             }
             let sortedEdges = edges.sorted { lhs, rhs in
                 if lhs.fromPeerId != rhs.fromPeerId {
-                    return lhs.fromPeerId.toInt64() < rhs.fromPeerId.toInt64()
+                    return eahatGramRawPeerId(lhs.fromPeerId) < eahatGramRawPeerId(rhs.fromPeerId)
                 }
-                return lhs.toPeerId.toInt64() < rhs.toPeerId.toInt64()
+                return eahatGramRawPeerId(lhs.toPeerId) < eahatGramRawPeerId(rhs.toPeerId)
+            }
+            let sortedHighlightEdges = highlightEdges.sorted { lhs, rhs in
+                if lhs.fromPeerId != rhs.fromPeerId {
+                    return eahatGramRawPeerId(lhs.fromPeerId) < eahatGramRawPeerId(rhs.fromPeerId)
+                }
+                return eahatGramRawPeerId(lhs.toPeerId) < eahatGramRawPeerId(rhs.toPeerId)
             }
             subscriber.putNext(.completed(EahatGramGiftChainGraph(
                 rootPeerId: rootPeerId,
                 nodes: sortedNodes,
-                edges: sortedEdges
+                edges: sortedEdges,
+                highlightEdges: sortedHighlightEdges,
+                isTruncated: isTruncated
             )))
             subscriber.putCompletion()
         }
@@ -182,32 +262,47 @@ func eahatGramBuildGiftChainSignal(
             guard !isDisposed else {
                 return
             }
-            guard !pending.isEmpty else {
+            guard pendingIndex < pending.count else {
                 finish()
                 return
             }
 
-            let current = pending.removeFirst()
-            subscriber.putNext(.progress("giftChain scan peerId=\(current.peerId.toInt64()) depth=\(current.depth) pending=\(pending.count)"))
+            let current = pending[pendingIndex]
+            pendingIndex += 1
+            subscriber.putNext(.progress("giftChain scan peerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) pending=\(pending.count - pendingIndex)"))
 
             operationDisposable.set((eahatGramLoadGiftChainBranch(
                 context: context,
                 peerId: current.peerId,
+                trackedPeerId: nodes[current.peerId]?.parentPeerId,
                 peerLimit: peerLimit
             )
-            |> deliverOnMainQueue).start(next: { result in
+            |> deliverOn(eahatGramGiftChainQueue)).start(next: { result in
                 guard !isDisposed else {
                     return
                 }
 
-                let resolvedPeer = result.targetPeer ?? nodes[current.peerId]?.peer ?? eahatGramGiftChainPlaceholderPeer(peerId: current.peerId)
+                let existingNode = nodes[current.peerId] ?? EahatGramGiftChainNode(
+                    peerId: current.peerId,
+                    peer: eahatGramGiftChainPlaceholderPeer(peerId: current.peerId),
+                    depth: current.depth,
+                    parentPeerId: nil,
+                    incomingGiftCount: 0,
+                    mutualGiftCount: 0
+                )
+                let resolvedPeer = result.targetPeer ?? existingNode.peer
                 nodes[current.peerId] = EahatGramGiftChainNode(
                     peerId: current.peerId,
                     peer: resolvedPeer,
-                    depth: current.depth
+                    depth: existingNode.depth,
+                    parentPeerId: existingNode.parentPeerId,
+                    incomingGiftCount: existingNode.incomingGiftCount,
+                    mutualGiftCount: existingNode.parentPeerId == nil ? 0 : (existingNode.incomingGiftCount + result.trackedPeerGiftCount)
                 )
 
-                subscriber.putNext(.progress("giftChain loaded peerId=\(current.peerId.toInt64()) depth=\(current.depth) gifts=\(result.totalGiftCount) uniquePeople=\(result.senders.count)"))
+                addHighlightEdge(current.peerId)
+
+                subscriber.putNext(.progress("giftChain loaded peerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) gifts=\(result.totalGiftCount) uniquePeople=\(result.senders.count)"))
 
                 guard current.depth < maxDepth else {
                     processNext()
@@ -215,20 +310,36 @@ func eahatGramBuildGiftChainSignal(
                 }
 
                 for sender in result.senders {
+                    if current.peerId == rootPeerId {
+                        rootDirectGiftCounts[sender.peer.id] = sender.giftCount
+                    }
+
                     if nodes[sender.peer.id] == nil {
+                        if nodes.count >= eahatGramGiftChainMaximumNodes {
+                            isTruncated = true
+                            continue
+                        }
                         nodes[sender.peer.id] = EahatGramGiftChainNode(
                             peerId: sender.peer.id,
                             peer: sender.peer,
-                            depth: current.depth + 1
+                            depth: current.depth + 1,
+                            parentPeerId: current.peerId,
+                            incomingGiftCount: sender.giftCount,
+                            mutualGiftCount: sender.giftCount
                         )
                     }
-                    if !edges.contains(where: { $0.fromPeerId == current.peerId && $0.toPeerId == sender.peer.id }) {
+
+                    let edgeKey = eahatGramGiftChainEdgeKey(fromPeerId: current.peerId, toPeerId: sender.peer.id)
+                    if edgeKeys.insert(edgeKey).inserted {
                         edges.append(EahatGramGiftChainEdge(
                             fromPeerId: current.peerId,
                             toPeerId: sender.peer.id,
                             giftCount: sender.giftCount
                         ))
                     }
+
+                    addHighlightEdge(sender.peer.id)
+
                     if visited.insert(sender.peer.id).inserted {
                         pending.append((sender.peer.id, current.depth + 1))
                     }
@@ -238,7 +349,9 @@ func eahatGramBuildGiftChainSignal(
             }))
         }
 
-        processNext()
+        eahatGramGiftChainQueue.async {
+            processNext()
+        }
 
         return ActionDisposable {
             isDisposed = true
@@ -254,8 +367,10 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
     private let tagNode = ImmediateTextNode()
     private let idNode = ImmediateTextNode()
     private let depthNode = ImmediateTextNode()
+    private let mutualNode = ImmediateTextNode()
+    private let copyText: String
 
-    static let size = CGSize(width: 220.0, height: 82.0)
+    static let size = CGSize(width: 220.0, height: 96.0)
 
     init(
         context: AccountContext,
@@ -278,6 +393,12 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
         self.idNode.maximumNumberOfLines = 1
         self.depthNode.displaysAsynchronously = false
         self.depthNode.maximumNumberOfLines = 1
+        self.mutualNode.displaysAsynchronously = false
+        self.mutualNode.maximumNumberOfLines = 1
+
+        let rawPeerId = eahatGramRawPeerId(node.peerId)
+        let tagText = node.peer.addressName.flatMap { "@\($0)" } ?? "@-"
+        self.copyText = "\(tagText) \(rawPeerId)"
 
         self.nameNode.attributedText = NSAttributedString(
             string: node.peer.compactDisplayTitle,
@@ -285,12 +406,12 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
             textColor: .white
         )
         self.tagNode.attributedText = NSAttributedString(
-            string: node.peer.addressName.flatMap { "@\($0)" } ?? "@-",
+            string: tagText,
             font: Font.regular(11.0),
             textColor: UIColor(red: 0.80, green: 0.82, blue: 0.88, alpha: 1.0)
         )
         self.idNode.attributedText = NSAttributedString(
-            string: "id \(node.peerId.toInt64())",
+            string: "id \(rawPeerId)",
             font: Font.with(size: 11.0, weight: .medium, traits: .monospacedNumbers),
             textColor: UIColor(red: 0.86, green: 0.88, blue: 0.92, alpha: 1.0)
         )
@@ -299,6 +420,11 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
             font: Font.with(size: 11.0, weight: .semibold, traits: .monospacedNumbers),
             textColor: isRoot ? UIColor(red: 0.67, green: 0.84, blue: 1.0, alpha: 1.0) : UIColor(red: 0.70, green: 0.74, blue: 0.86, alpha: 1.0)
         )
+        self.mutualNode.attributedText = NSAttributedString(
+            string: "mutual \(node.mutualGiftCount)",
+            font: Font.with(size: 11.0, weight: .semibold, traits: .monospacedNumbers),
+            textColor: UIColor(red: 0.98, green: 0.80, blue: 0.54, alpha: 1.0)
+        )
 
         self.addSubnode(self.backgroundNode)
         self.addSubnode(self.avatarNode)
@@ -306,6 +432,7 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
         self.addSubnode(self.tagNode)
         self.addSubnode(self.idNode)
         self.addSubnode(self.depthNode)
+        self.addSubnode(self.mutualNode)
 
         self.avatarNode.setPeer(
             context: context,
@@ -317,14 +444,25 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
         )
     }
 
+    override func didLoad() {
+        super.didLoad()
+
+        let tapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(self.handleTap))
+        self.view.addGestureRecognizer(tapGestureRecognizer)
+    }
+
+    @objc private func handleTap() {
+        UIPasteboard.general.string = self.copyText
+    }
+
     override func layout() {
         super.layout()
 
         self.backgroundNode.frame = self.bounds
-        self.avatarNode.frame = CGRect(x: 12.0, y: 20.0, width: 42.0, height: 42.0)
+        self.avatarNode.frame = CGRect(x: 12.0, y: 27.0, width: 42.0, height: 42.0)
 
         let textOriginX: CGFloat = 66.0
-        let textWidth = self.bounds.width - textOriginX - 12.0
+        let textWidth = max(0.0, self.bounds.width - textOriginX - 76.0)
 
         let nameSize = self.nameNode.updateLayout(CGSize(width: textWidth, height: 18.0))
         self.nameNode.frame = CGRect(x: textOriginX, y: 12.0, width: textWidth, height: nameSize.height)
@@ -334,6 +472,9 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
 
         let idSize = self.idNode.updateLayout(CGSize(width: textWidth, height: 14.0))
         self.idNode.frame = CGRect(x: textOriginX, y: 48.0, width: textWidth, height: idSize.height)
+
+        let mutualSize = self.mutualNode.updateLayout(CGSize(width: textWidth, height: 14.0))
+        self.mutualNode.frame = CGRect(x: textOriginX, y: 65.0, width: textWidth, height: mutualSize.height)
 
         let depthSize = self.depthNode.updateLayout(CGSize(width: textWidth, height: 14.0))
         self.depthNode.frame = CGRect(
@@ -355,6 +496,7 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
     private let contentNode = ASDisplayNode()
     private let emptyNode = ImmediateTextNode()
     private let linksLayer = CAShapeLayer()
+    private let highlightLinksLayer = CAShapeLayer()
 
     private var cardNodes: [EnginePeer.Id: EahatGramGiftChainCardNode] = [:]
     private var didSetInitialZoom = false
@@ -388,7 +530,7 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         super.didLoad()
 
         self.scrollView.delegate = self
-        self.scrollView.minimumZoomScale = 0.25
+        self.scrollView.minimumZoomScale = 0.08
         self.scrollView.maximumZoomScale = 2.5
         self.scrollView.showsHorizontalScrollIndicator = true
         self.scrollView.showsVerticalScrollIndicator = true
@@ -399,11 +541,17 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         self.view.addSubview(self.scrollView)
         self.scrollView.addSubview(self.contentNode.view)
         self.contentNode.view.layer.addSublayer(self.linksLayer)
+        self.contentNode.view.layer.addSublayer(self.highlightLinksLayer)
         self.linksLayer.fillColor = UIColor.clear.cgColor
         self.linksLayer.strokeColor = UIColor(red: 0.41, green: 0.58, blue: 0.93, alpha: 0.45).cgColor
         self.linksLayer.lineWidth = 2.0
         self.linksLayer.lineCap = .round
         self.linksLayer.lineJoin = .round
+        self.highlightLinksLayer.fillColor = UIColor.clear.cgColor
+        self.highlightLinksLayer.strokeColor = UIColor(red: 0.95, green: 0.26, blue: 0.30, alpha: 0.92).cgColor
+        self.highlightLinksLayer.lineWidth = 2.4
+        self.highlightLinksLayer.lineCap = .round
+        self.highlightLinksLayer.lineJoin = .round
 
         for node in self.graph.nodes {
             let cardNode = EahatGramGiftChainCardNode(
@@ -446,9 +594,9 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         let groupedLevels = Dictionary(grouping: self.graph.nodes, by: { $0.depth })
         let maxDepth = groupedLevels.keys.max() ?? 0
         let cardSize = EahatGramGiftChainCardNode.size
-        let horizontalSpacing: CGFloat = 28.0
-        let verticalSpacing: CGFloat = 70.0
-        let contentInset: CGFloat = 36.0
+        let horizontalSpacing: CGFloat = 20.0
+        let verticalSpacing: CGFloat = 54.0
+        let contentInset: CGFloat = 28.0
 
         var maximumRowWidth: CGFloat = 0.0
         for depth in 0 ... maxDepth {
@@ -467,14 +615,14 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         self.contentNode.view.frame = self.contentNode.frame
         self.scrollView.contentSize = self.contentNode.bounds.size
         self.linksLayer.frame = self.contentNode.bounds
+        self.highlightLinksLayer.frame = self.contentNode.bounds
 
         var frames: [EnginePeer.Id: CGRect] = [:]
         for depth in 0 ... maxDepth {
             let rowNodes = (groupedLevels[depth] ?? []).sorted { lhs, rhs in
-                lhs.peerId.toInt64() < rhs.peerId.toInt64()
+                eahatGramRawPeerId(lhs.peerId) < eahatGramRawPeerId(rhs.peerId)
             }
-            let rowWidth = CGFloat(rowNodes.count) * cardSize.width + CGFloat(max(0, rowNodes.count - 1)) * horizontalSpacing
-            let startX = max(contentInset, floor((contentWidth - rowWidth) * 0.5))
+            let startX = contentInset
             let originY = contentInset + CGFloat(depth) * (cardSize.height + verticalSpacing)
 
             for index in 0 ..< rowNodes.count {
@@ -497,19 +645,48 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
             }
             let startPoint = CGPoint(x: fromFrame.midX, y: fromFrame.maxY)
             let endPoint = CGPoint(x: toFrame.midX, y: toFrame.minY)
-            let controlPoint = CGPoint(x: startPoint.x, y: startPoint.y + (endPoint.y - startPoint.y) * 0.55)
+            let controlOffset = max(24.0, (endPoint.y - startPoint.y) * 0.55)
             path.move(to: startPoint)
-            path.addCurve(to: endPoint, controlPoint1: controlPoint, controlPoint2: CGPoint(x: endPoint.x, y: controlPoint.y))
+            path.addCurve(
+                to: endPoint,
+                controlPoint1: CGPoint(x: startPoint.x, y: startPoint.y + controlOffset),
+                controlPoint2: CGPoint(x: endPoint.x, y: endPoint.y - controlOffset)
+            )
         }
         self.linksLayer.path = path.cgPath
 
+        let highlightPath = UIBezierPath()
+        for edge in self.graph.highlightEdges {
+            guard let fromFrame = frames[edge.fromPeerId], let toFrame = frames[edge.toPeerId] else {
+                continue
+            }
+            let startPoint = CGPoint(x: fromFrame.midX, y: fromFrame.minY)
+            let endPoint = CGPoint(x: toFrame.midX, y: toFrame.maxY)
+            let controlOffset = max(24.0, (startPoint.y - endPoint.y) * 0.55)
+            highlightPath.move(to: startPoint)
+            highlightPath.addCurve(
+                to: endPoint,
+                controlPoint1: CGPoint(x: startPoint.x, y: startPoint.y - controlOffset),
+                controlPoint2: CGPoint(x: endPoint.x, y: endPoint.y + controlOffset)
+            )
+
+            let arrowLength: CGFloat = 10.0
+            let arrowWidth: CGFloat = 5.0
+            let basePoint = CGPoint(x: endPoint.x, y: endPoint.y + arrowLength)
+            highlightPath.move(to: endPoint)
+            highlightPath.addLine(to: CGPoint(x: basePoint.x - arrowWidth, y: basePoint.y))
+            highlightPath.move(to: endPoint)
+            highlightPath.addLine(to: CGPoint(x: basePoint.x + arrowWidth, y: basePoint.y))
+        }
+        self.highlightLinksLayer.path = highlightPath.cgPath
+
         if !self.didSetInitialZoom {
             self.didSetInitialZoom = true
-            let fitWidthScale = min(1.0, max(0.25, self.scrollView.bounds.width / max(contentWidth, 1.0)))
-            self.scrollView.setZoomScale(fitWidthScale, animated: false)
-            let visibleWidth = self.scrollView.bounds.width / fitWidthScale
-            let centeredOffsetX = max(0.0, (contentWidth - visibleWidth) * 0.5)
-            self.scrollView.contentOffset = CGPoint(x: centeredOffsetX, y: 0.0)
+            let fitWidthScale = self.scrollView.bounds.width / max(contentWidth, 1.0)
+            let fitHeightScale = self.scrollView.bounds.height / max(contentHeight, 1.0)
+            let initialScale = min(1.0, max(self.scrollView.minimumZoomScale, min(fitWidthScale, fitHeightScale)))
+            self.scrollView.setZoomScale(initialScale, animated: false)
+            self.scrollView.contentOffset = .zero
         }
     }
 

@@ -305,7 +305,7 @@ public final class ProfileGiftsCollectionsContext {
     
     private let queue: Queue = .mainQueue()
     private let account: Account
-    private let peerId: EnginePeer.Id
+    public let peerId: EnginePeer.Id
     private weak var allGiftsContext: ProfileGiftsContext?
     
     private let disposable = MetaDisposable()

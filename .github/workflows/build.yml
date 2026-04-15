@@ -9,9 +9,10 @@ on:
       build_mode:
         description: Build mode
         required: true
-        default: release
+        default: debug
         type: choice
         options:
+          - debug
           - release
           - release_dsym
 
@@ -140,13 +141,18 @@ jobs:
           echo "BUILD_NUMBER=$(echo $BUILD_NUMBER)" >> $GITHUB_ENV
           echo "APP_VERSION=$(echo $APP_VERSION)" >> $GITHUB_ENV
 
-          BUILD_CONFIGURATION="release_arm64"
+          BUILD_CONFIGURATION="debug_arm64"
           COLLECT_DSYMS="0"
           BUILD_CACHE_FLAG="--cacheDir=$BAZEL_CACHE_DIR"
           BUILD_EXTRA_ARGS=(--disableDsym)
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.build_mode }}" = "release_dsym" ]; then
-            COLLECT_DSYMS="1"
-            BUILD_EXTRA_ARGS=()
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.build_mode }}" = "release" ]; then
+              BUILD_CONFIGURATION="release_arm64"
+            elif [ "${{ inputs.build_mode }}" = "release_dsym" ]; then
+              BUILD_CONFIGURATION="release_arm64"
+              COLLECT_DSYMS="1"
+              BUILD_EXTRA_ARGS=()
+            fi
           fi
           if [ -n "$BAZEL_REMOTE_CACHE_URL" ]; then
             BUILD_CACHE_FLAG="--cacheHost=$BAZEL_REMOTE_CACHE_URL"
