@@ -6,6 +6,7 @@ import SwiftSignalKit
 import AccountContext
 import TelegramCore
 import TelegramPresentationData
+import TelegramStringFormatting
 import AvatarNode
 
 final class EahatGramDebugSettings {
@@ -31,10 +32,17 @@ final class EahatGramDebugSettings {
     }
 }
 
+enum EahatGramTargetHudRentState: Equatable {
+    case rent
+    case dontRent
+}
+
 struct EahatGramTargetHudStats: Equatable {
     let giftsCount: Int
     let giftsStarsCount: Int64?
     let nftCount: Int
+    let nftUsdValue: Int64?
+    let rentState: EahatGramTargetHudRentState?
 }
 
 final class EahatGramTargetHudStatsContext {
@@ -111,6 +119,10 @@ final class EahatGramTargetHudStatsContext {
         var nftCount = 0
         var giftsStarsCount: Int64 = 0
         var hasMissingGiftPrice = false
+        var nftUsdValue: Int64 = 0
+        var hasMissingNftUsdValue = false
+        var hasHostedNft = false
+        var hostedOwnerAddresses = Set<String>()
 
         for gift in gifts {
             switch gift.gift {
@@ -118,24 +130,49 @@ final class EahatGramTargetHudStatsContext {
                 giftsStarsCount += baseGift.price
             case let .unique(uniqueGift):
                 nftCount += 1
-                if let baseGiftPrice = self.baseGiftPrices?[uniqueGift.giftId] {
-                    giftsStarsCount += baseGiftPrice
-                } else {
-                    hasMissingGiftPrice = true
+                let isOnSale = !(uniqueGift.resellAmounts ?? []).isEmpty
+                if !isOnSale {
+                    if let baseGiftPrice = self.baseGiftPrices?[uniqueGift.giftId] {
+                        giftsStarsCount += baseGiftPrice
+                    } else {
+                        hasMissingGiftPrice = true
+                    }
+
+                    if let valueUsdAmount = uniqueGift.valueUsdAmount {
+                        nftUsdValue += valueUsdAmount
+                    } else if let valueAmount = uniqueGift.valueAmount, uniqueGift.valueCurrency?.uppercased() == "USD" {
+                        nftUsdValue += valueAmount
+                    } else {
+                        hasMissingNftUsdValue = true
+                    }
+                }
+
+                if uniqueGift.giftAddress != nil, case let .address(ownerAddress)? = uniqueGift.owner {
+                    hasHostedNft = true
+                    hostedOwnerAddresses.insert(ownerAddress)
                 }
             }
+        }
+
+        let rentState: EahatGramTargetHudRentState?
+        if hasHostedNft {
+            rentState = hostedOwnerAddresses.count > 1 ? .rent : .dontRent
+        } else {
+            rentState = nil
         }
 
         self.stateValue.set(EahatGramTargetHudStats(
             giftsCount: gifts.count,
             giftsStarsCount: hasMissingGiftPrice ? nil : giftsStarsCount,
-            nftCount: nftCount
+            nftCount: nftCount,
+            nftUsdValue: hasMissingNftUsdValue ? nil : nftUsdValue,
+            rentState: rentState
         ))
     }
 }
 
 final class EahatGramTargetHudNode: ASDisplayNode {
-    static let preferredSize = CGSize(width: 220.0, height: 110.0)
+    static let preferredSize = CGSize(width: 260.0, height: 128.0)
 
     private let outerNode = ASDisplayNode()
     private let innerNode = ASDisplayNode()
@@ -143,6 +180,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
     private let avatarNode = AvatarNode(font: avatarPlaceholderFont(size: 16.0))
     private let accentNode = ASDisplayNode()
     private let accentGradientLayer = CAGradientLayer()
+    private let rentNode = ImmediateTextNode()
     private let nameNode = ImmediateTextNode()
     private let tagNode = ImmediateTextNode()
     private let idNode = ImmediateTextNode()
@@ -182,7 +220,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.accentGradientLayer.endPoint = CGPoint(x: 1.0, y: 0.5)
         self.accentGradientLayer.masksToBounds = true
 
-        for textNode in [self.nameNode, self.tagNode, self.idNode, self.giftsNode, self.nftNode] {
+        for textNode in [self.rentNode, self.nameNode, self.tagNode, self.idNode, self.giftsNode, self.nftNode] {
             textNode.displaysAsynchronously = false
             textNode.maximumNumberOfLines = 1
             textNode.truncationMode = .byTruncatingTail
@@ -196,6 +234,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.avatarFrameNode.addSubnode(self.avatarNode)
         self.innerNode.addSubnode(self.accentNode)
         self.accentNode.layer.addSublayer(self.accentGradientLayer)
+        self.innerNode.addSubnode(self.rentNode)
         self.innerNode.addSubnode(self.nameNode)
         self.innerNode.addSubnode(self.tagNode)
         self.innerNode.addSubnode(self.idNode)
@@ -244,10 +283,8 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.accentGradientLayer.locations = [0.0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 1.0]
         self.ensureAccentAnimation()
 
-        let nftUsernameTag = EahatGramDebugSettings.nftUsernameTag.with { $0 }.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayTitle = nftUsernameTag.isEmpty ? peer.compactDisplayTitle : "\(peer.compactDisplayTitle) \(nftUsernameTag)"
         self.nameNode.attributedText = NSAttributedString(
-            string: displayTitle,
+            string: peer.compactDisplayTitle,
             font: Font.semibold(18.0),
             textColor: .white
         )
@@ -266,6 +303,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
 
         let giftsText: String
         let nftText: String
+        let rentText: String?
         if let stats {
             let starsText: String
             if let giftsStarsCount = stats.giftsStarsCount {
@@ -273,11 +311,42 @@ final class EahatGramTargetHudNode: ASDisplayNode {
             } else {
                 starsText = "?"
             }
+            let nftUsdText: String
+            if let nftUsdValue = stats.nftUsdValue {
+                nftUsdText = formatCurrencyAmount(nftUsdValue, currency: "USD")
+            } else {
+                nftUsdText = "?"
+            }
             giftsText = "gifts: \(stats.giftsCount) | \(starsText) stars"
-            nftText = "nft: \(stats.nftCount)"
+            nftText = "nft: \(stats.nftCount) | \(nftUsdText)"
+            switch stats.rentState {
+            case .rent:
+                rentText = "rent"
+            case .dontRent:
+                rentText = "dont rent"
+            case .none:
+                rentText = nil
+            }
         } else {
             giftsText = "gifts: loading"
             nftText = "nft: loading"
+            rentText = nil
+        }
+
+        if let rentText {
+            let rentColor: UIColor
+            if let stats, stats.rentState == .rent {
+                rentColor = UIColor(red: 1.00, green: 0.24, blue: 0.24, alpha: 1.0)
+            } else {
+                rentColor = UIColor(red: 0.72, green: 0.92, blue: 0.72, alpha: 1.0)
+            }
+            self.rentNode.attributedText = NSAttributedString(
+                string: rentText,
+                font: Font.with(size: 11.0, weight: .semibold, traits: .monospacedNumbers),
+                textColor: rentColor
+            )
+        } else {
+            self.rentNode.attributedText = nil
         }
 
         self.giftsNode.attributedText = NSAttributedString(
@@ -314,29 +383,32 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.outerNode.frame = self.bounds
         self.innerNode.frame = self.bounds.insetBy(dx: 6.0, dy: 6.0)
 
-        self.avatarFrameNode.frame = CGRect(x: 8.0, y: 8.0, width: 58.0, height: 58.0)
+        self.avatarFrameNode.frame = CGRect(x: 8.0, y: 8.0, width: 58.0, height: max(58.0, self.innerNode.bounds.height - 16.0))
         self.avatarNode.frame = self.avatarFrameNode.bounds.insetBy(dx: 2.0, dy: 2.0)
 
         let textOriginX: CGFloat = 76.0
         let textWidth = self.innerNode.bounds.width - textOriginX - 8.0
 
-        let nameSize = self.nameNode.updateLayout(CGSize(width: textWidth, height: 24.0))
-        self.nameNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 6.0), size: nameSize)
+        let rentSize = self.rentNode.updateLayout(CGSize(width: textWidth, height: 14.0))
+        self.rentNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 4.0), size: rentSize)
 
-        self.accentNode.frame = CGRect(x: textOriginX, y: 31.0, width: min(textWidth, 120.0), height: 3.0)
+        let nameSize = self.nameNode.updateLayout(CGSize(width: textWidth, height: 24.0))
+        self.nameNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 20.0), size: nameSize)
+
+        self.accentNode.frame = CGRect(x: textOriginX, y: 45.0, width: min(textWidth, 120.0), height: 3.0)
         self.accentGradientLayer.frame = self.accentNode.bounds
 
         let tagSize = self.tagNode.updateLayout(CGSize(width: textWidth, height: 14.0))
-        self.tagNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 39.0), size: tagSize)
+        self.tagNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 53.0), size: tagSize)
 
         let idSize = self.idNode.updateLayout(CGSize(width: textWidth, height: 14.0))
-        self.idNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 54.0), size: idSize)
+        self.idNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 68.0), size: idSize)
 
         let giftsSize = self.giftsNode.updateLayout(CGSize(width: textWidth, height: 14.0))
-        self.giftsNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 69.0), size: giftsSize)
+        self.giftsNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 83.0), size: giftsSize)
 
         let nftSize = self.nftNode.updateLayout(CGSize(width: textWidth, height: 14.0))
-        self.nftNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 84.0), size: nftSize)
+        self.nftNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 98.0), size: nftSize)
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
