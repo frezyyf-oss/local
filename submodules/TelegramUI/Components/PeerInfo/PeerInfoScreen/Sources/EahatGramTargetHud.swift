@@ -33,7 +33,9 @@ final class EahatGramDebugSettings {
 }
 
 enum EahatGramTargetHudRentState: Equatable {
-    case rent
+    case user
+    case nft
+    case nftAndUser
     case dontRent
 }
 
@@ -42,7 +44,7 @@ struct EahatGramTargetHudStats: Equatable {
     let giftsStarsCount: Int64?
     let nftCount: Int
     let nftUsdValue: Int64?
-    let rentState: EahatGramTargetHudRentState?
+    let rentState: EahatGramTargetHudRentState
 }
 
 final class EahatGramTargetHudStatsContext {
@@ -121,8 +123,8 @@ final class EahatGramTargetHudStatsContext {
         var hasMissingGiftPrice = false
         var nftUsdValue: Int64 = 0
         var hasMissingNftUsdValue = false
-        var hasHostedNft = false
         var hostedOwnerAddresses = Set<String>()
+        var hostedPeerIds = Set<EnginePeer.Id>()
 
         for gift in gifts {
             switch gift.gift {
@@ -148,17 +150,25 @@ final class EahatGramTargetHudStatsContext {
                 }
 
                 if uniqueGift.giftAddress != nil, case let .address(ownerAddress)? = uniqueGift.owner {
-                    hasHostedNft = true
                     hostedOwnerAddresses.insert(ownerAddress)
+                }
+                if let hostPeerId = uniqueGift.hostPeerId {
+                    hostedPeerIds.insert(hostPeerId)
                 }
             }
         }
 
-        let rentState: EahatGramTargetHudRentState?
-        if hasHostedNft {
-            rentState = hostedOwnerAddresses.count > 1 ? .rent : .dontRent
+        let hasNftRent = hostedOwnerAddresses.count > 1
+        let hasUserRent = hostedPeerIds.count > 1
+        let rentState: EahatGramTargetHudRentState
+        if hasNftRent && hasUserRent {
+            rentState = .nftAndUser
+        } else if hasNftRent {
+            rentState = .nft
+        } else if hasUserRent {
+            rentState = .user
         } else {
-            rentState = nil
+            rentState = .dontRent
         }
 
         self.stateValue.set(EahatGramTargetHudStats(
@@ -320,12 +330,14 @@ final class EahatGramTargetHudNode: ASDisplayNode {
             giftsText = "gifts: \(stats.giftsCount) | \(starsText) stars"
             nftText = "nft: \(stats.nftCount) | \(nftUsdText)"
             switch stats.rentState {
-            case .rent:
-                rentText = "rent"
+            case .user:
+                rentText = "rent: user"
+            case .nft:
+                rentText = "rent: nft"
+            case .nftAndUser:
+                rentText = "rent: nft+user"
             case .dontRent:
                 rentText = "dont rent"
-            case .none:
-                rentText = nil
             }
         } else {
             giftsText = "gifts: loading"
@@ -335,7 +347,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
 
         if let rentText {
             let rentColor: UIColor
-            if let stats, stats.rentState == .rent {
+            if let stats, stats.rentState != .dontRent {
                 rentColor = UIColor(red: 1.00, green: 0.24, blue: 0.24, alpha: 1.0)
             } else {
                 rentColor = UIColor(red: 0.72, green: 0.92, blue: 0.72, alpha: 1.0)
