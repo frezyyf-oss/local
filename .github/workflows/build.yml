@@ -9,11 +9,11 @@ on:
       build_mode:
         description: Build mode
         required: true
-        default: fast
+        default: release
         type: choice
         options:
-          - fast
           - release
+          - release_dsym
 
 permissions:
   contents: write
@@ -140,12 +140,13 @@ jobs:
           echo "BUILD_NUMBER=$(echo $BUILD_NUMBER)" >> $GITHUB_ENV
           echo "APP_VERSION=$(echo $APP_VERSION)" >> $GITHUB_ENV
 
-          BUILD_CONFIGURATION="debug_arm64"
+          BUILD_CONFIGURATION="release_arm64"
           COLLECT_DSYMS="0"
           BUILD_CACHE_FLAG="--cacheDir=$BAZEL_CACHE_DIR"
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.build_mode }}" = "release" ]; then
-            BUILD_CONFIGURATION="release_arm64"
+          BUILD_EXTRA_ARGS=(--disableDsym)
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${{ inputs.build_mode }}" = "release_dsym" ]; then
             COLLECT_DSYMS="1"
+            BUILD_EXTRA_ARGS=()
           fi
           if [ -n "$BAZEL_REMOTE_CACHE_URL" ]; then
             BUILD_CACHE_FLAG="--cacheHost=$BAZEL_REMOTE_CACHE_URL"
@@ -167,7 +168,8 @@ jobs:
               --codesigningInformationPath=build-system/fake-codesigning \
               --configuration="$BUILD_CONFIGURATION" \
               --buildNumber="$BUILD_NUMBER" \
-              --enableParallelSwiftmoduleGeneration 2>&1 | tee -a "$BUILD_LOG"
+              --enableParallelSwiftmoduleGeneration \
+              "${BUILD_EXTRA_ARGS[@]}" 2>&1 | tee -a "$BUILD_LOG"
             build_exit=${PIPESTATUS[0]}
           fi
           set -e

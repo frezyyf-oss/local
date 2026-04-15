@@ -47,6 +47,7 @@ class BazelCommandLine:
         self.enable_sandbox = False
         self.disable_provisioning_profiles = False
         self.profile_swift = False
+        self.generate_dsym = True
 
         self.common_args = [
             # https://docs.bazel.build/versions/master/command-line-reference.html
@@ -136,6 +137,9 @@ class BazelCommandLine:
     def set_profile_swift(self, value):
         self.profile_swift = value
 
+    def set_generate_dsym(self, value):
+        self.generate_dsym = value
+
     def set_configuration(self, configuration):
         debug_configuration_args = [] if self.split_submodules else self.common_debug_args
         if configuration == 'debug_arm64':
@@ -181,13 +185,15 @@ class BazelCommandLine:
 
                 # Always build universal Watch binaries.
                 '--watchos_cpus=arm64_32',
-
-                # Generate DSYM files when building.
-                '--apple_generate_dsym',
-
-                # Require DSYM files as build output.
-                '--output_groups=+dsyms',
             ] + self.common_release_args
+            if self.generate_dsym:
+                self.configuration_args += [
+                    # Generate DSYM files when building.
+                    '--apple_generate_dsym',
+
+                    # Require DSYM files as build output.
+                    '--output_groups=+dsyms',
+                ]
         else:
             raise Exception('Unknown configuration {}'.format(configuration))
 
@@ -610,6 +616,7 @@ def build(bazel, arguments):
     )
 
     bazel_command_line.set_split_swiftmodules(arguments.enableParallelSwiftmoduleGeneration)
+    bazel_command_line.set_generate_dsym(not arguments.disableDsym)
     bazel_command_line.set_configuration(arguments.configuration)
     bazel_command_line.set_build_number(arguments.buildNumber)
     bazel_command_line.set_custom_target(arguments.target)
@@ -972,6 +979,12 @@ if __name__ == '__main__':
         action='store_true',
         default=False,
         help='Enable single-core Swift compile profiling flags.'
+    )
+    buildParser.add_argument(
+        '--disableDsym',
+        action='store_true',
+        default=False,
+        help='Disable DSYM generation for faster release builds.'
     )
     buildParser.add_argument(
         '--target',
