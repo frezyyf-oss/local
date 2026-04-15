@@ -31,8 +31,111 @@ final class EahatGramDebugSettings {
     }
 }
 
+struct EahatGramTargetHudStats: Equatable {
+    let giftsCount: Int
+    let giftsStarsCount: Int64?
+    let nftCount: Int
+}
+
+final class EahatGramTargetHudStatsContext {
+    private let giftsContext: ProfileGiftsContext
+    private let keepUpdatedDisposable = MetaDisposable()
+    private let cachedStarGiftsDisposable = MetaDisposable()
+    private let giftsStateDisposable = MetaDisposable()
+
+    private var baseGiftPrices: [Int64: Int64]?
+    private var currentGiftsState: ProfileGiftsContext.State?
+
+    private let stateValue = ValuePromise<EahatGramTargetHudStats?>(nil, ignoreRepeated: true)
+    var state: Signal<EahatGramTargetHudStats?, NoError> {
+        return self.stateValue.get()
+    }
+
+    init(context: AccountContext, peerId: EnginePeer.Id) {
+        self.giftsContext = ProfileGiftsContext(account: context.account, peerId: peerId, filter: .All, limit: 200)
+
+        self.keepUpdatedDisposable.set(context.engine.payments.keepStarGiftsUpdated().start())
+        self.cachedStarGiftsDisposable.set((context.engine.payments.cachedStarGifts()
+        |> deliverOnMainQueue).start(next: { [weak self] gifts in
+            guard let self else {
+                return
+            }
+            var updatedPrices: [Int64: Int64] = [:]
+            for gift in gifts ?? [] {
+                if case let .generic(baseGift) = gift {
+                    updatedPrices[baseGift.id] = baseGift.price
+                }
+            }
+            self.baseGiftPrices = updatedPrices
+            self.updateStatsIfReady()
+        }))
+        self.giftsStateDisposable.set((self.giftsContext.state
+        |> deliverOnMainQueue).start(next: { [weak self] state in
+            guard let self else {
+                return
+            }
+            self.currentGiftsState = state
+            if case let .ready(canLoadMore, _) = state.dataState, canLoadMore {
+                self.giftsContext.loadMore()
+            }
+            self.updateStatsIfReady()
+        }))
+    }
+
+    deinit {
+        self.keepUpdatedDisposable.dispose()
+        self.cachedStarGiftsDisposable.dispose()
+        self.giftsStateDisposable.dispose()
+    }
+
+    private func updateStatsIfReady() {
+        guard let currentGiftsState = self.currentGiftsState else {
+            return
+        }
+        guard case let .ready(canLoadMore, _) = currentGiftsState.dataState, !canLoadMore else {
+            return
+        }
+
+        let gifts = currentGiftsState.gifts
+        let hasUniqueGifts = gifts.contains(where: { gift in
+            if case .unique = gift.gift {
+                return true
+            } else {
+                return false
+            }
+        })
+        if hasUniqueGifts && self.baseGiftPrices == nil {
+            return
+        }
+
+        var nftCount = 0
+        var giftsStarsCount: Int64 = 0
+        var hasMissingGiftPrice = false
+
+        for gift in gifts {
+            switch gift.gift {
+            case let .generic(baseGift):
+                giftsStarsCount += baseGift.price
+            case let .unique(uniqueGift):
+                nftCount += 1
+                if let baseGiftPrice = self.baseGiftPrices?[uniqueGift.giftId] {
+                    giftsStarsCount += baseGiftPrice
+                } else {
+                    hasMissingGiftPrice = true
+                }
+            }
+        }
+
+        self.stateValue.set(.single(EahatGramTargetHudStats(
+            giftsCount: gifts.count,
+            giftsStarsCount: hasMissingGiftPrice ? nil : giftsStarsCount,
+            nftCount: nftCount
+        )))
+    }
+}
+
 final class EahatGramTargetHudNode: ASDisplayNode {
-    static let preferredSize = CGSize(width: 220.0, height: 92.0)
+    static let preferredSize = CGSize(width: 220.0, height: 110.0)
 
     private let outerNode = ASDisplayNode()
     private let innerNode = ASDisplayNode()
@@ -43,7 +146,8 @@ final class EahatGramTargetHudNode: ASDisplayNode {
     private let nameNode = ImmediateTextNode()
     private let tagNode = ImmediateTextNode()
     private let idNode = ImmediateTextNode()
-    private let timeNode = ImmediateTextNode()
+    private let giftsNode = ImmediateTextNode()
+    private let nftNode = ImmediateTextNode()
 
     var positionUpdated: ((CGPoint) -> Void)?
 
@@ -78,7 +182,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.accentGradientLayer.endPoint = CGPoint(x: 1.0, y: 0.5)
         self.accentGradientLayer.masksToBounds = true
 
-        for textNode in [self.nameNode, self.tagNode, self.idNode, self.timeNode] {
+        for textNode in [self.nameNode, self.tagNode, self.idNode, self.giftsNode, self.nftNode] {
             textNode.displaysAsynchronously = false
             textNode.maximumNumberOfLines = 1
             textNode.truncationMode = .byTruncatingTail
@@ -95,7 +199,8 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         self.innerNode.addSubnode(self.nameNode)
         self.innerNode.addSubnode(self.tagNode)
         self.innerNode.addSubnode(self.idNode)
-        self.innerNode.addSubnode(self.timeNode)
+        self.innerNode.addSubnode(self.giftsNode)
+        self.innerNode.addSubnode(self.nftNode)
     }
 
     override func didLoad() {
@@ -115,7 +220,7 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         username: String?,
         peerId: Int64,
         dcId: Int?,
-        timeText: String
+        stats: EahatGramTargetHudStats?
     ) {
         self.outerNode.backgroundColor = UIColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 0.96)
         self.outerNode.borderColor = UIColor(red: 0.27, green: 0.27, blue: 0.27, alpha: 1.0).cgColor
@@ -158,8 +263,30 @@ final class EahatGramTargetHudNode: ASDisplayNode {
             font: Font.with(size: 11.0, weight: .medium, traits: .monospacedNumbers),
             textColor: UIColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1.0)
         )
-        self.timeNode.attributedText = NSAttributedString(
-            string: timeText,
+
+        let giftsText: String
+        let nftText: String
+        if let stats {
+            let starsText: String
+            if let giftsStarsCount = stats.giftsStarsCount {
+                starsText = "\(giftsStarsCount)"
+            } else {
+                starsText = "?"
+            }
+            giftsText = "gifts: \(stats.giftsCount) | \(starsText) stars"
+            nftText = "nft: \(stats.nftCount)"
+        } else {
+            giftsText = "gifts: loading"
+            nftText = "nft: loading"
+        }
+
+        self.giftsNode.attributedText = NSAttributedString(
+            string: giftsText,
+            font: Font.with(size: 11.0, weight: .medium, traits: .monospacedNumbers),
+            textColor: UIColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1.0)
+        )
+        self.nftNode.attributedText = NSAttributedString(
+            string: nftText,
             font: Font.with(size: 11.0, weight: .medium, traits: .monospacedNumbers),
             textColor: UIColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1.0)
         )
@@ -205,8 +332,11 @@ final class EahatGramTargetHudNode: ASDisplayNode {
         let idSize = self.idNode.updateLayout(CGSize(width: textWidth, height: 14.0))
         self.idNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 54.0), size: idSize)
 
-        let timeSize = self.timeNode.updateLayout(CGSize(width: textWidth, height: 14.0))
-        self.timeNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 69.0), size: timeSize)
+        let giftsSize = self.giftsNode.updateLayout(CGSize(width: textWidth, height: 14.0))
+        self.giftsNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 69.0), size: giftsSize)
+
+        let nftSize = self.nftNode.updateLayout(CGSize(width: textWidth, height: 14.0))
+        self.nftNode.frame = CGRect(origin: CGPoint(x: textOriginX, y: 84.0), size: nftSize)
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {

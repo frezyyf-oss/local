@@ -140,7 +140,7 @@ private struct EahatGramAddGiftDraft: Equatable {
     var nameHidden: Bool
     var savedToProfile: Bool
     var pinnedToTop: Bool
-    var batchCount: Int32
+    var batchCount: String
 }
 
 private struct EahatGramAddGiftState: Equatable {
@@ -168,7 +168,7 @@ private enum EahatGramAddGiftEntry: ItemListNodeEntry {
     case nameHidden(Bool)
     case savedToProfile(Bool)
     case pinnedToTop(Bool)
-    case batchCount(Int32)
+    case batchCount(String)
     case addNumber
     case addNftTag
     case addRandom
@@ -268,7 +268,7 @@ private final class EahatGramAddGiftArguments {
     let updateNameHidden: (Bool) -> Void
     let updateSavedToProfile: (Bool) -> Void
     let updatePinnedToTop: (Bool) -> Void
-    let updateBatchCount: (Int32) -> Void
+    let updateBatchCount: (String) -> Void
     let addNumber: () -> Void
     let addNftTag: () -> Void
     let addRandom: () -> Void
@@ -294,7 +294,7 @@ private final class EahatGramAddGiftArguments {
         updateNameHidden: @escaping (Bool) -> Void,
         updateSavedToProfile: @escaping (Bool) -> Void,
         updatePinnedToTop: @escaping (Bool) -> Void,
-        updateBatchCount: @escaping (Int32) -> Void,
+        updateBatchCount: @escaping (String) -> Void,
         addNumber: @escaping () -> Void,
         addNftTag: @escaping () -> Void,
         addRandom: @escaping () -> Void,
@@ -349,14 +349,55 @@ private func eahatGramGiftIssuedCount(_ gift: TelegramCore.StarGift.Gift) -> Int
     return max(0, availability.total - availability.remains)
 }
 
+private func eahatGramGiftRandomUpperBound(_ gift: TelegramCore.StarGift.Gift) -> Int32 {
+    if let availability = gift.availability {
+        return max(1, max(eahatGramGiftIssuedCount(gift) ?? 0, availability.total))
+    } else {
+        return 999_999
+    }
+}
+
 private func eahatGramRandomGiftNumber(_ gift: TelegramCore.StarGift.Gift) -> Int32 {
-    if let issued = eahatGramGiftIssuedCount(gift), issued > 1 {
-        return Int32.random(in: 1 ... issued)
-    } else if let issued = eahatGramGiftIssuedCount(gift), issued == 1 {
-        return 1
+    let upperBound = eahatGramGiftRandomUpperBound(gift)
+    if upperBound > 1 {
+        return Int32.random(in: 1 ... upperBound)
     } else {
         return 1
     }
+}
+
+private func eahatGramRandomGiftNumbers(_ gift: TelegramCore.StarGift.Gift, count: Int) -> [Int32] {
+    guard count > 0 else {
+        return []
+    }
+
+    let upperBound = eahatGramGiftRandomUpperBound(gift)
+    if upperBound == 1 {
+        return Array(repeating: 1, count: count)
+    }
+
+    if upperBound >= Int32(count) {
+        var used = Set<Int32>()
+        var result: [Int32] = []
+        result.reserveCapacity(count)
+        while result.count < count {
+            let value = Int32.random(in: 1 ... upperBound)
+            if used.insert(value).inserted {
+                result.append(value)
+            }
+        }
+        return result
+    }
+
+    let startValue = Int32.random(in: 1 ... upperBound)
+    var result: [Int32] = []
+    result.reserveCapacity(count)
+    for index in 0 ..< count {
+        let offset = Int32(index % Int(upperBound))
+        let value = ((startValue - 1 + offset) % upperBound) + 1
+        result.append(value)
+    }
+    return result
 }
 
 private func eahatGramResolvedGiftNumber(_ value: String, gift: TelegramCore.StarGift.Gift) -> Int32 {
@@ -376,6 +417,15 @@ private func eahatGramParsedGiftNumber(_ value: String) -> Int32? {
         return nil
     }
     return parsed
+}
+
+private func eahatGramNormalizedNumericText(_ value: String, maxLength: Int) -> String {
+    let filtered = value.filter(\.isNumber)
+    if filtered.count <= maxLength {
+        return filtered
+    } else {
+        return String(filtered.prefix(maxLength))
+    }
 }
 
 private func eahatGramResolvedGiftSlug(baseTag: String, number: Int32, batchIndex: Int?, forceNumberSuffix: Bool) -> String {
@@ -1061,15 +1111,21 @@ extension EahatGramAddGiftEntry {
             return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Pinned To Top", value: value, sectionId: self.section, style: .blocks, updated: { updated in
                 arguments.updatePinnedToTop(updated)
             })
-        case let .batchCount(value):
-            return EahatGramInsertCountSliderItem(
+        case let .batchCount(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
                 presentationData: presentationData,
                 systemStyle: .glass,
-                value: value,
+                title: NSAttributedString(string: "Add Count", textColor: titleColor),
+                text: text,
+                placeholder: "1",
+                type: .number,
+                maxLength: 4,
                 sectionId: self.section,
-                updated: { updated in
-                    arguments.updateBatchCount(updated)
-                }
+                textUpdated: { value in
+                    arguments.updateBatchCount(value)
+                },
+                action: {}
             )
         case .addNumber:
             return ItemListActionItem(
@@ -1232,7 +1288,7 @@ func eahatGramAddGiftToProfileScreen(
             nameHidden: false,
             savedToProfile: true,
             pinnedToTop: false,
-            batchCount: 1
+            batchCount: "1"
         ),
         statusText: "source=local_insert"
     )
@@ -1556,13 +1612,14 @@ func eahatGramAddGiftToProfileScreen(
             }
         }
 
-        let batchCount = Int(min(1000, max(1, state.draft.batchCount)))
+        let batchCount = Int(min(1000, max(1, Int32(state.draft.batchCount) ?? 1)))
         let fallbackNumber = max(1, eahatGramResolvedGiftNumber(state.draft.numberText, gift: baseGift))
         let selectedNumber = max(1, eahatGramParsedGiftNumber(state.draft.numberText) ?? fallbackNumber)
         let fixedModel = selectedModel(state: state)
         let fixedBackdrop = selectedBackdrop(state: state)
         let fixedSymbol = selectedSymbol(state: state)
         let randomized = mode == .random
+        let randomNumbers = randomized ? eahatGramRandomGiftNumbers(baseGift, count: batchCount) : []
         let baseTag: String
         switch mode {
         case .nftTag:
@@ -1589,7 +1646,7 @@ func eahatGramAddGiftToProfileScreen(
             let symbol: TelegramCore.StarGift.UniqueGift.Attribute?
 
             if randomized {
-                number = max(1, eahatGramRandomGiftNumber(baseGift))
+                number = randomNumbers[index]
                 model = eahatGramRandomAttribute(from: state.assets.models)
                 backdrop = eahatGramRandomAttribute(from: state.assets.backdrops)
                 symbol = eahatGramRandomAttribute(from: state.assets.symbols)
@@ -1761,7 +1818,7 @@ func eahatGramAddGiftToProfileScreen(
         updateNumber: { value in
             updateState { current in
                 var current = current
-                current.draft.numberText = value
+                current.draft.numberText = eahatGramNormalizedNumericText(value, maxLength: 9)
                 return current
             }
         },
@@ -1859,7 +1916,7 @@ func eahatGramAddGiftToProfileScreen(
         updateBatchCount: { value in
             updateState { current in
                 var current = current
-                current.draft.batchCount = min(1000, max(1, value))
+                current.draft.batchCount = eahatGramNormalizedNumericText(value, maxLength: 4)
                 return current
             }
         },

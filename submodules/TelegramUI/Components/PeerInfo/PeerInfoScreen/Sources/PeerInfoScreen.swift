@@ -343,7 +343,9 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
     
     var effectiveAreaExpansionFraction: CGFloat = 0.0
     private let targetHudNode = EahatGramTargetHudNode()
-    private var targetHudTimer: SwiftSignalKit.Timer?
+    private var targetHudStatsContext: EahatGramTargetHudStatsContext?
+    private var targetHudStats: EahatGramTargetHudStats?
+    private let targetHudStatsDisposable = MetaDisposable()
     
     private let _ready = Promise<Bool>()
     var ready: Promise<Bool> {
@@ -1296,6 +1298,18 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             }
         }
         self.addSubnode(self.targetHudNode)
+        if !self.isSettings, !self.isMyProfile, self.peerId.namespace == Namespaces.Peer.CloudUser {
+            let targetHudStatsContext = EahatGramTargetHudStatsContext(context: self.context, peerId: self.peerId)
+            self.targetHudStatsContext = targetHudStatsContext
+            self.targetHudStatsDisposable.set((targetHudStatsContext.state
+            |> deliverOnMainQueue).start(next: { [weak self] stats in
+                guard let self else {
+                    return
+                }
+                self.targetHudStats = stats
+                self.updateTargetHud()
+            }))
+        }
         self.scrollNode.view.isScrollEnabled = !self.isMediaOnly
         
         self.paneContainerNode.chatControllerInteraction = self.chatInterfaceInteraction
@@ -2641,7 +2655,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
         self.boostStatusDisposable?.dispose()
         self.personalChannelsDisposable?.dispose()
         self.autoTranslateDisposable?.dispose()
-        self.targetHudTimer?.invalidate()
+        self.targetHudStatsDisposable.dispose()
     }
     
     override func didLoad() {
@@ -2654,16 +2668,6 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
                 return false
             }
         }
-    }
-
-    private func targetHudTimeText() -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        if let exactTimestamp = self.data?.status?.exactTimestamp, exactTimestamp > 0 {
-            return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(exactTimestamp)))
-        }
-        return formatter.string(from: Date())
     }
 
     private func targetHudDcId(user: TelegramUser) -> Int? {
@@ -2710,8 +2714,6 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             let (layout, _) = self.validLayout
         else {
             self.targetHudNode.isHidden = true
-            self.targetHudTimer?.invalidate()
-            self.targetHudTimer = nil
             return
         }
 
@@ -2731,17 +2733,9 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             username: user.addressName,
             peerId: user.id.id._internalGetInt64Value(),
             dcId: self.targetHudDcId(user: user),
-            timeText: self.targetHudTimeText()
+            stats: self.targetHudStats
         )
         self.targetHudNode.updateFrame(origin: origin)
-
-        if self.targetHudTimer == nil {
-            let timer = SwiftSignalKit.Timer(timeout: 1.0, repeat: true, completion: { [weak self] in
-                self?.updateTargetHud()
-            }, queue: .mainQueue())
-            self.targetHudTimer = timer
-            timer.start()
-        }
     }
         
     var canAttachVideo: Bool?
