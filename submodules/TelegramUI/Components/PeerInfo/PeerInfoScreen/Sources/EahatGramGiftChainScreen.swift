@@ -11,6 +11,22 @@ import Postbox
 
 private let eahatGramGiftChainQueue = Queue(name: "EahatGramGiftChain", qos: .userInitiated)
 private let eahatGramGiftChainMaximumNodes = 180
+private let eahatGramGiftChainMaximumConcurrentPeers = 4
+private let eahatGramGiftChainCacheLock = NSLock()
+
+private struct EahatGramGiftChainCacheKey: Hashable {
+    let peerId: EnginePeer.Id
+    let peerLimit: Int
+}
+
+private struct EahatGramGiftChainCacheEntry {
+    let targetPeer: EnginePeer?
+    let senders: [EahatGramGiftChainSenderSummary]
+    let totalGiftCount: Int
+    let giftCountsByPeerId: [EnginePeer.Id: Int]
+}
+
+private var eahatGramGiftChainCache: [EahatGramGiftChainCacheKey: EahatGramGiftChainCacheEntry] = [:]
 
 private func eahatGramRawPeerId(_ peerId: EnginePeer.Id) -> Int64 {
     return peerId.id._internalGetInt64Value()
@@ -58,6 +74,50 @@ private struct EahatGramGiftChainFetchResult: Equatable {
     let senders: [EahatGramGiftChainSenderSummary]
     let totalGiftCount: Int
     let trackedPeerGiftCount: Int
+}
+
+private func eahatGramGiftChainGiftCountsByPeerId(
+    gifts: [ProfileGiftsContext.State.StarGift]
+) -> [EnginePeer.Id: Int] {
+    var counts: [EnginePeer.Id: Int] = [:]
+    for gift in gifts {
+        guard let fromPeerId = gift.fromPeer?.id else {
+            continue
+        }
+        counts[fromPeerId, default: 0] += 1
+    }
+    return counts
+}
+
+private func eahatGramGiftChainCachedFetchResult(
+    peerId: EnginePeer.Id,
+    trackedPeerId: EnginePeer.Id?,
+    peerLimit: Int
+) -> EahatGramGiftChainFetchResult? {
+    let key = EahatGramGiftChainCacheKey(peerId: peerId, peerLimit: peerLimit)
+    eahatGramGiftChainCacheLock.lock()
+    let entry = eahatGramGiftChainCache[key]
+    eahatGramGiftChainCacheLock.unlock()
+    guard let entry else {
+        return nil
+    }
+    return EahatGramGiftChainFetchResult(
+        targetPeer: entry.targetPeer,
+        senders: entry.senders,
+        totalGiftCount: entry.totalGiftCount,
+        trackedPeerGiftCount: trackedPeerId.flatMap { entry.giftCountsByPeerId[$0] } ?? 0
+    )
+}
+
+private func eahatGramGiftChainStoreFetchResult(
+    peerId: EnginePeer.Id,
+    peerLimit: Int,
+    entry: EahatGramGiftChainCacheEntry
+) {
+    let key = EahatGramGiftChainCacheKey(peerId: peerId, peerLimit: peerLimit)
+    eahatGramGiftChainCacheLock.lock()
+    eahatGramGiftChainCache[key] = entry
+    eahatGramGiftChainCacheLock.unlock()
 }
 
 private func eahatGramGiftChainSenderSummaries(
@@ -132,6 +192,16 @@ private func eahatGramLoadGiftChainBranch(
     peerLimit: Int
 ) -> Signal<EahatGramGiftChainFetchResult, NoError> {
     return Signal { subscriber in
+        if let cachedResult = eahatGramGiftChainCachedFetchResult(
+            peerId: peerId,
+            trackedPeerId: trackedPeerId,
+            peerLimit: peerLimit
+        ) {
+            subscriber.putNext(cachedResult)
+            subscriber.putCompletion()
+            return ActionDisposable {}
+        }
+
         let giftsContext = ProfileGiftsContext(account: context.account, peerId: peerId, filter: .All, limit: 200)
         let stateDisposable = MetaDisposable()
         let peerDisposable = MetaDisposable()
@@ -145,16 +215,27 @@ private func eahatGramLoadGiftChainBranch(
             completed = true
 
             let senders = eahatGramGiftChainSenderSummaries(gifts: state.gifts, peerLimit: peerLimit)
-            let trackedPeerGiftCount = eahatGramGiftChainGiftCount(gifts: state.gifts, fromPeerId: trackedPeerId)
+            let giftCountsByPeerId = eahatGramGiftChainGiftCountsByPeerId(gifts: state.gifts)
 
             peerDisposable.set((context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: peerId))
             |> take(1)
             |> deliverOn(eahatGramGiftChainQueue)).start(next: { peer in
-                subscriber.putNext(EahatGramGiftChainFetchResult(
+                let cacheEntry = EahatGramGiftChainCacheEntry(
                     targetPeer: peer,
                     senders: senders,
                     totalGiftCount: state.gifts.count,
-                    trackedPeerGiftCount: trackedPeerGiftCount
+                    giftCountsByPeerId: giftCountsByPeerId
+                )
+                eahatGramGiftChainStoreFetchResult(
+                    peerId: peerId,
+                    peerLimit: peerLimit,
+                    entry: cacheEntry
+                )
+                subscriber.putNext(EahatGramGiftChainFetchResult(
+                    targetPeer: cacheEntry.targetPeer,
+                    senders: cacheEntry.senders,
+                    totalGiftCount: cacheEntry.totalGiftCount,
+                    trackedPeerGiftCount: trackedPeerId.flatMap { cacheEntry.giftCountsByPeerId[$0] } ?? 0
                 ))
                 subscriber.putCompletion()
             }))
@@ -192,8 +273,6 @@ func eahatGramBuildGiftChainSignal(
     peerLimit: Int
 ) -> Signal<EahatGramGiftChainBuildEvent, NoError> {
     return Signal { subscriber in
-        let operationDisposable = MetaDisposable()
-
         var pending: [(peerId: EnginePeer.Id, depth: Int)] = [(rootPeerId, 0)]
         var pendingIndex = 0
         var visited = Set<EnginePeer.Id>([rootPeerId])
@@ -214,6 +293,7 @@ func eahatGramBuildGiftChainSignal(
         var rootDirectGiftCounts: [EnginePeer.Id: Int] = [:]
         var isDisposed = false
         var isTruncated = false
+        var activeOperations: [EnginePeer.Id: Disposable] = [:]
 
         let addHighlightEdge: (EnginePeer.Id) -> Void = { peerId in
             guard peerId != rootPeerId, let giftCount = rootDirectGiftCounts[peerId], nodes[peerId] != nil else {
@@ -258,104 +338,122 @@ func eahatGramBuildGiftChainSignal(
             subscriber.putCompletion()
         }
 
-        func processNext() {
+        func maybeFinish() {
             guard !isDisposed else {
                 return
             }
-            guard pendingIndex < pending.count else {
+            if pendingIndex >= pending.count && activeOperations.isEmpty {
                 finish()
+            }
+        }
+
+        func startMoreScans() {
+            guard !isDisposed else {
                 return
             }
 
-            let current = pending[pendingIndex]
-            pendingIndex += 1
-            subscriber.putNext(.progress("giftChain scan peerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) pending=\(pending.count - pendingIndex)"))
+            while activeOperations.count < eahatGramGiftChainMaximumConcurrentPeers && pendingIndex < pending.count {
+                let current = pending[pendingIndex]
+                pendingIndex += 1
+                subscriber.putNext(.progress("giftChain scan peerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) pending=\(pending.count - pendingIndex) active=\(activeOperations.count + 1)"))
 
-            operationDisposable.set((eahatGramLoadGiftChainBranch(
-                context: context,
-                peerId: current.peerId,
-                trackedPeerId: nodes[current.peerId]?.parentPeerId,
-                peerLimit: peerLimit
-            )
-            |> deliverOn(eahatGramGiftChainQueue)).start(next: { result in
-                guard !isDisposed else {
-                    return
-                }
+                let operationDisposable = MetaDisposable()
+                activeOperations[current.peerId] = operationDisposable
 
-                let existingNode = nodes[current.peerId] ?? EahatGramGiftChainNode(
+                operationDisposable.set((eahatGramLoadGiftChainBranch(
+                    context: context,
                     peerId: current.peerId,
-                    peer: eahatGramGiftChainPlaceholderPeer(peerId: current.peerId),
-                    depth: current.depth,
-                    parentPeerId: nil,
-                    incomingGiftCount: 0,
-                    mutualGiftCount: 0
+                    trackedPeerId: nodes[current.peerId]?.parentPeerId,
+                    peerLimit: peerLimit
                 )
-                let resolvedPeer = result.targetPeer ?? existingNode.peer
-                nodes[current.peerId] = EahatGramGiftChainNode(
-                    peerId: current.peerId,
-                    peer: resolvedPeer,
-                    depth: existingNode.depth,
-                    parentPeerId: existingNode.parentPeerId,
-                    incomingGiftCount: existingNode.incomingGiftCount,
-                    mutualGiftCount: existingNode.parentPeerId == nil ? 0 : (existingNode.incomingGiftCount + result.trackedPeerGiftCount)
-                )
-
-                addHighlightEdge(current.peerId)
-
-                subscriber.putNext(.progress("giftChain loaded peerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) gifts=\(result.totalGiftCount) uniquePeople=\(result.senders.count)"))
-
-                guard current.depth < maxDepth else {
-                    processNext()
-                    return
-                }
-
-                for sender in result.senders {
-                    if current.peerId == rootPeerId {
-                        rootDirectGiftCounts[sender.peer.id] = sender.giftCount
+                |> deliverOn(eahatGramGiftChainQueue)).start(next: { result in
+                    guard !isDisposed else {
+                        return
                     }
 
-                    if nodes[sender.peer.id] == nil {
-                        if nodes.count >= eahatGramGiftChainMaximumNodes {
-                            isTruncated = true
-                            continue
+                    activeOperations[current.peerId] = nil
+
+                    let existingNode = nodes[current.peerId] ?? EahatGramGiftChainNode(
+                        peerId: current.peerId,
+                        peer: eahatGramGiftChainPlaceholderPeer(peerId: current.peerId),
+                        depth: current.depth,
+                        parentPeerId: nil,
+                        incomingGiftCount: 0,
+                        mutualGiftCount: 0
+                    )
+                    let resolvedPeer = result.targetPeer ?? existingNode.peer
+                    nodes[current.peerId] = EahatGramGiftChainNode(
+                        peerId: current.peerId,
+                        peer: resolvedPeer,
+                        depth: existingNode.depth,
+                        parentPeerId: existingNode.parentPeerId,
+                        incomingGiftCount: existingNode.incomingGiftCount,
+                        mutualGiftCount: existingNode.parentPeerId == nil ? 0 : (existingNode.incomingGiftCount + result.trackedPeerGiftCount)
+                    )
+
+                    addHighlightEdge(current.peerId)
+
+                    subscriber.putNext(.progress("giftChain loaded peerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) gifts=\(result.totalGiftCount) uniquePeople=\(result.senders.count) active=\(activeOperations.count)"))
+
+                    if current.depth < maxDepth {
+                        for sender in result.senders {
+                            if current.peerId == rootPeerId {
+                                rootDirectGiftCounts[sender.peer.id] = sender.giftCount
+                            }
+
+                            if nodes[sender.peer.id] == nil {
+                                if nodes.count >= eahatGramGiftChainMaximumNodes {
+                                    isTruncated = true
+                                    continue
+                                }
+                                nodes[sender.peer.id] = EahatGramGiftChainNode(
+                                    peerId: sender.peer.id,
+                                    peer: sender.peer,
+                                    depth: current.depth + 1,
+                                    parentPeerId: current.peerId,
+                                    incomingGiftCount: sender.giftCount,
+                                    mutualGiftCount: sender.giftCount
+                                )
+                            }
+
+                            let edgeKey = eahatGramGiftChainEdgeKey(fromPeerId: current.peerId, toPeerId: sender.peer.id)
+                            if edgeKeys.insert(edgeKey).inserted {
+                                edges.append(EahatGramGiftChainEdge(
+                                    fromPeerId: current.peerId,
+                                    toPeerId: sender.peer.id,
+                                    giftCount: sender.giftCount
+                                ))
+                            }
+
+                            addHighlightEdge(sender.peer.id)
+
+                            if visited.insert(sender.peer.id).inserted {
+                                pending.append((sender.peer.id, current.depth + 1))
+                            }
                         }
-                        nodes[sender.peer.id] = EahatGramGiftChainNode(
-                            peerId: sender.peer.id,
-                            peer: sender.peer,
-                            depth: current.depth + 1,
-                            parentPeerId: current.peerId,
-                            incomingGiftCount: sender.giftCount,
-                            mutualGiftCount: sender.giftCount
-                        )
                     }
 
-                    let edgeKey = eahatGramGiftChainEdgeKey(fromPeerId: current.peerId, toPeerId: sender.peer.id)
-                    if edgeKeys.insert(edgeKey).inserted {
-                        edges.append(EahatGramGiftChainEdge(
-                            fromPeerId: current.peerId,
-                            toPeerId: sender.peer.id,
-                            giftCount: sender.giftCount
-                        ))
-                    }
+                    startMoreScans()
+                    maybeFinish()
+                }))
+            }
 
-                    addHighlightEdge(sender.peer.id)
-
-                    if visited.insert(sender.peer.id).inserted {
-                        pending.append((sender.peer.id, current.depth + 1))
-                    }
-                }
-
-                processNext()
-            }))
+            maybeFinish()
         }
 
         eahatGramGiftChainQueue.async {
-            processNext()
+            startMoreScans()
         }
 
         return ActionDisposable {
-            isDisposed = true
-            operationDisposable.dispose()
+            eahatGramGiftChainQueue.async {
+                isDisposed = true
+                let disposables = Array(activeOperations.values)
+                activeOperations.removeAll()
+                for disposable in disposables {
+                    disposable.dispose()
+                }
+            }
         }
     }
 }
