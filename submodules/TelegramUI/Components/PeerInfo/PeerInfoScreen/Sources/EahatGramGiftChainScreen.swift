@@ -1547,6 +1547,8 @@ final class EahatGramGiftChainScreen: ViewController {
     private func focusOnPeer(_ peerId: EnginePeer.Id, presentPath: Bool) {
         var updatedState = self.visualizationState
         updatedState.focusedPeerId = peerId
+        updatedState.selectedEdge = nil
+        updatedState.isVisualLineMode = false
         self.visualizationState = updatedState
         self.stateUpdated(updatedState)
         self.controllerNode.setVisualizationState(updatedState, centerOnFocusedPeer: true)

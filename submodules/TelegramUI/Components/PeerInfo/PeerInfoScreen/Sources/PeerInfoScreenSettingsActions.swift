@@ -22,6 +22,7 @@ import GlassBackgroundComponent
 import ObjectiveC.runtime
 
 private var eahatGramDismissGestureTargetKey: UInt8 = 0
+private let eahatGramPersistedChainVisualizationState = Atomic<EahatGramGiftChainVisualizationState?>(value: nil)
 
 private final class EahatGramDismissGestureTarget: NSObject {
     weak var view: UIView?
@@ -533,7 +534,7 @@ private struct EahatGramState: Equatable {
     var hasCurrentChainVisualization: Bool
     var responses: [String]
 
-    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool) {
+    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, hasCurrentChainVisualization: Bool) {
         self.selectedTab = .me
         self.selectedPeerId = nil
         self.selectedPeerTitle = ""
@@ -547,7 +548,7 @@ private struct EahatGramState: Equatable {
         self.chainPeerLimitText = "5"
         self.chainWorkerCountText = "\(eahatGramGiftChainDefaultConcurrentPeers)"
         self.chainStatusText = "No chain scan started"
-        self.hasCurrentChainVisualization = false
+        self.hasCurrentChainVisualization = hasCurrentChainVisualization
         self.responses = []
     }
 }
@@ -1295,7 +1296,8 @@ private func eahatGramEntries(
 private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext, starsContext: StarsContext?) -> ViewController {
     let initialState = EahatGramState(
         liquidGlassEnabled: !context.sharedContext.immediateExperimentalUISettings.fakeGlass,
-        replyQuoteEnabled: context.sharedContext.immediateExperimentalUISettings.replyQuote
+        replyQuoteEnabled: context.sharedContext.immediateExperimentalUISettings.replyQuote,
+        hasCurrentChainVisualization: eahatGramPersistedChainVisualizationState.with { $0 != nil }
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -1318,6 +1320,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     }
 
     let setCurrentChainVisualizationState: (EahatGramGiftChainVisualizationState?) -> Void = { visualizationState in
+        _ = eahatGramPersistedChainVisualizationState.swap(visualizationState)
         _ = chainVisualizationState.swap(visualizationState)
         updateState { current in
             var current = current
@@ -1635,7 +1638,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
         (controller?.navigationController as? NavigationController)?.pushViewController(c)
     }
     openCurrentChainVisualizationImpl = {
-        guard let visualizationState = chainVisualizationState.with({ $0 }) else {
+        guard let visualizationState = eahatGramPersistedChainVisualizationState.with({ $0 }) else {
             appendResponse("giftChain open failed reason=VISUALIZATION_IS_NIL")
             return
         }
