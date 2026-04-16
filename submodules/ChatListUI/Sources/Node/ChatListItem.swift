@@ -3849,7 +3849,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                 customActions.append(ChatListItemAccessibilityCustomAction(name: option.title, target: nil, selector: #selector(ChatListItemNode.performLocalAccessibilityCustomAction(_:)), key: option.key))
             }
             
-            let apply: (Bool, Bool) -> Void = { [weak self] synchronousLoads, animated in
+            func apply(synchronousLoads: Bool, animated: Bool) {
                 if let strongSelf = self {
                     strongSelf.layoutParams = (item, first, last, firstWithHeader, nextIsPinned, params, countersSize)
                     strongSelf.currentItemHeight = itemHeight
