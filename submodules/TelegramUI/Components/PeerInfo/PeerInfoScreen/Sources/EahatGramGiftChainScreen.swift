@@ -66,6 +66,8 @@ struct EahatGramGiftChainVisualizationState: Equatable {
     var graph: EahatGramGiftChainGraph
     var focusedPeerId: EnginePeer.Id?
     var manualOrigins: [EnginePeer.Id: CGPoint]
+    var selectedEdge: EahatGramGiftChainEdge?
+    var isVisualLineMode: Bool
 }
 
 enum EahatGramGiftChainBuildEvent: Equatable {
@@ -273,6 +275,64 @@ private func eahatGramGiftChainPathEdges(
         }
     }
     return edges
+}
+
+private func eahatGramGiftChainPathPeerIds(
+    graph: EahatGramGiftChainGraph,
+    edge: EahatGramGiftChainEdge
+) -> [EnginePeer.Id] {
+    if graph.highlightEdges.contains(edge) && edge.fromPeerId == graph.rootPeerId {
+        return [graph.rootPeerId, edge.toPeerId]
+    }
+    return eahatGramGiftChainPathPeerIds(graph: graph, targetPeerId: edge.fromPeerId)
+}
+
+private func eahatGramGiftChainPathEdges(
+    graph: EahatGramGiftChainGraph,
+    edge: EahatGramGiftChainEdge
+) -> [EahatGramGiftChainEdge] {
+    if graph.highlightEdges.contains(edge) && edge.fromPeerId == graph.rootPeerId {
+        return [edge]
+    }
+    return eahatGramGiftChainPathEdges(graph: graph, targetPeerId: edge.fromPeerId)
+}
+
+private func eahatGramGiftChainPathText(
+    graph: EahatGramGiftChainGraph,
+    edge: EahatGramGiftChainEdge
+) -> String {
+    let pathPeerIds = eahatGramGiftChainPathPeerIds(graph: graph, edge: edge)
+    guard !pathPeerIds.isEmpty else {
+        return "Path not found"
+    }
+    return pathPeerIds.map { "\($0.id._internalGetInt64Value())" }.joined(separator: " -> ")
+}
+
+private func eahatGramGiftChainDisplayGraph(
+    visualizationState: EahatGramGiftChainVisualizationState
+) -> EahatGramGiftChainGraph {
+    let graph = visualizationState.graph
+    guard visualizationState.isVisualLineMode, let selectedEdge = visualizationState.selectedEdge else {
+        return graph
+    }
+
+    let pathPeerIds = Set(eahatGramGiftChainPathPeerIds(graph: graph, edge: selectedEdge))
+    let pathEdges = eahatGramGiftChainPathEdges(graph: graph, edge: selectedEdge)
+    let pathEdgeKeys = Set(pathEdges.map { eahatGramGiftChainEdgeKey(fromPeerId: $0.fromPeerId, toPeerId: $0.toPeerId) })
+    let selectedEdgeKey = eahatGramGiftChainEdgeKey(fromPeerId: selectedEdge.fromPeerId, toPeerId: selectedEdge.toPeerId)
+
+    return EahatGramGiftChainGraph(
+        rootPeerId: graph.rootPeerId,
+        nodes: graph.nodes.filter { pathPeerIds.contains($0.peerId) },
+        edges: graph.edges.filter {
+            pathEdgeKeys.contains(eahatGramGiftChainEdgeKey(fromPeerId: $0.fromPeerId, toPeerId: $0.toPeerId))
+        },
+        highlightEdges: graph.highlightEdges.filter {
+            let edgeKey = eahatGramGiftChainEdgeKey(fromPeerId: $0.fromPeerId, toPeerId: $0.toPeerId)
+            return pathEdgeKeys.contains(edgeKey) || edgeKey == selectedEdgeKey
+        },
+        isTruncated: graph.isTruncated
+    )
 }
 
 private func eahatGramGiftChainSearchMatches(
@@ -806,6 +866,7 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
     private let theme: PresentationTheme
     private var visualizationState: EahatGramGiftChainVisualizationState
     private let tapPeer: ((EnginePeer.Id) -> Void)?
+    private let tapEdge: ((EahatGramGiftChainEdge) -> Void)?
     private let stateUpdated: ((EahatGramGiftChainVisualizationState) -> Void)?
 
     private let backgroundNode = ASDisplayNode()
@@ -828,18 +889,21 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
     private var hasLayout = false
     private var centerFocusedAfterLayout = false
     private var animateFocusCentering = false
+    private var edgeHitRegions: [(edge: EahatGramGiftChainEdge, path: CGPath)] = []
 
     init(
         context: AccountContext,
         theme: PresentationTheme,
         visualizationState: EahatGramGiftChainVisualizationState,
         tapPeer: ((EnginePeer.Id) -> Void)?,
+        tapEdge: ((EahatGramGiftChainEdge) -> Void)?,
         stateUpdated: ((EahatGramGiftChainVisualizationState) -> Void)?
     ) {
         self.context = context
         self.theme = theme
         self.visualizationState = visualizationState
         self.tapPeer = tapPeer
+        self.tapEdge = tapEdge
         self.stateUpdated = stateUpdated
         self.centerFocusedAfterLayout = visualizationState.focusedPeerId != nil
 
@@ -873,6 +937,9 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
 
         self.view.addSubview(self.scrollView)
         self.scrollView.addSubview(self.contentNode.view)
+        let lineTapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(self.handleLineTap(_:)))
+        lineTapGestureRecognizer.cancelsTouchesInView = false
+        self.contentNode.view.addGestureRecognizer(lineTapGestureRecognizer)
         self.contentNode.view.layer.addSublayer(self.linksLayer)
         self.contentNode.view.layer.addSublayer(self.outgoingLinksLayer)
         self.contentNode.view.layer.addSublayer(self.mutualLinksLayer)
@@ -961,7 +1028,7 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         self.scrollView.isHidden = false
         self.emptyNode.isHidden = true
 
-        let graph = self.visualizationState.graph
+        let graph = eahatGramGiftChainDisplayGraph(visualizationState: self.visualizationState)
         let nodesByPeerId = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.peerId, $0) })
         let cardSize = EahatGramGiftChainCardNode.size
         let contentInset: CGFloat = 48.0
@@ -1060,17 +1127,27 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         self.focusedLinksLayer.frame = self.contentNode.bounds
 
         self.currentFrames = frames
-        for (peerId, frame) in frames {
-            self.cardNodes[peerId]?.frame = frame
+        for (peerId, cardNode) in self.cardNodes {
+            if let frame = frames[peerId] {
+                cardNode.isHidden = false
+                cardNode.frame = frame
+            } else {
+                cardNode.isHidden = true
+            }
         }
 
-        let pathPeerIds = Set(eahatGramGiftChainPathPeerIds(
-            graph: graph,
-            targetPeerId: self.visualizationState.focusedPeerId ?? graph.rootPeerId
-        ))
-        for node in graph.nodes {
+        let selectedPathPeerIds: Set<EnginePeer.Id>
+        if let selectedEdge = self.visualizationState.selectedEdge {
+            selectedPathPeerIds = Set(eahatGramGiftChainPathPeerIds(graph: self.visualizationState.graph, edge: selectedEdge))
+        } else {
+            selectedPathPeerIds = Set(eahatGramGiftChainPathPeerIds(
+                graph: self.visualizationState.graph,
+                targetPeerId: self.visualizationState.focusedPeerId ?? self.visualizationState.graph.rootPeerId
+            ))
+        }
+        for node in self.visualizationState.graph.nodes {
             let isTarget = node.peerId == self.visualizationState.focusedPeerId
-            let isOnPath = pathPeerIds.contains(node.peerId)
+            let isOnPath = selectedPathPeerIds.contains(node.peerId)
             self.cardNodes[node.peerId]?.updatePathHighlight(isOnPath: isOnPath, isTarget: isTarget)
         }
 
@@ -1091,7 +1168,9 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
             path.addLine(to: CGPoint(x: basePoint.x - perpendicularX * arrowWidth, y: basePoint.y - perpendicularY * arrowWidth))
         }
 
-        func appendEdge(_ edge: EahatGramGiftChainEdge, to path: UIBezierPath, arrowAtStart: Bool, arrowAtEnd: Bool) {
+        self.edgeHitRegions = []
+
+        func appendEdge(_ edge: EahatGramGiftChainEdge, to path: UIBezierPath, arrowAtStart: Bool, arrowAtEnd: Bool, addHitRegion: Bool) {
             guard let fromFrame = frames[edge.fromPeerId], let toFrame = frames[edge.toPeerId] else {
                 return
             }
@@ -1100,39 +1179,52 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
             let controlOffset = max(48.0, abs(startPoint.y - endPoint.y) * 0.42)
             let controlPoint1 = CGPoint(x: startPoint.x, y: startPoint.y - controlOffset)
             let controlPoint2 = CGPoint(x: endPoint.x, y: endPoint.y + controlOffset)
-            path.move(to: startPoint)
-            path.addCurve(
+            let edgePath = UIBezierPath()
+            edgePath.move(to: startPoint)
+            edgePath.addCurve(
                 to: endPoint,
                 controlPoint1: controlPoint1,
                 controlPoint2: controlPoint2
             )
+            path.append(edgePath)
             if arrowAtEnd {
                 addArrowHead(path, tip: endPoint, referencePoint: controlPoint2)
             }
             if arrowAtStart {
                 addArrowHead(path, tip: startPoint, referencePoint: controlPoint1)
             }
+            if addHitRegion, let strokedPath = edgePath.cgPath.copy(strokingWithWidth: 26.0, lineCap: .round, lineJoin: .round, miterLimit: 0.0) {
+                self.edgeHitRegions.append((edge: edge, path: strokedPath))
+            }
         }
 
         let basePath = UIBezierPath()
-        for edge in graph.edges {
-            appendEdge(edge, to: basePath, arrowAtStart: false, arrowAtEnd: true)
+        if !self.visualizationState.isVisualLineMode {
+            for edge in graph.edges {
+                appendEdge(edge, to: basePath, arrowAtStart: false, arrowAtEnd: true, addHitRegion: true)
+            }
         }
         self.linksLayer.path = basePath.cgPath
 
         let outgoingPath = UIBezierPath()
         let mutualPath = UIBezierPath()
-        for edge in graph.highlightEdges {
-            let targetPath = edge.isMutual ? mutualPath : outgoingPath
-            appendEdge(edge, to: targetPath, arrowAtStart: edge.isMutual, arrowAtEnd: true)
+        if !self.visualizationState.isVisualLineMode {
+            for edge in graph.highlightEdges {
+                let targetPath = edge.isMutual ? mutualPath : outgoingPath
+                appendEdge(edge, to: targetPath, arrowAtStart: edge.isMutual, arrowAtEnd: true, addHitRegion: true)
+            }
         }
         self.outgoingLinksLayer.path = outgoingPath.cgPath
         self.mutualLinksLayer.path = mutualPath.cgPath
 
         let focusedPath = UIBezierPath()
-        if let focusedPeerId = self.visualizationState.focusedPeerId {
-            for edge in eahatGramGiftChainPathEdges(graph: graph, targetPeerId: focusedPeerId) {
-                appendEdge(edge, to: focusedPath, arrowAtStart: false, arrowAtEnd: true)
+        if let selectedEdge = self.visualizationState.selectedEdge {
+            for edge in eahatGramGiftChainPathEdges(graph: self.visualizationState.graph, edge: selectedEdge) {
+                appendEdge(edge, to: focusedPath, arrowAtStart: edge.isMutual, arrowAtEnd: true, addHitRegion: false)
+            }
+        } else if let focusedPeerId = self.visualizationState.focusedPeerId {
+            for edge in eahatGramGiftChainPathEdges(graph: self.visualizationState.graph, targetPeerId: focusedPeerId) {
+                appendEdge(edge, to: focusedPath, arrowAtStart: false, arrowAtEnd: true, addHitRegion: false)
             }
         }
         self.focusedLinksLayer.path = focusedPath.cgPath
@@ -1212,6 +1304,24 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
         return self.contentNode.view
     }
+
+    @objc private func handleLineTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else {
+            return
+        }
+        let location = recognizer.location(in: self.contentNode.view)
+        for frame in self.currentFrames.values {
+            if frame.insetBy(dx: -6.0, dy: -6.0).contains(location) {
+                return
+            }
+        }
+        for region in self.edgeHitRegions.reversed() {
+            if region.path.contains(location) {
+                self.tapEdge?(region.edge)
+                return
+            }
+        }
+    }
 }
 
 final class EahatGramGiftChainScreen: ViewController {
@@ -1267,6 +1377,9 @@ final class EahatGramGiftChainScreen: ViewController {
             visualizationState: self.visualizationState,
             tapPeer: { [weak self] peerId in
                 self?.presentPeerMenu(peerId: peerId)
+            },
+            tapEdge: { [weak self] edge in
+                self?.presentEdgeMenu(edge: edge)
             },
             stateUpdated: { [weak self] updatedState in
                 guard let self else {
@@ -1374,6 +1487,52 @@ final class EahatGramGiftChainScreen: ViewController {
                 ActionSheetButtonItem(title: "Copy @tag + id", color: .accent, action: { [weak actionSheet] in
                     actionSheet?.dismissAnimated()
                     UIPasteboard.general.string = eahatGramGiftChainCopyText(node: node)
+                })
+            ]),
+            ActionSheetItemGroup(items: [
+                ActionSheetButtonItem(title: "Cancel", color: .accent, font: .bold, action: { [weak actionSheet] in
+                    actionSheet?.dismissAnimated()
+                })
+            ])
+        ])
+        self.present(actionSheet, in: .window(.root))
+    }
+
+    private func presentEdgeMenu(edge: EahatGramGiftChainEdge) {
+        var updatedState = self.visualizationState
+        updatedState.selectedEdge = edge
+        updatedState.isVisualLineMode = false
+        self.visualizationState = updatedState
+        self.stateUpdated(updatedState)
+        self.controllerNode.setVisualizationState(updatedState, centerOnFocusedPeer: false)
+
+        let actionSheet = ActionSheetController(presentationData: self.presentationData)
+        actionSheet.setItemGroups([
+            ActionSheetItemGroup(items: [
+                ActionSheetTextItem(title: eahatGramGiftChainPathText(graph: self.visualizationState.graph, edge: edge)),
+                ActionSheetButtonItem(title: "Visual line", color: .accent, action: { [weak self, weak actionSheet] in
+                    actionSheet?.dismissAnimated()
+                    guard let self else {
+                        return
+                    }
+                    var visualizedState = self.visualizationState
+                    visualizedState.selectedEdge = edge
+                    visualizedState.isVisualLineMode = true
+                    self.visualizationState = visualizedState
+                    self.stateUpdated(visualizedState)
+                    self.controllerNode.setVisualizationState(visualizedState, centerOnFocusedPeer: false)
+                }),
+                ActionSheetButtonItem(title: "Clear line", color: .accent, action: { [weak self, weak actionSheet] in
+                    actionSheet?.dismissAnimated()
+                    guard let self else {
+                        return
+                    }
+                    var clearedState = self.visualizationState
+                    clearedState.selectedEdge = nil
+                    clearedState.isVisualLineMode = false
+                    self.visualizationState = clearedState
+                    self.stateUpdated(clearedState)
+                    self.controllerNode.setVisualizationState(clearedState, centerOnFocusedPeer: false)
                 })
             ]),
             ActionSheetItemGroup(items: [

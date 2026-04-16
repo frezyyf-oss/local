@@ -1538,7 +1538,9 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                     let visualizationState = EahatGramGiftChainVisualizationState(
                         graph: graph,
                         focusedPeerId: nil,
-                        manualOrigins: [:]
+                        manualOrigins: [:],
+                        selectedEdge: nil,
+                        isVisualLineMode: false
                     )
                     setCurrentChainVisualizationState(visualizationState)
                     openCurrentChainVisualizationImpl?()
