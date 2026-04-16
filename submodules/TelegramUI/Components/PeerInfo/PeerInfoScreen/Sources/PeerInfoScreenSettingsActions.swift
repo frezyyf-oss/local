@@ -1384,13 +1384,7 @@ private func eahatGramEntries(
         if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
         } else {
-            if gifts.count > visibleGiftCount {
-                entries.append(.giftsSummary("Showing first \(visibleGiftCount) of \(gifts.count) gifts"))
-            }
-            for i in 0 ..< visibleGiftCount {
-                entries.append(.meGift(i, eahatGramGiftTitle(gifts[i])))
-                entries.append(.meGiftInfo(i, eahatGramGiftInfo(gifts[i])))
-            }
+            entries.append(.giftsSummary("Loaded gifts: \(gifts.count)"))
         }
     case .test:
         entries.append(.selectPeer(state.selectedPeerTitle.isEmpty ? "Not selected" : state.selectedPeerTitle))
