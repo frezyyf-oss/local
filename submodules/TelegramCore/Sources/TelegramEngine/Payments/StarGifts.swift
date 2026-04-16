@@ -2021,6 +2021,9 @@ private final class ProfileGiftsContextImpl {
     }
 
     private func mergedWithLocalInsertedGifts(_ gifts: [ProfileGiftsContext.State.StarGift]) -> [ProfileGiftsContext.State.StarGift] {
+        guard self.peerId == self.account.peerId else {
+            return gifts
+        }
         let localInsertedGifts = self.gifts.filter { $0.reference == nil }
         guard !localInsertedGifts.isEmpty else {
             return gifts
@@ -2057,7 +2060,11 @@ private final class ProfileGiftsContextImpl {
     }
 
     func reload() {
-        self.gifts = self.gifts.filter { $0.reference == nil }
+        if self.peerId == self.account.peerId {
+            self.gifts = self.gifts.filter { $0.reference == nil }
+        } else {
+            self.gifts = []
+        }
         self.dataState = .ready(canLoadMore: true, nextOffset: nil)
         self.loadMore(reload: true)
     }
@@ -2094,8 +2101,20 @@ private final class ProfileGiftsContextImpl {
                 guard let self, let cachedGifts else {
                     return
                 }
+                let visibleCachedGifts: [ProfileGiftsContext.State.StarGift]
+                if self.peerId == self.account.peerId {
+                    visibleCachedGifts = cachedGifts.gifts
+                } else {
+                    visibleCachedGifts = cachedGifts.gifts.filter { $0.reference != nil }
+                }
+                let visibleCachedCount: Int32
+                if self.peerId == self.account.peerId {
+                    visibleCachedCount = cachedGifts.count
+                } else {
+                    visibleCachedCount = Int32(visibleCachedGifts.count)
+                }
                 if isPeerColorFilter, case .loading = self.filteredDataState {
-                    let gifts = cachedGifts.gifts.filter({ gift in
+                    let gifts = visibleCachedGifts.filter({ gift in
                         if case let .unique(uniqueGift) = gift.gift, let _ = uniqueGift.peerColor {
                             return true
                         } else {
@@ -2103,11 +2122,11 @@ private final class ProfileGiftsContextImpl {
                         }
                     })
                     self.gifts = gifts
-                    self.count = cachedGifts.count
+                    self.count = visibleCachedCount
                     self.notificationsEnabled = cachedGifts.notificationsEnabled
                     self.pushState()
                 } else if isUniqueOnlyFilter, case .loading = self.filteredDataState {
-                    let gifts = cachedGifts.gifts.filter({ gift in
+                    let gifts = visibleCachedGifts.filter({ gift in
                         if case .unique = gift.gift {
                             return true
                         } else {
@@ -2115,12 +2134,12 @@ private final class ProfileGiftsContextImpl {
                         }
                     })
                     self.gifts = gifts
-                    self.count = cachedGifts.count
+                    self.count = visibleCachedCount
                     self.notificationsEnabled = cachedGifts.notificationsEnabled
                     self.pushState()
                 } else if case .loading = self.dataState {
-                    self.gifts = cachedGifts.gifts
-                    self.count = cachedGifts.count
+                    self.gifts = visibleCachedGifts
+                    self.count = visibleCachedCount
                     self.notificationsEnabled = cachedGifts.notificationsEnabled
                     self.pushState()
                 }
