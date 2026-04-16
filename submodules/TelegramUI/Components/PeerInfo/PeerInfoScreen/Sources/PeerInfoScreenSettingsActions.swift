@@ -446,6 +446,7 @@ private final class EahatGramArguments {
     let updateChainDepth: (String) -> Void
     let updateChainPeerLimit: (String) -> Void
     let updateChainWorkerCount: (String) -> Void
+    let openCurrentChainVisualization: () -> Void
     let runChainScan: () -> Void
     let refreshResponses: () -> Void
     let runGiftProbe: (Int) -> Void
@@ -468,6 +469,7 @@ private final class EahatGramArguments {
         updateChainDepth: @escaping (String) -> Void,
         updateChainPeerLimit: @escaping (String) -> Void,
         updateChainWorkerCount: @escaping (String) -> Void,
+        openCurrentChainVisualization: @escaping () -> Void,
         runChainScan: @escaping () -> Void,
         refreshResponses: @escaping () -> Void,
         runGiftProbe: @escaping (Int) -> Void,
@@ -489,6 +491,7 @@ private final class EahatGramArguments {
         self.updateChainDepth = updateChainDepth
         self.updateChainPeerLimit = updateChainPeerLimit
         self.updateChainWorkerCount = updateChainWorkerCount
+        self.openCurrentChainVisualization = openCurrentChainVisualization
         self.runChainScan = runChainScan
         self.refreshResponses = refreshResponses
         self.runGiftProbe = runGiftProbe
@@ -527,6 +530,7 @@ private struct EahatGramState: Equatable {
     var chainPeerLimitText: String
     var chainWorkerCountText: String
     var chainStatusText: String
+    var hasCurrentChainVisualization: Bool
     var responses: [String]
 
     init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool) {
@@ -543,6 +547,7 @@ private struct EahatGramState: Equatable {
         self.chainPeerLimitText = "5"
         self.chainWorkerCountText = "\(eahatGramGiftChainDefaultConcurrentPeers)"
         self.chainStatusText = "No chain scan started"
+        self.hasCurrentChainVisualization = false
         self.responses = []
     }
 }
@@ -564,6 +569,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case chainDepth(String)
     case chainPeerLimit(String)
     case chainWorkerCount(String)
+    case openCurrentChainVisualization
     case runChainScan
     case chainStatus(String)
     case refreshResponses
@@ -586,7 +592,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return EahatGramSection.custom.rawValue
         case .starsAmount, .addStars, .starsStatus:
             return EahatGramSection.stars.rawValue
-        case .chainPeerId, .chainDepth, .chainPeerLimit, .chainWorkerCount, .runChainScan, .chainStatus:
+        case .chainPeerId, .chainDepth, .chainPeerLimit, .chainWorkerCount, .openCurrentChainVisualization, .runChainScan, .chainStatus:
             return EahatGramSection.chain.rawValue
         case .noGifts, .giftsSummary, .meGift, .meGiftInfo, .testGift, .testGiftInfo:
             return EahatGramSection.gifts.rawValue
@@ -631,10 +637,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 105
         case .chainWorkerCount:
             return 106
-        case .runChainScan:
+        case .openCurrentChainVisualization:
             return 107
-        case .chainStatus:
+        case .runChainScan:
             return 108
+        case .chainStatus:
+            return 109
         case .refreshResponses:
             return 102
         case .noGifts:
@@ -755,6 +763,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case let .chainWorkerCount(lhsText):
             if case let .chainWorkerCount(rhsText) = rhs {
                 return lhsText == rhsText
+            } else {
+                return false
+            }
+        case .openCurrentChainVisualization:
+            if case .openCurrentChainVisualization = rhs {
+                return true
             } else {
                 return false
             }
@@ -1050,6 +1064,19 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.runChainScan()
                 }
             )
+        case .openCurrentChainVisualization:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Open Current Visualization",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.openCurrentChainVisualization()
+                }
+            )
         case .runChainScan:
             return ItemListActionItem(
                 presentationData: presentationData,
@@ -1243,6 +1270,9 @@ private func eahatGramEntries(
         entries.append(.chainDepth(state.chainDepthText))
         entries.append(.chainPeerLimit(state.chainPeerLimitText))
         entries.append(.chainWorkerCount(state.chainWorkerCountText))
+        if state.hasCurrentChainVisualization {
+            entries.append(.openCurrentChainVisualization)
+        }
         entries.append(.runChainScan)
         entries.append(.chainStatus(state.chainStatusText))
     case .other:
@@ -1273,6 +1303,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     let probeDisposable = MetaDisposable()
     let chainBuildDisposable = MetaDisposable()
     let chainBuildGeneration = Atomic(value: 0)
+    let chainVisualizationState = Atomic<EahatGramGiftChainVisualizationState?>(value: nil)
 
     let updateState: ((EahatGramState) -> EahatGramState) -> Void = { f in
         statePromise.set(stateValue.modify { f($0) })
@@ -1282,6 +1313,15 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
         updateState { current in
             var current = current
             current.chainStatusText = text
+            return current
+        }
+    }
+
+    let setCurrentChainVisualizationState: (EahatGramGiftChainVisualizationState?) -> Void = { visualizationState in
+        _ = chainVisualizationState.swap(visualizationState)
+        updateState { current in
+            var current = current
+            current.hasCurrentChainVisualization = visualizationState != nil
             return current
         }
     }
@@ -1318,6 +1358,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     }
 
     var pushControllerImpl: ((ViewController) -> Void)?
+    var openCurrentChainVisualizationImpl: (() -> Void)?
 
     let arguments = EahatGramArguments(
         context: context,
@@ -1452,6 +1493,9 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                 return current
             }
         },
+        openCurrentChainVisualization: {
+            openCurrentChainVisualizationImpl?()
+        },
         runChainScan: {
             let currentState = stateValue.with { $0 }
             guard let rootPeerId = eahatGramPeerIdFromText(currentState.chainPeerIdText) else {
@@ -1472,6 +1516,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
             appendResponse(startLine)
 
             chainBuildDisposable.set(nil)
+            setCurrentChainVisualizationState(nil)
             chainBuildDisposable.set((eahatGramBuildGiftChainSignal(
                 context: context,
                 rootPeerId: rootPeerId,
@@ -1490,7 +1535,13 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                     let completedLine = "giftChain completed peerId=\(rootPeerId.id._internalGetInt64Value()) nodes=\(graph.nodes.count) edges=\(graph.edges.count) truncated=\(graph.isTruncated ? 1 : 0)"
                     setChainStatus(completedLine)
                     appendResponse(completedLine)
-                    pushControllerImpl?(EahatGramGiftChainScreen(context: context, graph: graph))
+                    let visualizationState = EahatGramGiftChainVisualizationState(
+                        graph: graph,
+                        focusedPeerId: nil,
+                        manualOrigins: [:]
+                    )
+                    setCurrentChainVisualizationState(visualizationState)
+                    openCurrentChainVisualizationImpl?()
                 }
             }, completed: {
                 guard generation == chainBuildGeneration.with({ $0 }) else {
@@ -1580,6 +1631,20 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     }
     pushControllerImpl = { [weak controller] c in
         (controller?.navigationController as? NavigationController)?.pushViewController(c)
+    }
+    openCurrentChainVisualizationImpl = {
+        guard let visualizationState = chainVisualizationState.with({ $0 }) else {
+            appendResponse("giftChain open failed reason=VISUALIZATION_IS_NIL")
+            return
+        }
+        let chainController = EahatGramGiftChainScreen(
+            context: context,
+            visualizationState: visualizationState,
+            stateUpdated: { updatedState in
+                setCurrentChainVisualizationState(updatedState)
+            }
+        )
+        pushControllerImpl?(chainController)
     }
 
     refreshResponses()
