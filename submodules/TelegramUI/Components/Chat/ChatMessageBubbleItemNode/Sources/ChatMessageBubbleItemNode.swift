@@ -5203,7 +5203,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
             liquidGlassView.update(
                 size: backgroundFrame.size,
                 cornerRadius: min(18.0, floor(min(backgroundFrame.width, backgroundFrame.height) * 0.2)),
-                isDark: item.presentationData.theme.overallDarkAppearance,
+                isDark: item.presentationData.theme.theme.overallDarkAppearance,
                 tintColor: .init(kind: .panel),
                 transition: ComponentTransition(legacyTransition)
             )
