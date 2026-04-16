@@ -241,23 +241,21 @@ jobs:
             exit "$build_exit"
           fi
 
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            # collect ipa
-            OUTPUT_PATH="build/artifacts"
-            rm -rf "$OUTPUT_PATH"
-            mkdir -p "$OUTPUT_PATH"
-            cp "bazel-bin/Telegram/Telegram.ipa" "$OUTPUT_PATH/Telegram.ipa"
+          # collect ipa
+          OUTPUT_PATH="build/artifacts"
+          rm -rf "$OUTPUT_PATH"
+          mkdir -p "$OUTPUT_PATH"
+          cp "bazel-bin/Telegram/Telegram.ipa" "$OUTPUT_PATH/Telegram.ipa"
 
-            # collect dsym
-            if [ "$COLLECT_DSYMS" = "1" ]; then
-              mkdir -p build/DSYMs
-              shopt -s nullglob
-              for f in bazel-bin/Telegram/*.dSYM; do
-                cp -R "$f" build/DSYMs/
-              done
-              if compgen -G "build/DSYMs/*.dSYM" > /dev/null; then
-                zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
-              fi
+          # collect dsym
+          if [ "$COLLECT_DSYMS" = "1" ]; then
+            mkdir -p build/DSYMs
+            shopt -s nullglob
+            for f in bazel-bin/Telegram/*.dSYM; do
+              cp -R "$f" build/DSYMs/
+            done
+            if compgen -G "build/DSYMs/*.dSYM" > /dev/null; then
+              zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
             fi
           fi
 
@@ -277,7 +275,6 @@ jobs:
           key: ${{ steps.bazel-cache-restore.outputs.cache-primary-key }}
 
       - name: Create Release
-        if: github.event_name == 'workflow_dispatch'
         id: create_release
         uses: actions/create-release@v1
         env:
@@ -291,7 +288,6 @@ jobs:
           prerelease: false
 
       - name: Upload Release IPA
-        if: github.event_name == 'workflow_dispatch'
         id: upload-release-ipa 
         uses: actions/upload-release-asset@v1
         env:
@@ -303,7 +299,7 @@ jobs:
           asset_content_type: application/zip
 
       - name: Upload Release DSYM
-        if: github.event_name == 'workflow_dispatch' && env.COLLECT_DSYMS == '1'
+        if: env.COLLECT_DSYMS == '1'
         id: upload-release-dsym 
         uses: actions/upload-release-asset@v1
         env:
