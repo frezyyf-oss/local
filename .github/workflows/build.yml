@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-          fetch-depth: '0'
+          fetch-depth: '1'
 
       - name: Restore Bazel Disk Cache
         if: env.BAZEL_REMOTE_CACHE_URL == ''
@@ -109,20 +109,12 @@ jobs:
           XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
           sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
 
-      - name: Create canonical source directory
-        run: |
-          set -x
-          sudo mkdir -p /Users/Shared
-          cp -R $GITHUB_WORKSPACE /Users/Shared/
-          mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
-
       - name: Build the App
         shell: bash
         run: |
           set -xo pipefail
 
-          # source code paths are included in the final binary, so we need to make them stable across builds
-          SOURCE_DIR=/Users/Shared/telegram-ios
+          SOURCE_DIR="$GITHUB_WORKSPACE"
 
           # use canonical bazel root
           BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
@@ -135,9 +127,7 @@ jobs:
           BUILD_NUMBER_OFFSET="$(cat build_number_offset)"
 
           export APP_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["app"]);')
-          export COMMIT_COUNT=$(git rev-list --count HEAD)
-          export COMMIT_COUNT="$(($COMMIT_COUNT+$BUILD_NUMBER_OFFSET))"
-          export BUILD_NUMBER="$COMMIT_COUNT"
+          export BUILD_NUMBER="$(($GITHUB_RUN_NUMBER+$BUILD_NUMBER_OFFSET))"
           echo "BUILD_NUMBER=$(echo $BUILD_NUMBER)" >> $GITHUB_ENV
           echo "APP_VERSION=$(echo $APP_VERSION)" >> $GITHUB_ENV
 
@@ -251,21 +241,23 @@ jobs:
             exit "$build_exit"
           fi
 
-          # collect ipa
-          OUTPUT_PATH="build/artifacts"
-          rm -rf "$OUTPUT_PATH"
-          mkdir -p "$OUTPUT_PATH"
-          cp "bazel-bin/Telegram/Telegram.ipa" "$OUTPUT_PATH/Telegram.ipa"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            # collect ipa
+            OUTPUT_PATH="build/artifacts"
+            rm -rf "$OUTPUT_PATH"
+            mkdir -p "$OUTPUT_PATH"
+            cp "bazel-bin/Telegram/Telegram.ipa" "$OUTPUT_PATH/Telegram.ipa"
 
-          # collect dsym
-          if [ "$COLLECT_DSYMS" = "1" ]; then
-            mkdir -p build/DSYMs
-            shopt -s nullglob
-            for f in bazel-bin/Telegram/*.dSYM; do
-              cp -R "$f" build/DSYMs/
-            done
-            if compgen -G "build/DSYMs/*.dSYM" > /dev/null; then
-              zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+            # collect dsym
+            if [ "$COLLECT_DSYMS" = "1" ]; then
+              mkdir -p build/DSYMs
+              shopt -s nullglob
+              for f in bazel-bin/Telegram/*.dSYM; do
+                cp -R "$f" build/DSYMs/
+              done
+              if compgen -G "build/DSYMs/*.dSYM" > /dev/null; then
+                zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+              fi
             fi
           fi
 
@@ -274,7 +266,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log-${{ github.run_number }}
-          path: /Users/Shared/telegram-ios/build/build.log
+          path: ${{ github.workspace }}/build/build.log
           if-no-files-found: warn
 
       - name: Save Bazel Disk Cache
@@ -285,6 +277,7 @@ jobs:
           key: ${{ steps.bazel-cache-restore.outputs.cache-primary-key }}
 
       - name: Create Release
+        if: github.event_name == 'workflow_dispatch'
         id: create_release
         uses: actions/create-release@v1
         env:
@@ -298,24 +291,25 @@ jobs:
           prerelease: false
 
       - name: Upload Release IPA
+        if: github.event_name == 'workflow_dispatch'
         id: upload-release-ipa 
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.ipa
+          asset_path: ${{ github.workspace }}/build/artifacts/Telegram.ipa
           asset_name: Telegram.ipa
           asset_content_type: application/zip
 
       - name: Upload Release DSYM
-        if: env.COLLECT_DSYMS == '1'
+        if: github.event_name == 'workflow_dispatch' && env.COLLECT_DSYMS == '1'
         id: upload-release-dsym 
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.DSYMs.zip
+          asset_path: ${{ github.workspace }}/build/artifacts/Telegram.DSYMs.zip
           asset_name: Telegram.DSYMs.zip
           asset_content_type: application/zip
