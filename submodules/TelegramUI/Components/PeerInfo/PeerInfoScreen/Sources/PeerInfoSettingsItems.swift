@@ -80,6 +80,9 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
         }))
     }
     
+    let fakePhoneNumber = EahatGramDebugSettings.fakePhoneNumber.with { $0 }
+    let nftUsernameTag = EahatGramDebugSettings.nftUsernameTag.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     if let settings = data.globalSettings {
         if settings.premiumGracePeriod {
             items[.phone]!.append(PeerInfoScreenInfoItem(id: 0, title: "Your access to Telegram Premium will expire soon!", text: .markdown("Unfortunately, your latest payment didn't come through. To keep your access to exclusive features, please renew the subscription."), isWarning: true, linkAction: nil))
@@ -344,6 +347,9 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
     guard let data = data else {
         return []
     }
+
+    let fakePhoneNumber = EahatGramDebugSettings.fakePhoneNumber.with { $0 }
+    let nftUsernameTag = EahatGramDebugSettings.nftUsernameTag.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
     
     enum Section: Int, CaseIterable {
         case help
@@ -426,13 +432,26 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
     }))
     
     if let user = data.peer as? TelegramUser {
-        items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemPhoneNumber, label: .text(user.phone.flatMap({ formatPhoneNumber(context: context, number: $0) }) ?? ""), text: presentationData.strings.Settings_PhoneNumber, action: {
+        let displayedPhoneNumber: String
+        if !fakePhoneNumber.isEmpty {
+            displayedPhoneNumber = formatPhoneNumber(context: context, number: fakePhoneNumber)
+        } else {
+            displayedPhoneNumber = user.phone.flatMap({ formatPhoneNumber(context: context, number: $0) }) ?? ""
+        }
+        items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemPhoneNumber, label: .text(displayedPhoneNumber), text: presentationData.strings.Settings_PhoneNumber, action: {
             interaction.openSettings(.phoneNumber)
         }))
     }
     var username = ""
     if let addressName = data.peer?.addressName, !addressName.isEmpty {
         username = "@\(addressName)"
+    }
+    if !nftUsernameTag.isEmpty {
+        if username.isEmpty {
+            username = nftUsernameTag.hasPrefix("@") ? nftUsernameTag : "@\(nftUsernameTag)"
+        } else {
+            username += " | " + (nftUsernameTag.hasPrefix("@") ? nftUsernameTag : "@\(nftUsernameTag)")
+        }
     }
     items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemUsername, label: .text(username), text: presentationData.strings.Settings_Username, action: {
           interaction.openSettings(.username)

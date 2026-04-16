@@ -285,15 +285,15 @@ extension PeerInfoScreenNode {
                 guard let strongSelf = self else {
                     return
                 }
-                var maximumAvailableAccounts: Int = 3
+                var maximumAvailableAccounts: Int = maximumNumberOfAccounts
                 if accountAndPeer?.1.isPremium == true && !strongSelf.context.account.testingEnvironment {
-                    maximumAvailableAccounts = 4
+                    maximumAvailableAccounts = maximumPremiumNumberOfAccounts
                 }
                 var count: Int = 1
                 for (accountContext, peer, _) in accountsAndPeers {
                     if !accountContext.account.testingEnvironment {
                         if peer.isPremium {
-                            maximumAvailableAccounts = 4
+                            maximumAvailableAccounts = maximumPremiumNumberOfAccounts
                         }
                         count += 1
                     }
@@ -436,7 +436,8 @@ private final class EahatGramArguments {
     let addGiftToProfile: () -> Void
     let addCustomGiftToProfile: () -> Void
     let clearGifts: () -> Void
-    let addNftUsernameTag: () -> Void
+    let updateNftUsernameTag: (String) -> Void
+    let updateFakePhoneNumber: (String) -> Void
     let updateStarsAmount: (Int32) -> Void
     let addStars: () -> Void
     let updateTargetHudEnabled: (Bool) -> Void
@@ -463,7 +464,8 @@ private final class EahatGramArguments {
         addGiftToProfile: @escaping () -> Void,
         addCustomGiftToProfile: @escaping () -> Void,
         clearGifts: @escaping () -> Void,
-        addNftUsernameTag: @escaping () -> Void,
+        updateNftUsernameTag: @escaping (String) -> Void,
+        updateFakePhoneNumber: @escaping (String) -> Void,
         updateStarsAmount: @escaping (Int32) -> Void,
         addStars: @escaping () -> Void,
         updateTargetHudEnabled: @escaping (Bool) -> Void,
@@ -489,7 +491,8 @@ private final class EahatGramArguments {
         self.addGiftToProfile = addGiftToProfile
         self.addCustomGiftToProfile = addCustomGiftToProfile
         self.clearGifts = clearGifts
-        self.addNftUsernameTag = addNftUsernameTag
+        self.updateNftUsernameTag = updateNftUsernameTag
+        self.updateFakePhoneNumber = updateFakePhoneNumber
         self.updateStarsAmount = updateStarsAmount
         self.addStars = addStars
         self.updateTargetHudEnabled = updateTargetHudEnabled
@@ -526,7 +529,6 @@ private enum EahatGramTab: Int, Equatable {
     case me
     case test
     case chain
-    case other
 }
 
 private struct EahatGramState: Equatable {
@@ -540,6 +542,8 @@ private struct EahatGramState: Equatable {
     var fakeOnlineEnabled: Bool
     var saveDeletedMessagesEnabled: Bool
     var saveEditedMessagesEnabled: Bool
+    var nftUsernameTagText: String
+    var fakePhoneNumberText: String
     var useDirectRpc: Bool
     var starsAmount: Int32
     var chainPeerIdText: String
@@ -561,6 +565,8 @@ private struct EahatGramState: Equatable {
         self.fakeOnlineEnabled = fakeOnlineEnabled
         self.saveDeletedMessagesEnabled = saveDeletedMessagesEnabled
         self.saveEditedMessagesEnabled = saveEditedMessagesEnabled
+        self.nftUsernameTagText = EahatGramDebugSettings.nftUsernameTag.with { $0 }
+        self.fakePhoneNumberText = EahatGramDebugSettings.fakePhoneNumber.with { $0 }
         self.useDirectRpc = true
         self.starsAmount = 100
         self.chainPeerIdText = ""
@@ -578,7 +584,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case addGiftToProfile
     case addCustomGiftToProfile
     case clearGifts
-    case addNftUsernameTag
+    case nftUsernameTag(String)
+    case fakePhoneNumber(String)
     case starsAmount(Int32)
     case addStars
     case starsStatus(String)
@@ -611,7 +618,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .addNftUsernameTag, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .fakePhoneNumber, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
@@ -636,8 +643,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 0
         case .clearGifts:
             return 2
-        case .addNftUsernameTag:
+        case .nftUsernameTag:
             return 3
+        case .fakePhoneNumber:
+            return 11
         case .addCustomGiftToProfile:
             return 1
         case .starsAmount:
@@ -727,9 +736,15 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
-        case .addNftUsernameTag:
-            if case .addNftUsernameTag = rhs {
-                return true
+        case let .nftUsernameTag(lhsText):
+            if case let .nftUsernameTag(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .fakePhoneNumber(lhsText):
+            if case let .fakePhoneNumber(rhsText) = rhs {
+                return lhsText == rhsText
             } else {
                 return false
             }
@@ -955,18 +970,35 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.clearGifts()
                 }
             )
-        case .addNftUsernameTag:
-            return ItemListActionItem(
+        case let .nftUsernameTag(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
                 presentationData: presentationData,
                 systemStyle: .glass,
-                title: "Add NFT Username Tag",
-                kind: .generic,
-                alignment: .natural,
+                title: eahatGramInputTitle(presentationData, "NFT"),
+                text: text,
+                placeholder: "@nfttag",
+                type: .username,
                 sectionId: self.section,
-                style: .blocks,
-                action: {
-                    arguments.addNftUsernameTag()
-                }
+                textUpdated: { value in
+                    arguments.updateNftUsernameTag(value)
+                },
+                action: {}
+            )
+        case let .fakePhoneNumber(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Fake Number"),
+                text: text,
+                placeholder: "79991234567",
+                type: .number,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateFakePhoneNumber(value)
+                },
+                action: {}
             )
         case .addCustomGiftToProfile:
             return ItemListActionItem(
@@ -1331,7 +1363,13 @@ private func eahatGramEntries(
         entries.append(.addGiftToProfile)
         entries.append(.addCustomGiftToProfile)
         entries.append(.clearGifts)
-        entries.append(.addNftUsernameTag)
+        entries.append(.nftUsernameTag(state.nftUsernameTagText))
+        entries.append(.fakePhoneNumber(state.fakePhoneNumberText))
+        entries.append(.starsAmount(state.starsAmount))
+        entries.append(.addStars)
+        if !hasStarsContext {
+            entries.append(.starsStatus("starsContext=nil"))
+        }
         entries.append(.targetHud(state.targetHudEnabled))
         entries.append(.liquidGlass(state.liquidGlassEnabled))
         entries.append(.replyQuote(state.replyQuoteEnabled))
@@ -1384,18 +1422,6 @@ private func eahatGramEntries(
         }
         entries.append(.runChainScan)
         entries.append(.chainStatus(state.chainStatusText))
-    case .other:
-        entries.append(.starsAmount(state.starsAmount))
-        entries.append(.addStars)
-        if !hasStarsContext {
-            entries.append(.starsStatus("starsContext=nil"))
-        }
-
-        let methods = eahatGramOtherMethods()
-        for i in 0 ..< methods.count {
-            entries.append(.otherMethod(i, methods[i].title))
-            entries.append(.otherMethodInfo(i, methods[i].info))
-        }
     }
 
     return entries
@@ -1514,9 +1540,25 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
             profileGiftsContext.clearLocalInsertedStarGifts()
             appendResponse("clearLocalInsertedStarGifts completed")
         },
-        addNftUsernameTag: {
-            EahatGramDebugSettings.setNftUsernameTag("[NFT]")
-            appendResponse("nftUsernameTag value=[NFT]")
+        updateNftUsernameTag: { value in
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            EahatGramDebugSettings.setNftUsernameTag(normalized)
+            updateState { current in
+                var current = current
+                current.nftUsernameTagText = normalized
+                return current
+            }
+            appendResponse("nftUsernameTag value=\(normalized)")
+        },
+        updateFakePhoneNumber: { value in
+            let normalized = eahatGramNormalizedNumericText(value, maxLength: 15)
+            EahatGramDebugSettings.setFakePhoneNumber(normalized)
+            updateState { current in
+                var current = current
+                current.fakePhoneNumberText = normalized
+                return current
+            }
+            appendResponse("fakePhoneNumber value=\(normalized)")
         },
         updateStarsAmount: { value in
             updateState { current in
@@ -1552,7 +1594,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                 }
                 return settings
             }).start()
-            GlassBackgroundView.useCustomGlassImpl = value
+            GlassBackgroundView.useCustomGlassImpl = !value
             updateState { current in
                 var current = current
                 current.liquidGlassEnabled = value
@@ -1707,7 +1749,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                         graph: graph,
                         focusedPeerId: nil,
                         manualOrigins: [:],
-                        selectedEdge: nil,
+                        selectedEdges: [],
                         isVisualLineMode: false
                     )
                     setCurrentChainVisualizationState(visualizationState)
@@ -1768,7 +1810,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .textWithTabs("eahatGram", ["me", "test", "chain", "other"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test", "chain"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),

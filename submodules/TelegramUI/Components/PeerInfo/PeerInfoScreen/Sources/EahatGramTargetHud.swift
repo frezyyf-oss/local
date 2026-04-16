@@ -138,9 +138,11 @@ private func eahatGramCollectibleUsernameOwnerSignal(context: AccountContext, us
 final class EahatGramDebugSettings {
     private static let targetHudEnabledKey = "eahatGram.targetHudEnabled"
     private static let nftUsernameTagKey = "eahatGram.nftUsernameTag"
+    private static let fakePhoneNumberKey = "eahatGram.fakePhoneNumber"
 
     static let targetHudEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: targetHudEnabledKey) as? Bool ?? false)
     static let nftUsernameTag = Atomic<String>(value: UserDefaults.standard.string(forKey: nftUsernameTagKey) ?? "")
+    static let fakePhoneNumber = Atomic<String>(value: UserDefaults.standard.string(forKey: fakePhoneNumberKey) ?? "")
     static let targetHudOrigin = Atomic<CGPoint?>(value: nil)
 
     static func setTargetHudEnabled(_ value: Bool) {
@@ -155,6 +157,13 @@ final class EahatGramDebugSettings {
             value
         }
         UserDefaults.standard.set(value, forKey: self.nftUsernameTagKey)
+    }
+
+    static func setFakePhoneNumber(_ value: String) {
+        _ = self.fakePhoneNumber.modify { _ in
+            value
+        }
+        UserDefaults.standard.set(value, forKey: self.fakePhoneNumberKey)
     }
 }
 

@@ -19,6 +19,32 @@ private struct EahatGramPreviousMessageEntryData {
     let attributes: ChatMessageEntryAttributes
 }
 
+private struct EahatGramSavedChatState {
+    var deletedEntries: [MessageId: EahatGramPreviousMessageEntryData]
+    var editedTexts: [MessageId: String]
+
+    init(
+        deletedEntries: [MessageId: EahatGramPreviousMessageEntryData] = [:],
+        editedTexts: [MessageId: String] = [:]
+    ) {
+        self.deletedEntries = deletedEntries
+        self.editedTexts = editedTexts
+    }
+}
+
+private let eahatGramSavedChatStateCache = Atomic<[String: EahatGramSavedChatState]>(value: [:])
+
+private func eahatGramSavedChatStateKey(chatLocation: ChatLocation) -> String {
+    switch chatLocation {
+    case let .peer(peerId):
+        return "peer:\(peerId.toInt64())"
+    case let .replyThread(message):
+        return "thread:\(message.peerId.toInt64()):\(message.threadId)"
+    case .customChatContents:
+        return "custom"
+    }
+}
+
 private func eahatGramPreviousMessageEntryDataMap(
     entries: [ChatHistoryEntry]
 ) -> [MessageId: EahatGramPreviousMessageEntryData] {
@@ -40,6 +66,7 @@ private func eahatGramPreviousMessageEntryDataMap(
 
 private func eahatGramUpdatedAttributesForSavedEdit(
     previousEntryData: EahatGramPreviousMessageEntryData?,
+    cachedPreviousText: String?,
     message: Message,
     attributes: ChatMessageEntryAttributes,
     saveEditedMessages: Bool
@@ -47,30 +74,62 @@ private func eahatGramUpdatedAttributesForSavedEdit(
     var attributes = attributes
     attributes.isSavedDeleted = false
     if let previousEntryData {
-        attributes.savedEditPreviousText = previousEntryData.attributes.savedEditPreviousText
+        attributes.savedEditPreviousText = previousEntryData.attributes.savedEditPreviousText ?? cachedPreviousText
         if saveEditedMessages, previousEntryData.message.id == message.id, previousEntryData.message.text != message.text, !previousEntryData.message.text.isEmpty {
             attributes.savedEditPreviousText = previousEntryData.message.text
         }
     } else {
+        attributes.savedEditPreviousText = cachedPreviousText
+    }
+    if !saveEditedMessages {
         attributes.savedEditPreviousText = nil
     }
     return attributes
 }
 
+private func eahatGramCanPersistDeletedEntry(message: Message) -> Bool {
+    if !message.text.isEmpty {
+        return true
+    }
+    return message.media.isEmpty
+}
+
 func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toView: ChatHistoryView, reason: ChatHistoryViewTransitionReason, reverse: Bool, chatLocation: ChatLocation, source: ChatHistoryListSource, controllerInteraction: ChatControllerInteraction, scrollPosition: ChatHistoryViewScrollPosition?, scrollAnimationCurve: ListViewAnimationCurve?, initialData: InitialMessageHistoryData?, keyboardButtonsMessage: Message?, cachedData: CachedPeerData?, cachedDataMessages: [MessageId: Message]?, readStateData: [PeerId: ChatHistoryCombinedInitialReadStateData]?, flashIndicators: Bool, updatedMessageSelection: Bool, messageTransitionNode: ChatMessageTransitionNodeImpl?, allUpdated: Bool, saveDeletedMessages: Bool, saveEditedMessages: Bool) -> ChatHistoryViewTransition {
     let previousMessageEntries = eahatGramPreviousMessageEntryDataMap(entries: fromView?.filteredEntries ?? [])
+    let cacheKey = eahatGramSavedChatStateKey(chatLocation: chatLocation)
+    var savedChatState = eahatGramSavedChatStateCache.with { $0[cacheKey] ?? EahatGramSavedChatState() }
+    if !saveDeletedMessages {
+        savedChatState.deletedEntries.removeAll()
+    }
+    if !saveEditedMessages {
+        savedChatState.editedTexts.removeAll()
+    }
+    var currentMessageIds = Set<MessageId>()
     var effectiveToEntries: [ChatHistoryEntry] = toView.filteredEntries.map { entry in
         switch entry {
         case let .MessageEntry(message, presentationData, read, location, selection, attributes):
-            let updatedAttributes = eahatGramUpdatedAttributesForSavedEdit(previousEntryData: previousMessageEntries[message.id], message: message, attributes: attributes, saveEditedMessages: saveEditedMessages)
+            currentMessageIds.insert(message.id)
+            let updatedAttributes = eahatGramUpdatedAttributesForSavedEdit(previousEntryData: previousMessageEntries[message.id], cachedPreviousText: savedChatState.editedTexts[message.id], message: message, attributes: attributes, saveEditedMessages: saveEditedMessages)
+            if let savedEditPreviousText = updatedAttributes.savedEditPreviousText, !savedEditPreviousText.isEmpty {
+                savedChatState.editedTexts[message.id] = savedEditPreviousText
+            } else {
+                savedChatState.editedTexts.removeValue(forKey: message.id)
+            }
             return .MessageEntry(message, presentationData, read, location, selection, updatedAttributes)
         case let .MessageGroupEntry(groupInfo, messages, presentationData):
             let updatedMessages = messages.map { message, read, selection, attributes, location in
+                currentMessageIds.insert(message.id)
+                let updatedAttributes = eahatGramUpdatedAttributesForSavedEdit(previousEntryData: previousMessageEntries[message.id], cachedPreviousText: savedChatState.editedTexts[message.id], message: message, attributes: attributes, saveEditedMessages: saveEditedMessages)
+                if let savedEditPreviousText = updatedAttributes.savedEditPreviousText, !savedEditPreviousText.isEmpty {
+                    savedChatState.editedTexts[message.id] = savedEditPreviousText
+                } else {
+                    savedChatState.editedTexts.removeValue(forKey: message.id)
+                }
                 return (
                     message,
                     read,
                     selection,
-                    eahatGramUpdatedAttributesForSavedEdit(previousEntryData: previousMessageEntries[message.id], message: message, attributes: attributes, saveEditedMessages: saveEditedMessages),
+                    updatedAttributes,
                     location
                 )
             }
@@ -79,41 +138,72 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
             return entry
         }
     }
-    let currentMessageIds = Set(eahatGramPreviousMessageEntryDataMap(entries: effectiveToEntries).keys)
-    let shouldPersistDeletedEntries: Bool
-    switch reason {
-    case .InteractiveChanges:
-        shouldPersistDeletedEntries = saveDeletedMessages
-    case .Initial, .Reload, .HoleReload:
-        shouldPersistDeletedEntries = false
+    for messageId in currentMessageIds {
+        savedChatState.deletedEntries.removeValue(forKey: messageId)
     }
-    if let fromView {
+    if saveDeletedMessages, let fromView {
         for previousEntry in fromView.filteredEntries {
             switch previousEntry {
             case let .MessageEntry(message, presentationData, read, location, selection, attributes):
                 if currentMessageIds.contains(message.id) {
                     continue
                 }
-                if attributes.isSavedDeleted || shouldPersistDeletedEntries {
-                    var updatedAttributes = attributes
-                    updatedAttributes.isSavedDeleted = true
-                    effectiveToEntries.append(.MessageEntry(message, presentationData, read, location, selection, updatedAttributes))
+                if !eahatGramCanPersistDeletedEntry(message: message) {
+                    continue
                 }
+                var updatedAttributes = attributes
+                updatedAttributes.isSavedDeleted = true
+                savedChatState.deletedEntries[message.id] = EahatGramPreviousMessageEntryData(
+                    message: message,
+                    presentationData: presentationData,
+                    read: read,
+                    location: location,
+                    selection: selection,
+                    attributes: updatedAttributes
+                )
             case let .MessageGroupEntry(_, messages, presentationData):
                 for (message, read, selection, attributes, location) in messages {
                     if currentMessageIds.contains(message.id) {
                         continue
                     }
-                    if attributes.isSavedDeleted || shouldPersistDeletedEntries {
-                        var updatedAttributes = attributes
-                        updatedAttributes.isSavedDeleted = true
-                        effectiveToEntries.append(.MessageEntry(message, presentationData, read, location, selection, updatedAttributes))
+                    if !eahatGramCanPersistDeletedEntry(message: message) {
+                        continue
                     }
+                    var updatedAttributes = attributes
+                    updatedAttributes.isSavedDeleted = true
+                    savedChatState.deletedEntries[message.id] = EahatGramPreviousMessageEntryData(
+                        message: message,
+                        presentationData: presentationData,
+                        read: read,
+                        location: location,
+                        selection: selection,
+                        attributes: updatedAttributes
+                    )
                 }
             default:
                 break
             }
         }
+    }
+    for (messageId, previousEntryData) in savedChatState.deletedEntries {
+        if currentMessageIds.contains(messageId) {
+            continue
+        }
+        var updatedAttributes = previousEntryData.attributes
+        updatedAttributes.isSavedDeleted = true
+        if saveEditedMessages, let savedEditPreviousText = savedChatState.editedTexts[messageId], !savedEditPreviousText.isEmpty {
+            updatedAttributes.savedEditPreviousText = savedEditPreviousText
+        }
+        effectiveToEntries.append(.MessageEntry(previousEntryData.message, previousEntryData.presentationData, previousEntryData.read, previousEntryData.location, previousEntryData.selection, updatedAttributes))
+    }
+    _ = eahatGramSavedChatStateCache.modify { current in
+        var current = current
+        if savedChatState.deletedEntries.isEmpty && savedChatState.editedTexts.isEmpty {
+            current.removeValue(forKey: cacheKey)
+        } else {
+            current[cacheKey] = savedChatState
+        }
+        return current
     }
     effectiveToEntries.sort()
     let effectiveToView = ChatHistoryView(

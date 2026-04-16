@@ -1236,7 +1236,6 @@ private func eahatGramAddGiftEntries(state: EahatGramAddGiftState, customMode: B
         .pinnedToTop(state.draft.pinnedToTop),
         .batchCount(state.draft.batchCount),
         .addNumber,
-        .addNftTag,
         .addRandom,
         .addSelected,
         .status(state.statusText)

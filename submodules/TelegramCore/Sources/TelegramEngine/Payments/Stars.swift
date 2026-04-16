@@ -560,6 +560,13 @@ private final class StarsContextImpl {
     fileprivate let ton: Bool
     
     fileprivate var _state: StarsContext.State?
+    private var remoteBalance: StarsAmount = .zero
+    private var remoteSubscriptions: [StarsContext.State.Subscription] = []
+    private var remoteCanLoadMoreSubscriptions = false
+    private var remoteTransactions: [StarsContext.State.Transaction] = []
+    private var remoteCanLoadMoreTransactions = false
+    private var localBalanceOffset: StarsAmount = .zero
+    private var localTransactions: [StarsContext.State.Transaction] = []
     private let _statePromise = Promise<StarsContext.State?>()
     var state: Signal<StarsContext.State?, NoError> {
         return self._statePromise.get()
@@ -582,10 +589,11 @@ private final class StarsContextImpl {
         
         self.updateDisposable = ((ton ? account.stateManager.updatedTonBalance() : account.stateManager.updatedStarsBalance())
         |> deliverOnMainQueue).startStrict(next: { [weak self] balances in
-            guard let self, let state = self._state, let balance = balances[self.peerId] else {
+            guard let self, self._state != nil, let balance = balances[self.peerId] else {
                 return
             }
-            self.updateState(StarsContext.State(flags: [], balance: balance, subscriptions: state.subscriptions, canLoadMoreSubscriptions: state.canLoadMoreSubscriptions, transactions: state.transactions, canLoadMoreTransactions: state.canLoadMoreTransactions, isLoading: false))
+            self.remoteBalance = balance
+            self.rebuildState(isLoading: false)
             self.load(force: true)
         })
     }
@@ -611,7 +619,12 @@ private final class StarsContextImpl {
             guard let self else {
                 return
             }
-            self.updateState(StarsContext.State(flags: [], balance: status.balance, subscriptions: status.subscriptions, canLoadMoreSubscriptions: status.nextSubscriptionsOffset != nil, transactions: status.transactions, canLoadMoreTransactions: status.nextTransactionsOffset != nil, isLoading: false))
+            self.remoteBalance = status.balance
+            self.remoteSubscriptions = status.subscriptions
+            self.remoteCanLoadMoreSubscriptions = status.nextSubscriptionsOffset != nil
+            self.remoteTransactions = status.transactions
+            self.remoteCanLoadMoreTransactions = status.nextTransactionsOffset != nil
+            self.rebuildState(isLoading: false)
         }, error: { [weak self] _ in
             guard let self else {
                 return
@@ -626,19 +639,37 @@ private final class StarsContextImpl {
         guard let state = self._state else {
             return
         }
-        var transactions = state.transactions
+        self.localBalanceOffset = self.localBalanceOffset + balance
         if addTransaction {
             let count =  CurrencyAmount(amount: balance, currency: self.ton ? .ton : .stars)
-            transactions.insert(.init(flags: [.isLocal], id: "\(arc4random())", count: count, date: Int32(Date().timeIntervalSince1970), peer: .appStore, title: nil, description: nil, photo: nil, transactionDate: nil, transactionUrl: nil, paidMessageId: nil, giveawayMessageId: nil, media: [], subscriptionPeriod: nil, starGift: nil, floodskipNumber: nil, starrefCommissionPermille: nil, starrefPeerId: nil, starrefAmount: nil, paidMessageCount: nil, premiumGiftMonths: nil, adsProceedsFromDate: nil, adsProceedsToDate: nil), at: 0)
+            self.localTransactions.insert(.init(flags: [.isLocal], id: "\(arc4random())", count: count, date: Int32(Date().timeIntervalSince1970), peer: .appStore, title: nil, description: nil, photo: nil, transactionDate: nil, transactionUrl: nil, paidMessageId: nil, giveawayMessageId: nil, media: [], subscriptionPeriod: nil, starGift: nil, floodskipNumber: nil, starrefCommissionPermille: nil, starrefPeerId: nil, starrefAmount: nil, paidMessageCount: nil, premiumGiftMonths: nil, adsProceedsFromDate: nil, adsProceedsToDate: nil), at: 0)
         }
-        self.updateState(StarsContext.State(flags: [.isPendingBalance], balance: max(StarsAmount(value: 0, nanos: 0), state.balance + balance), subscriptions: state.subscriptions, canLoadMoreSubscriptions: state.canLoadMoreSubscriptions, transactions: transactions, canLoadMoreTransactions: state.canLoadMoreTransactions, isLoading: state.isLoading))
+        self.rebuildState(isLoading: state.isLoading)
     }
     
     fileprivate func updateBalance(_ balance: StarsAmount, transactions: [StarsContext.State.Transaction]?) {
         guard let state = self._state else {
             return
         }
-        self.updateState(StarsContext.State(flags: [], balance: balance, subscriptions: state.subscriptions, canLoadMoreSubscriptions: state.canLoadMoreSubscriptions, transactions: transactions ?? state.transactions, canLoadMoreTransactions: state.canLoadMoreTransactions, isLoading: state.isLoading))
+        self.remoteBalance = balance
+        if let transactions {
+            self.remoteTransactions = transactions
+        }
+        self.rebuildState(isLoading: state.isLoading)
+    }
+
+    private func rebuildState(isLoading: Bool) {
+        let mergedTransactions = self.localTransactions + self.remoteTransactions.filter { !$0.flags.contains(.isLocal) }
+        let flags: StarsContext.State.Flags = self.localBalanceOffset == .zero ? [] : [.isPendingBalance]
+        self.updateState(StarsContext.State(
+            flags: flags,
+            balance: max(.zero, self.remoteBalance + self.localBalanceOffset),
+            subscriptions: self.remoteSubscriptions,
+            canLoadMoreSubscriptions: self.remoteCanLoadMoreSubscriptions,
+            transactions: mergedTransactions,
+            canLoadMoreTransactions: self.remoteCanLoadMoreTransactions,
+            isLoading: isLoading
+        ))
     }
     
     private func updateState(_ state: StarsContext.State) {

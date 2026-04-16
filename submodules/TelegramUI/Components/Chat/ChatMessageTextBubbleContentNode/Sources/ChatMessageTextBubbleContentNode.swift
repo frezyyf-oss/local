@@ -665,13 +665,34 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
 
                 if item.attributes.isSavedDeleted || item.attributes.savedEditPreviousText != nil {
                     let updatedString = NSMutableAttributedString(attributedString: attributedText)
-                    let markerFont = Font.regular(max(11.0, textFont.pointSize - 3.0))
+                    let markerFont = Font.regular(max(8.0, textFont.pointSize - 7.0))
                     let markerColor = messageTheme.secondaryTextColor
+                    func makeMarkerAttachment(systemName: String) -> NSAttributedString? {
+                        guard let image = UIImage(systemName: systemName)?.withTintColor(markerColor, renderingMode: .alwaysOriginal) else {
+                            return nil
+                        }
+                        let attachment = NSTextAttachment()
+                        attachment.image = image
+                        let iconSide = max(8.0, markerFont.pointSize)
+                        attachment.bounds = CGRect(x: 0.0, y: floor((markerFont.capHeight - iconSide) * 0.5), width: iconSide, height: iconSide)
+                        return NSAttributedString(attachment: attachment)
+                    }
                     if item.attributes.isSavedDeleted {
-                        updatedString.append(NSAttributedString(string: "\n🗑", font: markerFont, textColor: markerColor))
+                        updatedString.append(NSAttributedString(string: "\n", font: markerFont, textColor: markerColor))
+                        if let markerAttachment = makeMarkerAttachment(systemName: "trash") {
+                            updatedString.append(markerAttachment)
+                        } else {
+                            updatedString.append(NSAttributedString(string: "trash", font: markerFont, textColor: markerColor))
+                        }
                     }
                     if let savedEditPreviousText = item.attributes.savedEditPreviousText, !savedEditPreviousText.isEmpty {
-                        updatedString.append(NSAttributedString(string: "\n✏ \(savedEditPreviousText)", font: markerFont, textColor: markerColor))
+                        updatedString.append(NSAttributedString(string: "\n", font: markerFont, textColor: markerColor))
+                        if let markerAttachment = makeMarkerAttachment(systemName: "pencil") {
+                            updatedString.append(markerAttachment)
+                            updatedString.append(NSAttributedString(string: " \(savedEditPreviousText)", font: markerFont, textColor: markerColor))
+                        } else {
+                            updatedString.append(NSAttributedString(string: "edit \(savedEditPreviousText)", font: markerFont, textColor: markerColor))
+                        }
                     }
                     attributedText = updatedString
                 }
