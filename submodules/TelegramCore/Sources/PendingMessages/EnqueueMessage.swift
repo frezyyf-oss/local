@@ -393,7 +393,95 @@ private func opportunisticallyTransformOutgoingMedia(network: Network, postbox: 
     return combineLatest(signals)
 }
 
+private let eahatGramStandaloneWordReplacements: [(String, String)] = [
+    ("ша", "ща"),
+    ("чн", "че"),
+    ("се", "че"),
+    ("хцй", "хуй"),
+    ("дацн", "даун"),
+    ("туплй", "тупой"),
+    ("тв", "ты"),
+    ("тф", "ты"),
+    ("шас", "щас"),
+    ("тож", "тоже"),
+    ("Еахат", "великий еахат"),
+    ("дауг", "даун"),
+    ("сол", "соо"),
+    ("тат", "тут"),
+    ("ч", "я"),
+    ("матб", "мать"),
+    ("нбал", "ебал"),
+    ("гец", "гей"),
+    ("моазь", "мразь"),
+    ("отцп", "отца"),
+    ("шплавы", "шалавы"),
+    ("клгда", "когда"),
+    ("зуй", "хуй"),
+    ("иой", "мой"),
+    ("илй", "мой"),
+    ("быдешь", "будешь"),
+    ("тли", "или"),
+    ("купио", "купил"),
+    ("блуд", "великий блуд"),
+    ("мнй", "мой")
+]
+
+private func eahatGramCanApplyStandaloneWordReplacements(attributes: [MessageAttribute]) -> Bool {
+    for attribute in attributes {
+        if attribute is TextEntitiesMessageAttribute {
+            return false
+        }
+    }
+    return true
+}
+
+private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String {
+    var result = text
+    for (source, target) in eahatGramStandaloneWordReplacements {
+        let pattern = "(^|\\\\s)" + NSRegularExpression.escapedPattern(for: source) + "(?=\\\\s|$)"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            continue
+        }
+        let range = NSRange(result.startIndex..<result.endIndex, in: result)
+        result = regex.stringByReplacingMatches(
+            in: result,
+            options: [],
+            range: range,
+            withTemplate: "$1" + target
+        )
+    }
+    return result
+}
+
+private func eahatGramApplyStandaloneWordReplacements(to message: EnqueueMessage) -> EnqueueMessage {
+    switch message {
+    case let .message(text, attributes, inlineStickers, mediaReference, threadId, replyToMessageId, replyToStoryId, localGroupingKey, correlationId, bubbleUpEmojiOrStickersets):
+        guard eahatGramCanApplyStandaloneWordReplacements(attributes: attributes) else {
+            return message
+        }
+        let updatedText = eahatGramApplyStandaloneWordReplacements(text)
+        if updatedText == text {
+            return message
+        }
+        return .message(
+            text: updatedText,
+            attributes: attributes,
+            inlineStickers: inlineStickers,
+            mediaReference: mediaReference,
+            threadId: threadId,
+            replyToMessageId: replyToMessageId,
+            replyToStoryId: replyToStoryId,
+            localGroupingKey: localGroupingKey,
+            correlationId: correlationId,
+            bubbleUpEmojiOrStickersets: bubbleUpEmojiOrStickersets
+        )
+    case .forward:
+        return message
+    }
+}
+
 public func enqueueMessages(account: Account, peerId: PeerId, messages: [EnqueueMessage]) -> Signal<[MessageId?], NoError> {
+    let messages = messages.map(eahatGramApplyStandaloneWordReplacements(to:))
     let signal: Signal<[(Bool, EnqueueMessage)], NoError>
     if let transformOutgoingMessageMedia = account.transformOutgoingMessageMedia {
         signal = opportunisticallyTransformOutgoingMedia(network: account.network, postbox: account.postbox, transformOutgoingMessageMedia: transformOutgoingMessageMedia, messages: messages, userInteractive: true)
@@ -409,6 +497,7 @@ public func enqueueMessages(account: Account, peerId: PeerId, messages: [Enqueue
 }
 
 public func enqueueMessagesToMultiplePeers(account: Account, peerIds: [PeerId], threadIds: [PeerId: Int64], messages: [EnqueueMessage]) -> Signal<[MessageId], NoError> {
+    let messages = messages.map(eahatGramApplyStandaloneWordReplacements(to:))
     let signal: Signal<[(Bool, EnqueueMessage)], NoError>
     if let transformOutgoingMessageMedia = account.transformOutgoingMessageMedia {
         signal = opportunisticallyTransformOutgoingMedia(network: account.network, postbox: account.postbox, transformOutgoingMessageMedia: transformOutgoingMessageMedia, messages: messages, userInteractive: true)

@@ -673,7 +673,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                         }
                         let attachment = NSTextAttachment()
                         attachment.image = image
-                        let iconSide = max(8.0, markerFont.pointSize)
+                        let iconSide = max(7.0, min(9.0, markerFont.pointSize - 1.0))
                         attachment.bounds = CGRect(x: 0.0, y: floor((markerFont.capHeight - iconSide) * 0.5), width: iconSide, height: iconSide)
                         return NSAttributedString(attachment: attachment)
                     }
