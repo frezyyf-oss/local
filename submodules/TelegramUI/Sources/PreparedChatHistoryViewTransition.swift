@@ -8,6 +8,7 @@ import AccountContext
 import ChatControllerInteraction
 import ChatHistoryEntry
 import ChatMessageBubbleItemNode
+import TelegramPresentationData
 
 private struct EahatGramPreviousMessageEntryData {
     let message: Message
