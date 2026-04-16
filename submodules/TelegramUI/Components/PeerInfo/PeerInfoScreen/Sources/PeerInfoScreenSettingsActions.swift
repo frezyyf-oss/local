@@ -5,6 +5,7 @@ import AccountContext
 import SwiftSignalKit
 import Postbox
 import TelegramCore
+import TelegramUIPreferences
 import SettingsUI
 import PeerInfoStoryGridScreen
 import CallListUI
@@ -437,6 +438,7 @@ private final class EahatGramArguments {
     let updateStarsAmount: (Int32) -> Void
     let addStars: () -> Void
     let updateTargetHudEnabled: (Bool) -> Void
+    let updateLiquidGlassEnabled: (Bool) -> Void
     let updateUseDirectRpc: (Bool) -> Void
     let updateChainPeerId: (String) -> Void
     let updateChainDepth: (String) -> Void
@@ -456,6 +458,7 @@ private final class EahatGramArguments {
         updateStarsAmount: @escaping (Int32) -> Void,
         addStars: @escaping () -> Void,
         updateTargetHudEnabled: @escaping (Bool) -> Void,
+        updateLiquidGlassEnabled: @escaping (Bool) -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
         updateChainPeerId: @escaping (String) -> Void,
         updateChainDepth: @escaping (String) -> Void,
@@ -474,6 +477,7 @@ private final class EahatGramArguments {
         self.updateStarsAmount = updateStarsAmount
         self.addStars = addStars
         self.updateTargetHudEnabled = updateTargetHudEnabled
+        self.updateLiquidGlassEnabled = updateLiquidGlassEnabled
         self.updateUseDirectRpc = updateUseDirectRpc
         self.updateChainPeerId = updateChainPeerId
         self.updateChainDepth = updateChainDepth
@@ -507,6 +511,7 @@ private struct EahatGramState: Equatable {
     var selectedPeerId: EnginePeer.Id?
     var selectedPeerTitle: String
     var targetHudEnabled: Bool
+    var liquidGlassEnabled: Bool
     var useDirectRpc: Bool
     var starsAmount: Int32
     var chainPeerIdText: String
@@ -515,11 +520,12 @@ private struct EahatGramState: Equatable {
     var chainStatusText: String
     var responses: [String]
 
-    init() {
+    init(liquidGlassEnabled: Bool) {
         self.selectedTab = .me
         self.selectedPeerId = nil
         self.selectedPeerTitle = ""
         self.targetHudEnabled = EahatGramDebugSettings.targetHudEnabled.with { $0 }
+        self.liquidGlassEnabled = liquidGlassEnabled
         self.useDirectRpc = true
         self.starsAmount = 100
         self.chainPeerIdText = ""
@@ -540,6 +546,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case addStars
     case starsStatus(String)
     case targetHud(Bool)
+    case liquidGlass(Bool)
     case useDirectRpc(Bool)
     case chainPeerId(String)
     case chainDepth(String)
@@ -560,7 +567,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .addNftUsernameTag, .targetHud, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .addNftUsernameTag, .targetHud, .liquidGlass, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
@@ -597,6 +604,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 202
         case .targetHud:
             return 4
+        case .liquidGlass:
+            return 5
         case .useDirectRpc:
             return 101
         case .chainPeerId:
@@ -686,6 +695,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case let .targetHud(lhsValue):
             if case let .targetHud(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .liquidGlass(lhsValue):
+            if case let .liquidGlass(rhsValue) = rhs {
                 return lhsValue == rhsValue
             } else {
                 return false
@@ -906,6 +921,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateTargetHudEnabled(value)
                 }
             )
+        case let .liquidGlass(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Liquid Glass",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateLiquidGlassEnabled(value)
+                }
+            )
         case let .useDirectRpc(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -1116,6 +1143,7 @@ private func eahatGramEntries(
         entries.append(.clearGifts)
         entries.append(.addNftUsernameTag)
         entries.append(.targetHud(state.targetHudEnabled))
+        entries.append(.liquidGlass(state.liquidGlassEnabled))
         if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
         } else {
@@ -1175,7 +1203,7 @@ private func eahatGramEntries(
 }
 
 private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext, starsContext: StarsContext?) -> ViewController {
-    let initialState = EahatGramState()
+    let initialState = EahatGramState(liquidGlassEnabled: context.sharedContext.immediateExperimentalUISettings.fakeGlass)
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let currentGifts = Atomic(value: [ProfileGiftsContext.State.StarGift]())
@@ -1294,6 +1322,22 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                 return current
             }
             appendResponse("targetHud enabled=\(value)")
+        },
+        updateLiquidGlassEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.fakeGlass = value
+                if value {
+                    settings.forceClearGlass = false
+                }
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.liquidGlassEnabled = value
+                return current
+            }
+            appendResponse("liquidGlass enabled=\(value)")
         },
         updateUseDirectRpc: { value in
             updateState { current in

@@ -9,6 +9,132 @@ import TelegramPresentationData
 import TelegramStringFormatting
 import AvatarNode
 
+private enum EahatGramCollectibleUsernameOwnerCacheEntry: Equatable {
+    case owner(String)
+    case none
+}
+
+private struct EahatGramCollectibleUsernameOwnerLookupResult: Equatable {
+    let owner: String?
+    let isAuthoritative: Bool
+}
+
+private let eahatGramCollectibleUsernameOwnerCache = Atomic<[String: EahatGramCollectibleUsernameOwnerCacheEntry]>(value: [:])
+
+private func eahatGramNormalizedCollectibleUsername(_ username: String) -> String {
+    return username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+}
+
+private func eahatGramNormalizedCollectibleOwner(_ owner: String) -> String {
+    return owner.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+}
+
+private func eahatGramTonCenterCollectibleOwnerSignal(username: String) -> Signal<EahatGramCollectibleUsernameOwnerLookupResult, NoError> {
+    return Signal { subscriber in
+        guard var components = URLComponents(string: "https://toncenter.com/api/v3/dns/records") else {
+            subscriber.putNext(EahatGramCollectibleUsernameOwnerLookupResult(owner: nil, isAuthoritative: false))
+            subscriber.putCompletion()
+            return ActionDisposable {
+            }
+        }
+        components.queryItems = [
+            URLQueryItem(name: "domain", value: "\(username).t.me"),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        guard let url = components.url else {
+            subscriber.putNext(EahatGramCollectibleUsernameOwnerLookupResult(owner: nil, isAuthoritative: false))
+            subscriber.putCompletion()
+            return ActionDisposable {
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8.0
+
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            let result: EahatGramCollectibleUsernameOwnerLookupResult
+            if
+                let httpResponse = response as? HTTPURLResponse,
+                httpResponse.statusCode == 200,
+                let data,
+                let object = try? JSONSerialization.jsonObject(with: data, options: []),
+                let dict = object as? [String: Any],
+                let records = dict["records"] as? [[String: Any]]
+            {
+                let owner = records.compactMap { record -> String? in
+                    guard let owner = record["nft_item_owner"] as? String, !owner.isEmpty else {
+                        return nil
+                    }
+                    return eahatGramNormalizedCollectibleOwner(owner)
+                }.first
+                result = EahatGramCollectibleUsernameOwnerLookupResult(owner: owner, isAuthoritative: true)
+            } else {
+                result = EahatGramCollectibleUsernameOwnerLookupResult(owner: nil, isAuthoritative: false)
+            }
+
+            DispatchQueue.main.async {
+                subscriber.putNext(result)
+                subscriber.putCompletion()
+            }
+        }
+        task.resume()
+
+        return ActionDisposable {
+            task.cancel()
+        }
+    }
+}
+
+private func eahatGramCollectibleUsernameOwnerSignal(context: AccountContext, username: String) -> Signal<String?, NoError> {
+    let normalizedUsername = eahatGramNormalizedCollectibleUsername(username)
+    if normalizedUsername.isEmpty {
+        return .single(nil)
+    }
+
+    if let cachedValue = eahatGramCollectibleUsernameOwnerCache.with({ $0[normalizedUsername] }) {
+        switch cachedValue {
+        case let .owner(owner):
+            return .single(owner)
+        case .none:
+            return .single(nil)
+        }
+    }
+
+    return (context.engine.peers.getCollectibleUsernameInfo(username: normalizedUsername)
+    |> take(1)
+    |> mapToSignal { collectibleInfo -> Signal<String?, NoError> in
+        guard collectibleInfo != nil else {
+            _ = eahatGramCollectibleUsernameOwnerCache.modify { current in
+                var current = current
+                current[normalizedUsername] = .none
+                return current
+            }
+            return .single(nil)
+        }
+
+        return eahatGramTonCenterCollectibleOwnerSignal(username: normalizedUsername)
+        |> map { result -> String? in
+            if let owner = result.owner {
+                _ = eahatGramCollectibleUsernameOwnerCache.modify { current in
+                    var current = current
+                    current[normalizedUsername] = .owner(owner)
+                    return current
+                }
+                return owner
+            } else if result.isAuthoritative {
+                _ = eahatGramCollectibleUsernameOwnerCache.modify { current in
+                    var current = current
+                    current[normalizedUsername] = .none
+                    return current
+                }
+                return nil
+            } else {
+                return nil
+            }
+        }
+    })
+}
+
 final class EahatGramDebugSettings {
     private static let targetHudEnabledKey = "eahatGram.targetHudEnabled"
     private static let nftUsernameTagKey = "eahatGram.nftUsernameTag"
@@ -48,11 +174,17 @@ struct EahatGramTargetHudStats: Equatable {
 }
 
 final class EahatGramTargetHudStatsContext {
+    private let context: AccountContext
     private let giftsContext: ProfileGiftsContext
     private let keepUpdatedDisposable = MetaDisposable()
     private let giftsStateDisposable = MetaDisposable()
+    private let peerDisposable = MetaDisposable()
+    private let userRentDisposable = MetaDisposable()
 
     private var currentGiftsState: ProfileGiftsContext.State?
+    private var currentPeer: EnginePeer?
+    private var currentUserRentState: Bool?
+    private var currentUserRentLookupKey: String?
 
     private let stateValue = ValuePromise<EahatGramTargetHudStats?>(nil, ignoreRepeated: true)
     var state: Signal<EahatGramTargetHudStats?, NoError> {
@@ -60,6 +192,7 @@ final class EahatGramTargetHudStatsContext {
     }
 
     init(context: AccountContext, peerId: EnginePeer.Id) {
+        self.context = context
         self.giftsContext = ProfileGiftsContext(account: context.account, peerId: peerId, filter: .All, limit: 200)
 
         self.keepUpdatedDisposable.set(context.engine.payments.keepStarGiftsUpdated().start())
@@ -74,11 +207,81 @@ final class EahatGramTargetHudStatsContext {
             }
             self.updateStatsIfReady()
         }))
+        self.peerDisposable.set((context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: peerId))
+        |> deliverOnMainQueue).start(next: { [weak self] peer in
+            guard let self else {
+                return
+            }
+            self.currentPeer = peer
+            self.refreshUserRentState()
+        }))
     }
 
     deinit {
         self.keepUpdatedDisposable.dispose()
         self.giftsStateDisposable.dispose()
+        self.peerDisposable.dispose()
+        self.userRentDisposable.dispose()
+    }
+
+    private func refreshUserRentState() {
+        guard let currentPeer = self.currentPeer else {
+            self.currentUserRentState = nil
+            self.currentUserRentLookupKey = nil
+            self.userRentDisposable.set(nil)
+            return
+        }
+        guard case let .user(user) = currentPeer else {
+            self.currentUserRentState = false
+            self.currentUserRentLookupKey = nil
+            self.userRentDisposable.set(nil)
+            self.updateStatsIfReady()
+            return
+        }
+
+        var collectibleUsernameCandidates: [String] = []
+        var seenUsernames = Set<String>()
+
+        if let username = user.username {
+            let normalizedUsername = eahatGramNormalizedCollectibleUsername(username)
+            if !normalizedUsername.isEmpty, seenUsernames.insert(normalizedUsername).inserted {
+                collectibleUsernameCandidates.append(normalizedUsername)
+            }
+        }
+        for username in user.usernames {
+            let normalizedUsername = eahatGramNormalizedCollectibleUsername(username.username)
+            if !normalizedUsername.isEmpty, seenUsernames.insert(normalizedUsername).inserted {
+                collectibleUsernameCandidates.append(normalizedUsername)
+            }
+        }
+
+        if collectibleUsernameCandidates.isEmpty {
+            self.currentUserRentState = false
+            self.currentUserRentLookupKey = ""
+            self.userRentDisposable.set(nil)
+            self.updateStatsIfReady()
+            return
+        }
+
+        let lookupKey = collectibleUsernameCandidates.sorted().joined(separator: "|")
+        if self.currentUserRentLookupKey == lookupKey {
+            return
+        }
+
+        self.currentUserRentLookupKey = lookupKey
+        self.currentUserRentState = nil
+        self.userRentDisposable.set((combineLatest(collectibleUsernameCandidates.map { username in
+            eahatGramCollectibleUsernameOwnerSignal(context: self.context, username: username)
+        })
+        |> take(1)
+        |> deliverOnMainQueue).start(next: { [weak self] owners in
+            guard let self else {
+                return
+            }
+            let uniqueOwners = Set(owners.compactMap { $0 })
+            self.currentUserRentState = uniqueOwners.count > 1
+            self.updateStatsIfReady()
+        }))
     }
 
     private func updateStatsIfReady() {
@@ -86,6 +289,9 @@ final class EahatGramTargetHudStatsContext {
             return
         }
         guard case let .ready(canLoadMore, _) = currentGiftsState.dataState, !canLoadMore else {
+            return
+        }
+        guard let currentUserRentState = self.currentUserRentState else {
             return
         }
 
@@ -97,7 +303,6 @@ final class EahatGramTargetHudStatsContext {
         var nftUsdValue: Int64 = 0
         var hasMissingNftUsdValue = false
         var hostedOwnerAddresses = Set<String>()
-        var hostedUserPeerIds = Set<EnginePeer.Id>()
 
         for gift in gifts {
             switch gift.gift {
@@ -120,14 +325,11 @@ final class EahatGramTargetHudStatsContext {
                 if uniqueGift.giftAddress != nil, case let .address(ownerAddress)? = uniqueGift.owner {
                     hostedOwnerAddresses.insert(ownerAddress)
                 }
-                if let hostPeerId = uniqueGift.hostPeerId, hostPeerId.namespace == Namespaces.Peer.CloudUser {
-                    hostedUserPeerIds.insert(hostPeerId)
-                }
             }
         }
 
         let hasNftRent = hostedOwnerAddresses.count > 1
-        let hasUserRent = !hostedUserPeerIds.isEmpty
+        let hasUserRent = currentUserRentState
         let rentState: EahatGramTargetHudRentState
         if hasNftRent && hasUserRent {
             rentState = .nftAndUser
