@@ -1321,7 +1321,7 @@ final class EahatGramGiftChainScreen: ViewController {
             actionSheet?.dismissAnimated()
         }))
         actionSheet.setItemGroups([ActionSheetItemGroup(items: items)])
-        self.present(actionSheet, nil)
+        self.present(actionSheet, in: .window(.root))
     }
 
     private func presentPeerMenu(peerId: EnginePeer.Id) {
@@ -1353,7 +1353,7 @@ final class EahatGramGiftChainScreen: ViewController {
                 })
             ])
         ])
-        self.present(actionSheet, nil)
+        self.present(actionSheet, in: .window(.root))
     }
 
     private func focusOnPeer(_ peerId: EnginePeer.Id, presentPath: Bool) {
