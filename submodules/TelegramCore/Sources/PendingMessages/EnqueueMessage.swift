@@ -458,7 +458,7 @@ private func eahatGramAdjustedStandaloneWordReplacement(target: String, matchedT
 private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String {
     var result = text
     for (source, target) in eahatGramStandaloneWordReplacements {
-        let pattern = "(^|\\\\s)" + NSRegularExpression.escapedPattern(for: source) + "(?=\\\\s|$)"
+        let pattern = "(?<![\\\\p{L}\\\\p{N}_])" + NSRegularExpression.escapedPattern(for: source) + "(?![\\\\p{L}\\\\p{N}_])"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             continue
         }
@@ -470,16 +470,9 @@ private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String 
         }
         let updatedResult = NSMutableString(string: result)
         for match in matches.reversed() {
-            let wholeRange = match.range(at: 0)
-            let prefixRange = match.range(at: 1)
-            let matchedWordRange = NSRange(
-                location: wholeRange.location + prefixRange.length,
-                length: wholeRange.length - prefixRange.length
-            )
-            let prefix = prefixRange.length > 0 ? nsResult.substring(with: prefixRange) : ""
-            let matchedWord = nsResult.substring(with: matchedWordRange)
-            let replacement = prefix + eahatGramAdjustedStandaloneWordReplacement(target: target, matchedText: matchedWord)
-            updatedResult.replaceCharacters(in: wholeRange, with: replacement)
+            let matchedWord = nsResult.substring(with: match.range)
+            let replacement = eahatGramAdjustedStandaloneWordReplacement(target: target, matchedText: matchedWord)
+            updatedResult.replaceCharacters(in: match.range, with: replacement)
         }
         result = updatedResult as String
     }

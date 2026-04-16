@@ -1013,17 +1013,22 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 }
             )
         case let .starsAmount(value):
-            return EahatGramInsertCountSliderItem(
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
                 presentationData: presentationData,
                 systemStyle: .glass,
-                title: "Stars",
-                minimumValue: 1,
-                maximumValue: 100000,
-                value: value,
+                title: eahatGramInputTitle(presentationData, "Stars"),
+                text: "\(value)",
+                placeholder: "100",
+                type: .number,
                 sectionId: self.section,
-                updated: { value in
-                    arguments.updateStarsAmount(value)
-                }
+                textUpdated: { value in
+                    let normalized = eahatGramNormalizedNumericText(value, maxLength: 6)
+                    if let parsed = Int32(normalized), parsed > 0 {
+                        arguments.updateStarsAmount(parsed)
+                    }
+                },
+                action: {}
             )
         case .addStars:
             return ItemListActionItem(
