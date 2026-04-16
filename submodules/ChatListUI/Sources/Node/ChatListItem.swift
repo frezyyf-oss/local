@@ -4482,7 +4482,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                             strongSelf.mainContentContainerNode.addSubnode(compoundTextButtonNode)
                             compoundTextButtonNode.addTarget(strongSelf, action: #selector(strongSelf.compoundTextButtonPressed), forControlEvents: .touchUpInside)
                             compoundTextButtonNode.highligthedChanged = { highlighted in
-                                guard let strongSelf = self, let compoundHighlightingNode = strongSelf.compoundHighlightingNode else {
+                                guard let compoundHighlightingNode = strongSelf.compoundHighlightingNode else {
                                     return
                                 }
                                 if highlighted {
@@ -4742,7 +4742,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                             strongSelf.forwardedIconNode.alpha = 1.0
                             if animated || animateContent {
                                 strongSelf.inputActivitiesNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.15, completion: { value in
-                                    if let strongSelf = self, value {
+                                    if value {
                                         strongSelf.inputActivitiesNode.removeFromSupernode()
                                     }
                                 })
