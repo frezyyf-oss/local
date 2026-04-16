@@ -50,10 +50,8 @@ struct EahatGramTargetHudStats: Equatable {
 final class EahatGramTargetHudStatsContext {
     private let giftsContext: ProfileGiftsContext
     private let keepUpdatedDisposable = MetaDisposable()
-    private let cachedStarGiftsDisposable = MetaDisposable()
     private let giftsStateDisposable = MetaDisposable()
 
-    private var baseGiftPrices: [Int64: Int64]?
     private var currentGiftsState: ProfileGiftsContext.State?
 
     private let stateValue = ValuePromise<EahatGramTargetHudStats?>(nil, ignoreRepeated: true)
@@ -65,20 +63,6 @@ final class EahatGramTargetHudStatsContext {
         self.giftsContext = ProfileGiftsContext(account: context.account, peerId: peerId, filter: .All, limit: 200)
 
         self.keepUpdatedDisposable.set(context.engine.payments.keepStarGiftsUpdated().start())
-        self.cachedStarGiftsDisposable.set((context.engine.payments.cachedStarGifts()
-        |> deliverOnMainQueue).start(next: { [weak self] gifts in
-            guard let self else {
-                return
-            }
-            var updatedPrices: [Int64: Int64] = [:]
-            for gift in gifts ?? [] {
-                if case let .generic(baseGift) = gift {
-                    updatedPrices[baseGift.id] = baseGift.price
-                }
-            }
-            self.baseGiftPrices = updatedPrices
-            self.updateStatsIfReady()
-        }))
         self.giftsStateDisposable.set((self.giftsContext.state
         |> deliverOnMainQueue).start(next: { [weak self] state in
             guard let self else {
@@ -94,7 +78,6 @@ final class EahatGramTargetHudStatsContext {
 
     deinit {
         self.keepUpdatedDisposable.dispose()
-        self.cachedStarGiftsDisposable.dispose()
         self.giftsStateDisposable.dispose()
     }
 
@@ -107,39 +90,24 @@ final class EahatGramTargetHudStatsContext {
         }
 
         let gifts = currentGiftsState.gifts
-        let hasUniqueGifts = gifts.contains(where: { gift in
-            if case .unique = gift.gift {
-                return true
-            } else {
-                return false
-            }
-        })
-        if hasUniqueGifts && self.baseGiftPrices == nil {
-            return
-        }
 
         var nftCount = 0
+        var genericGiftCount = 0
         var giftsStarsCount: Int64 = 0
-        var hasMissingGiftPrice = false
         var nftUsdValue: Int64 = 0
         var hasMissingNftUsdValue = false
         var hostedOwnerAddresses = Set<String>()
-        var hostedPeerIds = Set<EnginePeer.Id>()
+        var hostedUserPeerIds = Set<EnginePeer.Id>()
 
         for gift in gifts {
             switch gift.gift {
             case let .generic(baseGift):
+                genericGiftCount += 1
                 giftsStarsCount += baseGift.price
             case let .unique(uniqueGift):
                 nftCount += 1
                 let isOnSale = !(uniqueGift.resellAmounts ?? []).isEmpty
                 if !isOnSale {
-                    if let baseGiftPrice = self.baseGiftPrices?[uniqueGift.giftId] {
-                        giftsStarsCount += baseGiftPrice
-                    } else {
-                        hasMissingGiftPrice = true
-                    }
-
                     if let valueUsdAmount = uniqueGift.valueUsdAmount {
                         nftUsdValue += valueUsdAmount
                     } else if let valueAmount = uniqueGift.valueAmount, uniqueGift.valueCurrency?.uppercased() == "USD" {
@@ -152,14 +120,14 @@ final class EahatGramTargetHudStatsContext {
                 if uniqueGift.giftAddress != nil, case let .address(ownerAddress)? = uniqueGift.owner {
                     hostedOwnerAddresses.insert(ownerAddress)
                 }
-                if let hostPeerId = uniqueGift.hostPeerId {
-                    hostedPeerIds.insert(hostPeerId)
+                if let hostPeerId = uniqueGift.hostPeerId, hostPeerId.namespace == Namespaces.Peer.CloudUser {
+                    hostedUserPeerIds.insert(hostPeerId)
                 }
             }
         }
 
         let hasNftRent = hostedOwnerAddresses.count > 1
-        let hasUserRent = hostedPeerIds.count > 1
+        let hasUserRent = !hostedUserPeerIds.isEmpty
         let rentState: EahatGramTargetHudRentState
         if hasNftRent && hasUserRent {
             rentState = .nftAndUser
@@ -172,8 +140,8 @@ final class EahatGramTargetHudStatsContext {
         }
 
         self.stateValue.set(EahatGramTargetHudStats(
-            giftsCount: gifts.count,
-            giftsStarsCount: hasMissingGiftPrice ? nil : giftsStarsCount,
+            giftsCount: genericGiftCount,
+            giftsStarsCount: giftsStarsCount,
             nftCount: nftCount,
             nftUsdValue: hasMissingNftUsdValue ? nil : nftUsdValue,
             rentState: rentState

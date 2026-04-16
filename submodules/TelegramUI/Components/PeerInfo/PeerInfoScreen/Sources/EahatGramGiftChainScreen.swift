@@ -134,6 +134,9 @@ private func eahatGramGiftChainSenderSummaries(
         guard let fromPeer = gift.fromPeer else {
             continue
         }
+        guard fromPeer.id.namespace == Namespaces.Peer.CloudUser else {
+            continue
+        }
         if let existingIndex = senderIndices[fromPeer.id] {
             let existing = senders[existingIndex]
             senders[existingIndex] = EahatGramGiftChainSenderSummary(peer: existing.peer, giftCount: existing.giftCount + 1)
@@ -466,7 +469,9 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
     private let idNode = ImmediateTextNode()
     private let depthNode = ImmediateTextNode()
     private let mutualNode = ImmediateTextNode()
+    private let peerId: EnginePeer.Id
     private let copyText: String
+    private let openPeer: ((EnginePeer.Id) -> Void)?
 
     static let size = CGSize(width: 220.0, height: 96.0)
 
@@ -474,11 +479,14 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
         context: AccountContext,
         theme: PresentationTheme,
         node: EahatGramGiftChainNode,
-        isRoot: Bool
+        isRoot: Bool,
+        openPeer: ((EnginePeer.Id) -> Void)?
     ) {
+        self.peerId = node.peerId
         let rawPeerId = eahatGramRawPeerId(node.peerId)
         let tagText = node.peer.addressName.flatMap { "@\($0)" } ?? "@-"
         self.copyText = "\(tagText) \(rawPeerId)"
+        self.openPeer = openPeer
 
         super.init()
 
@@ -547,9 +555,19 @@ private final class EahatGramGiftChainCardNode: ASDisplayNode {
 
         let tapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(self.handleTap))
         self.view.addGestureRecognizer(tapGestureRecognizer)
+
+        let longPressGestureRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(self.handleLongPress(_:)))
+        self.view.addGestureRecognizer(longPressGestureRecognizer)
     }
 
     @objc private func handleTap() {
+        self.openPeer?(self.peerId)
+    }
+
+    @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else {
+            return
+        }
         UIPasteboard.general.string = self.copyText
     }
 
@@ -588,6 +606,7 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
     private let context: AccountContext
     private let theme: PresentationTheme
     private let graph: EahatGramGiftChainGraph
+    private let openPeer: ((EnginePeer.Id) -> Void)?
 
     private let backgroundNode = ASDisplayNode()
     private let scrollView = UIScrollView()
@@ -602,11 +621,13 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
     init(
         context: AccountContext,
         theme: PresentationTheme,
-        graph: EahatGramGiftChainGraph
+        graph: EahatGramGiftChainGraph,
+        openPeer: ((EnginePeer.Id) -> Void)?
     ) {
         self.context = context
         self.theme = theme
         self.graph = graph
+        self.openPeer = openPeer
 
         super.init()
 
@@ -656,7 +677,8 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
                 context: self.context,
                 theme: self.theme,
                 node: node,
-                isRoot: node.peerId == self.graph.rootPeerId
+                isRoot: node.peerId == self.graph.rootPeerId,
+                openPeer: self.openPeer
             )
             self.cardNodes[node.peerId] = cardNode
             self.contentNode.addSubnode(cardNode)
@@ -832,7 +854,25 @@ final class EahatGramGiftChainScreen: ViewController {
         self.displayNode = EahatGramGiftChainScreenNode(
             context: self.context,
             theme: self.presentationData.theme,
-            graph: self.graph
+            graph: self.graph,
+            openPeer: { [weak self] peerId in
+                guard let self else {
+                    return
+                }
+                let controller = PeerInfoScreenImpl(
+                    context: self.context,
+                    updatedPresentationData: nil,
+                    peerId: peerId,
+                    avatarInitiallyExpanded: false,
+                    isOpenedFromChat: false,
+                    nearbyPeerDistance: nil,
+                    reactionSourceMessageId: nil,
+                    callMessages: [],
+                    isMyProfile: peerId == self.context.account.peerId,
+                    profileGiftsContext: nil
+                )
+                (self.navigationController as? NavigationController)?.pushViewController(controller)
+            }
         )
         self.displayNodeDidLoad()
     }
