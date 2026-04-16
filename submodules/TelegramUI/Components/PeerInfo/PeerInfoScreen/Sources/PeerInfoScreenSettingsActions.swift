@@ -442,6 +442,10 @@ private final class EahatGramArguments {
     let updateTargetHudEnabled: (Bool) -> Void
     let updateLiquidGlassEnabled: (Bool) -> Void
     let updateReplyQuoteEnabled: (Bool) -> Void
+    let updateGhostModeEnabled: (Bool) -> Void
+    let updateFakeOnlineEnabled: (Bool) -> Void
+    let updateSaveDeletedMessagesEnabled: (Bool) -> Void
+    let updateSaveEditedMessagesEnabled: (Bool) -> Void
     let updateUseDirectRpc: (Bool) -> Void
     let updateChainPeerId: (String) -> Void
     let updateChainDepth: (String) -> Void
@@ -465,6 +469,10 @@ private final class EahatGramArguments {
         updateTargetHudEnabled: @escaping (Bool) -> Void,
         updateLiquidGlassEnabled: @escaping (Bool) -> Void,
         updateReplyQuoteEnabled: @escaping (Bool) -> Void,
+        updateGhostModeEnabled: @escaping (Bool) -> Void,
+        updateFakeOnlineEnabled: @escaping (Bool) -> Void,
+        updateSaveDeletedMessagesEnabled: @escaping (Bool) -> Void,
+        updateSaveEditedMessagesEnabled: @escaping (Bool) -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
         updateChainPeerId: @escaping (String) -> Void,
         updateChainDepth: @escaping (String) -> Void,
@@ -487,6 +495,10 @@ private final class EahatGramArguments {
         self.updateTargetHudEnabled = updateTargetHudEnabled
         self.updateLiquidGlassEnabled = updateLiquidGlassEnabled
         self.updateReplyQuoteEnabled = updateReplyQuoteEnabled
+        self.updateGhostModeEnabled = updateGhostModeEnabled
+        self.updateFakeOnlineEnabled = updateFakeOnlineEnabled
+        self.updateSaveDeletedMessagesEnabled = updateSaveDeletedMessagesEnabled
+        self.updateSaveEditedMessagesEnabled = updateSaveEditedMessagesEnabled
         self.updateUseDirectRpc = updateUseDirectRpc
         self.updateChainPeerId = updateChainPeerId
         self.updateChainDepth = updateChainDepth
@@ -524,6 +536,10 @@ private struct EahatGramState: Equatable {
     var targetHudEnabled: Bool
     var liquidGlassEnabled: Bool
     var replyQuoteEnabled: Bool
+    var ghostModeEnabled: Bool
+    var fakeOnlineEnabled: Bool
+    var saveDeletedMessagesEnabled: Bool
+    var saveEditedMessagesEnabled: Bool
     var useDirectRpc: Bool
     var starsAmount: Int32
     var chainPeerIdText: String
@@ -534,13 +550,17 @@ private struct EahatGramState: Equatable {
     var hasCurrentChainVisualization: Bool
     var responses: [String]
 
-    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, hasCurrentChainVisualization: Bool) {
+    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, ghostModeEnabled: Bool, fakeOnlineEnabled: Bool, saveDeletedMessagesEnabled: Bool, saveEditedMessagesEnabled: Bool, hasCurrentChainVisualization: Bool) {
         self.selectedTab = .me
         self.selectedPeerId = nil
         self.selectedPeerTitle = ""
         self.targetHudEnabled = EahatGramDebugSettings.targetHudEnabled.with { $0 }
         self.liquidGlassEnabled = liquidGlassEnabled
         self.replyQuoteEnabled = replyQuoteEnabled
+        self.ghostModeEnabled = ghostModeEnabled
+        self.fakeOnlineEnabled = fakeOnlineEnabled
+        self.saveDeletedMessagesEnabled = saveDeletedMessagesEnabled
+        self.saveEditedMessagesEnabled = saveEditedMessagesEnabled
         self.useDirectRpc = true
         self.starsAmount = 100
         self.chainPeerIdText = ""
@@ -565,6 +585,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case targetHud(Bool)
     case liquidGlass(Bool)
     case replyQuote(Bool)
+    case ghostMode(Bool)
+    case fakeOnline(Bool)
+    case saveDeletedMessages(Bool)
+    case saveEditedMessages(Bool)
     case useDirectRpc(Bool)
     case chainPeerId(String)
     case chainDepth(String)
@@ -587,7 +611,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .addNftUsernameTag, .targetHud, .liquidGlass, .replyQuote, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .addNftUsernameTag, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
@@ -628,6 +652,14 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 5
         case .replyQuote:
             return 6
+        case .ghostMode:
+            return 7
+        case .fakeOnline:
+            return 8
+        case .saveDeletedMessages:
+            return 9
+        case .saveEditedMessages:
+            return 10
         case .useDirectRpc:
             return 101
         case .chainPeerId:
@@ -733,6 +765,30 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case let .replyQuote(lhsValue):
             if case let .replyQuote(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .ghostMode(lhsValue):
+            if case let .ghostMode(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .fakeOnline(lhsValue):
+            if case let .fakeOnline(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .saveDeletedMessages(lhsValue):
+            if case let .saveDeletedMessages(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .saveEditedMessages(lhsValue):
+            if case let .saveEditedMessages(rhsValue) = rhs {
                 return lhsValue == rhsValue
             } else {
                 return false
@@ -989,6 +1045,54 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateReplyQuoteEnabled(value)
                 }
             )
+        case let .ghostMode(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Ghost Mode",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateGhostModeEnabled(value)
+                }
+            )
+        case let .fakeOnline(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Fake Online",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateFakeOnlineEnabled(value)
+                }
+            )
+        case let .saveDeletedMessages(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Save Delete Messages",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateSaveDeletedMessagesEnabled(value)
+                }
+            )
+        case let .saveEditedMessages(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Save Edit Messages",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateSaveEditedMessagesEnabled(value)
+                }
+            )
         case let .useDirectRpc(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -1231,6 +1335,10 @@ private func eahatGramEntries(
         entries.append(.targetHud(state.targetHudEnabled))
         entries.append(.liquidGlass(state.liquidGlassEnabled))
         entries.append(.replyQuote(state.replyQuoteEnabled))
+        entries.append(.ghostMode(state.ghostModeEnabled))
+        entries.append(.fakeOnline(state.fakeOnlineEnabled))
+        entries.append(.saveDeletedMessages(state.saveDeletedMessagesEnabled))
+        entries.append(.saveEditedMessages(state.saveEditedMessagesEnabled))
         if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
         } else {
@@ -1295,8 +1403,12 @@ private func eahatGramEntries(
 
 private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext, starsContext: StarsContext?) -> ViewController {
     let initialState = EahatGramState(
-        liquidGlassEnabled: !context.sharedContext.immediateExperimentalUISettings.fakeGlass,
+        liquidGlassEnabled: context.sharedContext.immediateExperimentalUISettings.fakeGlass,
         replyQuoteEnabled: context.sharedContext.immediateExperimentalUISettings.replyQuote,
+        ghostModeEnabled: context.sharedContext.immediateExperimentalUISettings.ghostMode,
+        fakeOnlineEnabled: context.sharedContext.immediateExperimentalUISettings.fakeOnline,
+        saveDeletedMessagesEnabled: context.sharedContext.immediateExperimentalUISettings.saveDeletedMessages,
+        saveEditedMessagesEnabled: context.sharedContext.immediateExperimentalUISettings.saveEditedMessages,
         hasCurrentChainVisualization: eahatGramPersistedChainVisualizationState.with { $0 != nil }
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -1434,13 +1546,13 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
         updateLiquidGlassEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
                 var settings = settings
-                settings.fakeGlass = !value
+                settings.fakeGlass = value
                 if value {
                     settings.forceClearGlass = false
                 }
                 return settings
             }).start()
-            GlassBackgroundView.useCustomGlassImpl = !value
+            GlassBackgroundView.useCustomGlassImpl = value
             updateState { current in
                 var current = current
                 current.liquidGlassEnabled = value
@@ -1460,6 +1572,59 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                 return current
             }
             appendResponse("replyQuote enabled=\(value)")
+        },
+        updateGhostModeEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.ghostMode = value
+                settings.skipReadHistory = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.ghostModeEnabled = value
+                return current
+            }
+            appendResponse("ghostMode enabled=\(value)")
+        },
+        updateFakeOnlineEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.fakeOnline = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.fakeOnlineEnabled = value
+                return current
+            }
+            appendResponse("fakeOnline enabled=\(value)")
+        },
+        updateSaveDeletedMessagesEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.saveDeletedMessages = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.saveDeletedMessagesEnabled = value
+                return current
+            }
+            appendResponse("saveDeletedMessages enabled=\(value)")
+        },
+        updateSaveEditedMessagesEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.saveEditedMessages = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.saveEditedMessagesEnabled = value
+                return current
+            }
+            appendResponse("saveEditedMessages enabled=\(value)")
         },
         updateUseDirectRpc: { value in
             updateState { current in

@@ -9,13 +9,128 @@ import ChatControllerInteraction
 import ChatHistoryEntry
 import ChatMessageBubbleItemNode
 
-func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toView: ChatHistoryView, reason: ChatHistoryViewTransitionReason, reverse: Bool, chatLocation: ChatLocation, source: ChatHistoryListSource, controllerInteraction: ChatControllerInteraction, scrollPosition: ChatHistoryViewScrollPosition?, scrollAnimationCurve: ListViewAnimationCurve?, initialData: InitialMessageHistoryData?, keyboardButtonsMessage: Message?, cachedData: CachedPeerData?, cachedDataMessages: [MessageId: Message]?, readStateData: [PeerId: ChatHistoryCombinedInitialReadStateData]?, flashIndicators: Bool, updatedMessageSelection: Bool, messageTransitionNode: ChatMessageTransitionNodeImpl?, allUpdated: Bool) -> ChatHistoryViewTransition {
+private struct EahatGramPreviousMessageEntryData {
+    let message: Message
+    let presentationData: ChatPresentationData
+    let read: Bool
+    let location: MessageHistoryEntryLocation?
+    let selection: ChatHistoryMessageSelection
+    let attributes: ChatMessageEntryAttributes
+}
+
+private func eahatGramPreviousMessageEntryDataMap(
+    entries: [ChatHistoryEntry]
+) -> [MessageId: EahatGramPreviousMessageEntryData] {
+    var result: [MessageId: EahatGramPreviousMessageEntryData] = [:]
+    for entry in entries {
+        switch entry {
+        case let .MessageEntry(message, presentationData, read, location, selection, attributes):
+            result[message.id] = EahatGramPreviousMessageEntryData(message: message, presentationData: presentationData, read: read, location: location, selection: selection, attributes: attributes)
+        case let .MessageGroupEntry(_, messages, presentationData):
+            for (message, read, selection, attributes, location) in messages {
+                result[message.id] = EahatGramPreviousMessageEntryData(message: message, presentationData: presentationData, read: read, location: location, selection: selection, attributes: attributes)
+            }
+        default:
+            break
+        }
+    }
+    return result
+}
+
+private func eahatGramUpdatedAttributesForSavedEdit(
+    previousEntryData: EahatGramPreviousMessageEntryData?,
+    message: Message,
+    attributes: ChatMessageEntryAttributes,
+    saveEditedMessages: Bool
+) -> ChatMessageEntryAttributes {
+    var attributes = attributes
+    attributes.isSavedDeleted = false
+    if let previousEntryData {
+        attributes.savedEditPreviousText = previousEntryData.attributes.savedEditPreviousText
+        if saveEditedMessages, previousEntryData.message.id == message.id, previousEntryData.message.text != message.text, !previousEntryData.message.text.isEmpty {
+            attributes.savedEditPreviousText = previousEntryData.message.text
+        }
+    } else {
+        attributes.savedEditPreviousText = nil
+    }
+    return attributes
+}
+
+func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toView: ChatHistoryView, reason: ChatHistoryViewTransitionReason, reverse: Bool, chatLocation: ChatLocation, source: ChatHistoryListSource, controllerInteraction: ChatControllerInteraction, scrollPosition: ChatHistoryViewScrollPosition?, scrollAnimationCurve: ListViewAnimationCurve?, initialData: InitialMessageHistoryData?, keyboardButtonsMessage: Message?, cachedData: CachedPeerData?, cachedDataMessages: [MessageId: Message]?, readStateData: [PeerId: ChatHistoryCombinedInitialReadStateData]?, flashIndicators: Bool, updatedMessageSelection: Bool, messageTransitionNode: ChatMessageTransitionNodeImpl?, allUpdated: Bool, saveDeletedMessages: Bool, saveEditedMessages: Bool) -> ChatHistoryViewTransition {
+    let previousMessageEntries = eahatGramPreviousMessageEntryDataMap(entries: fromView?.filteredEntries ?? [])
+    var effectiveToEntries: [ChatHistoryEntry] = toView.filteredEntries.map { entry in
+        switch entry {
+        case let .MessageEntry(message, presentationData, read, location, selection, attributes):
+            let updatedAttributes = eahatGramUpdatedAttributesForSavedEdit(previousEntryData: previousMessageEntries[message.id], message: message, attributes: attributes, saveEditedMessages: saveEditedMessages)
+            return .MessageEntry(message, presentationData, read, location, selection, updatedAttributes)
+        case let .MessageGroupEntry(groupInfo, messages, presentationData):
+            let updatedMessages = messages.map { message, read, selection, attributes, location in
+                return (
+                    message,
+                    read,
+                    selection,
+                    eahatGramUpdatedAttributesForSavedEdit(previousEntryData: previousMessageEntries[message.id], message: message, attributes: attributes, saveEditedMessages: saveEditedMessages),
+                    location
+                )
+            }
+            return .MessageGroupEntry(groupInfo, updatedMessages, presentationData)
+        default:
+            return entry
+        }
+    }
+    let currentMessageIds = Set(eahatGramPreviousMessageEntryDataMap(entries: effectiveToEntries).keys)
+    let shouldPersistDeletedEntries: Bool
+    switch reason {
+    case .InteractiveChanges:
+        shouldPersistDeletedEntries = saveDeletedMessages
+    case .Initial, .Reload, .HoleReload:
+        shouldPersistDeletedEntries = false
+    }
+    if let fromView {
+        for previousEntry in fromView.filteredEntries {
+            switch previousEntry {
+            case let .MessageEntry(message, presentationData, read, location, selection, attributes):
+                if currentMessageIds.contains(message.id) {
+                    continue
+                }
+                if attributes.isSavedDeleted || shouldPersistDeletedEntries {
+                    var updatedAttributes = attributes
+                    updatedAttributes.isSavedDeleted = true
+                    effectiveToEntries.append(.MessageEntry(message, presentationData, read, location, selection, updatedAttributes))
+                }
+            case let .MessageGroupEntry(_, messages, presentationData):
+                for (message, read, selection, attributes, location) in messages {
+                    if currentMessageIds.contains(message.id) {
+                        continue
+                    }
+                    if attributes.isSavedDeleted || shouldPersistDeletedEntries {
+                        var updatedAttributes = attributes
+                        updatedAttributes.isSavedDeleted = true
+                        effectiveToEntries.append(.MessageEntry(message, presentationData, read, location, selection, updatedAttributes))
+                    }
+                }
+            default:
+                break
+            }
+        }
+    }
+    effectiveToEntries.sort()
+    let effectiveToView = ChatHistoryView(
+        originalView: toView.originalView,
+        filteredEntries: effectiveToEntries,
+        associatedData: toView.associatedData,
+        lastHeaderId: toView.lastHeaderId,
+        id: toView.id,
+        locationInput: toView.locationInput,
+        ignoreMessagesInTimestampRange: toView.ignoreMessagesInTimestampRange,
+        ignoreMessageIds: toView.ignoreMessageIds
+    )
     var mergeResult: (deleteIndices: [Int], indicesAndItems: [(Int, ChatHistoryEntry, Int?)], updateIndices: [(Int, ChatHistoryEntry, Int)])
     let allUpdated = allUpdated || (fromView?.associatedData != toView.associatedData)
     if reverse {
-        mergeResult = mergeListsStableWithUpdatesReversed(leftList: fromView?.filteredEntries ?? [], rightList: toView.filteredEntries, allUpdated: allUpdated)
+        mergeResult = mergeListsStableWithUpdatesReversed(leftList: fromView?.filteredEntries ?? [], rightList: effectiveToView.filteredEntries, allUpdated: allUpdated)
     } else {
-        mergeResult = mergeListsStableWithUpdates(leftList: fromView?.filteredEntries ?? [], rightList: toView.filteredEntries, allUpdated: allUpdated)
+        mergeResult = mergeListsStableWithUpdates(leftList: fromView?.filteredEntries ?? [], rightList: effectiveToView.filteredEntries, allUpdated: allUpdated)
     }
 
     if let messageTransitionNode = messageTransitionNode, messageTransitionNode.hasOngoingTransitions, let previousEntries = fromView?.filteredEntries {
@@ -77,7 +192,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
     
     var adjustedIndicesAndItems: [ChatHistoryViewTransitionInsertEntry] = []
     var adjustedUpdateItems: [ChatHistoryViewTransitionUpdateEntry] = []
-    let updatedCount = toView.filteredEntries.count
+    let updatedCount = effectiveToView.filteredEntries.count
     
     var options: ListViewDeleteAndInsertOptions = []
     var animateIn = false
@@ -149,8 +264,8 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
     if let scrollPosition = scrollPosition {
         switch scrollPosition {
             case let .unread(unreadIndex):
-                var index = toView.filteredEntries.count - 1
-                for entry in toView.filteredEntries {
+                var index = effectiveToView.filteredEntries.count - 1
+                for entry in effectiveToView.filteredEntries {
                     if case .UnreadEntry = entry {
                         scrollToItem = ListViewScrollToItem(index: index, position: .bottom(0.0), animated: false, curve: curve, directionHint: .Down)
                         break
@@ -159,8 +274,8 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                 }
                 
                 if scrollToItem == nil {
-                    var index = toView.filteredEntries.count - 1
-                    for entry in toView.filteredEntries {
+                    var index = effectiveToView.filteredEntries.count - 1
+                    for entry in effectiveToView.filteredEntries {
                         if entry.index >= unreadIndex {
                             scrollToItem = ListViewScrollToItem(index: index, position: .bottom(0.0), animated: false, curve: curve,  directionHint: .Down)
                             break
@@ -170,7 +285,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                     
                     if let currentScrollToItem = scrollToItem {
                         index = 0
-                        for entry in toView.filteredEntries.reversed() {
+                        for entry in effectiveToView.filteredEntries.reversed() {
                             if index > currentScrollToItem.index {
                                 if entry.index.timestamp > 10 {
                                     break
@@ -186,7 +301,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                 
                 if scrollToItem == nil {
                     var index = 0
-                    for entry in toView.filteredEntries.reversed() {
+                    for entry in effectiveToView.filteredEntries.reversed() {
                         if entry.index < unreadIndex {
                             scrollToItem = ListViewScrollToItem(index: index, position: .bottom(0.0), animated: false, curve: curve, directionHint: .Down)
                             break
@@ -195,8 +310,8 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                     }
                 }
             case let .positionRestoration(scrollIndex, relativeOffset):
-                var index = toView.filteredEntries.count - 1
-                for entry in toView.filteredEntries {
+                var index = effectiveToView.filteredEntries.count - 1
+                for entry in effectiveToView.filteredEntries {
                     if entry.index >= scrollIndex {
                         scrollToItem = ListViewScrollToItem(index: index, position: .top(relativeOffset), animated: false, curve: curve,  directionHint: .Down)
                         break
@@ -206,7 +321,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                 
                 if scrollToItem == nil {
                     var index = 0
-                    for entry in toView.filteredEntries.reversed() {
+                    for entry in effectiveToView.filteredEntries.reversed() {
                         if entry.index < scrollIndex {
                             scrollToItem = ListViewScrollToItem(index: index, position: .top(0.0), animated: false, curve: curve, directionHint: .Down)
                             break
@@ -241,8 +356,8 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                         }))
                     }
                 }
-                var index = toView.filteredEntries.count - 1
-                for entry in toView.filteredEntries {
+                var index = effectiveToView.filteredEntries.count - 1
+                for entry in effectiveToView.filteredEntries {
                     if isSavedMusic {
                         if case let .message(messageIndex) = scrollIndex.index, messageIndex.id == entry.index.id {
                             print(messageIndex.id)
@@ -260,7 +375,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                 
                 if scrollToItem == nil {
                     var index = 0
-                    for entry in toView.filteredEntries.reversed() {
+                    for entry in effectiveToView.filteredEntries.reversed() {
                         if !scrollIndex.index.isLess(than: entry.index) {
                             scrolledToSomeIndex = true
                             scrollToItem = ListViewScrollToItem(index: index, position: position, animated: animated, curve: curve, directionHint: directionHint)
@@ -271,8 +386,8 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                 }
         }
     } else if case .Initial = reason, scrollToItem == nil {
-        var index = toView.filteredEntries.count - 1
-        for entry in toView.filteredEntries {
+        var index = effectiveToView.filteredEntries.count - 1
+        for entry in effectiveToView.filteredEntries {
             if case let .MessageEntry(message, _, _, _, _, _) = entry {
                 if let _ = message.adAttribute {
                     scrollToItem = ListViewScrollToItem(index: index + 1, position: .top(0.0), animated: false, curve: curve, directionHint: .Down)
@@ -287,5 +402,5 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
         options.insert(.Synchronous)
     }
     
-    return ChatHistoryViewTransition(historyView: toView, deleteItems: adjustedDeleteIndices, insertEntries: adjustedIndicesAndItems, updateEntries: adjustedUpdateItems, options: options, scrollToItem: scrollToItem, stationaryItemRange: stationaryItemRange, initialData: initialData, keyboardButtonsMessage: keyboardButtonsMessage, cachedData: cachedData, cachedDataMessages: cachedDataMessages, readStateData: readStateData, scrolledToIndex: scrolledToIndex, scrolledToSomeIndex: scrolledToSomeIndex || scrolledToIndex != nil, animateIn: animateIn, reason: reason, flashIndicators: flashIndicators)
+    return ChatHistoryViewTransition(historyView: effectiveToView, deleteItems: adjustedDeleteIndices, insertEntries: adjustedIndicesAndItems, updateEntries: adjustedUpdateItems, options: options, scrollToItem: scrollToItem, stationaryItemRange: stationaryItemRange, initialData: initialData, keyboardButtonsMessage: keyboardButtonsMessage, cachedData: cachedData, cachedDataMessages: cachedDataMessages, readStateData: readStateData, scrolledToIndex: scrolledToIndex, scrolledToSomeIndex: scrolledToSomeIndex || scrolledToIndex != nil, animateIn: animateIn, reason: reason, flashIndicators: flashIndicators)
 }

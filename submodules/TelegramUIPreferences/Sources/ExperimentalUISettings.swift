@@ -39,6 +39,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var enableDebugDataDisplay: Bool
     public var fakeGlass: Bool
     public var replyQuote: Bool
+    public var ghostMode: Bool
+    public var fakeOnline: Bool
+    public var saveDeletedMessages: Bool
+    public var saveEditedMessages: Bool
     public var compressedEmojiCache: Bool
     public var localTranscription: Bool
     public var enableReactionOverrides: Bool
@@ -90,6 +94,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
             enableDebugDataDisplay: false,
             fakeGlass: false,
             replyQuote: false,
+            ghostMode: false,
+            fakeOnline: false,
+            saveDeletedMessages: false,
+            saveEditedMessages: false,
             compressedEmojiCache: false,
             localTranscription: false,
             enableReactionOverrides: false,
@@ -142,6 +150,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         enableDebugDataDisplay: Bool,
         fakeGlass: Bool,
         replyQuote: Bool,
+        ghostMode: Bool,
+        fakeOnline: Bool,
+        saveDeletedMessages: Bool,
+        saveEditedMessages: Bool,
         compressedEmojiCache: Bool,
         localTranscription: Bool,
         enableReactionOverrides: Bool,
@@ -191,6 +203,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.enableDebugDataDisplay = enableDebugDataDisplay
         self.fakeGlass = fakeGlass
         self.replyQuote = replyQuote
+        self.ghostMode = ghostMode
+        self.fakeOnline = fakeOnline
+        self.saveDeletedMessages = saveDeletedMessages
+        self.saveEditedMessages = saveEditedMessages
         self.compressedEmojiCache = compressedEmojiCache
         self.localTranscription = localTranscription
         self.enableReactionOverrides = enableReactionOverrides
@@ -244,6 +260,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.enableDebugDataDisplay = (try container.decodeIfPresent(Int32.self, forKey: "enableDebugDataDisplay") ?? 0) != 0
         self.fakeGlass = (try container.decodeIfPresent(Int32.self, forKey: "fakeGlass") ?? 0) != 0
         self.replyQuote = (try container.decodeIfPresent(Int32.self, forKey: "replyQuote") ?? 0) != 0
+        self.ghostMode = (try container.decodeIfPresent(Int32.self, forKey: "ghostMode") ?? 0) != 0
+        self.fakeOnline = (try container.decodeIfPresent(Int32.self, forKey: "fakeOnline") ?? 0) != 0
+        self.saveDeletedMessages = (try container.decodeIfPresent(Int32.self, forKey: "saveDeletedMessages") ?? 0) != 0
+        self.saveEditedMessages = (try container.decodeIfPresent(Int32.self, forKey: "saveEditedMessages") ?? 0) != 0
         self.compressedEmojiCache = (try container.decodeIfPresent(Int32.self, forKey: "compressedEmojiCache") ?? 0) != 0
         self.localTranscription = (try container.decodeIfPresent(Int32.self, forKey: "localTranscription") ?? 0) != 0
         self.enableReactionOverrides = try container.decodeIfPresent(Bool.self, forKey: "enableReactionOverrides") ?? false
@@ -297,6 +317,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encode((self.enableDebugDataDisplay ? 1 : 0) as Int32, forKey: "enableDebugDataDisplay")
         try container.encode((self.fakeGlass ? 1 : 0) as Int32, forKey: "fakeGlass")
         try container.encode((self.replyQuote ? 1 : 0) as Int32, forKey: "replyQuote")
+        try container.encode((self.ghostMode ? 1 : 0) as Int32, forKey: "ghostMode")
+        try container.encode((self.fakeOnline ? 1 : 0) as Int32, forKey: "fakeOnline")
+        try container.encode((self.saveDeletedMessages ? 1 : 0) as Int32, forKey: "saveDeletedMessages")
+        try container.encode((self.saveEditedMessages ? 1 : 0) as Int32, forKey: "saveEditedMessages")
         try container.encode((self.compressedEmojiCache ? 1 : 0) as Int32, forKey: "compressedEmojiCache")
         try container.encode((self.localTranscription ? 1 : 0) as Int32, forKey: "localTranscription")
         try container.encode(self.enableReactionOverrides, forKey: "enableReactionOverrides")

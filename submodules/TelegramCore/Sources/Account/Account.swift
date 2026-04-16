@@ -1190,6 +1190,7 @@ public class Account {
     private let managedOperationsDisposable = DisposableSet()
     private var storageSettingsDisposable: Disposable?
     private var automaticCacheEvictionContext: AutomaticCacheEvictionContext?
+    private let ghostModeEnabled = Atomic<Bool>(value: false)
     
     private var taskManager: AccountTaskManager?
     
@@ -1523,7 +1524,7 @@ public class Account {
                 mediaBox.setMaxStoreTimes(general: settings.defaultCacheStorageTimeout, shortLived: 60 * 60, gigabytesLimit: settings.defaultCacheStorageLimitGigabytes)
             })
         }
-        
+
         let _ = masterNotificationsKey(masterNotificationKeyValue: self.masterNotificationKey, postbox: self.postbox, ignoreDisabled: false, createIfNotExists: true).start(next: { key in
             let encoder = JSONEncoder()
             if let data = try? encoder.encode(key) {
@@ -1637,6 +1638,14 @@ public class Account {
     }
     
     public func updateLocalInputActivity(peerId: PeerActivitySpace, activity: PeerInputActivity, isPresent: Bool) {
+        if self.ghostModeEnabled.with({ $0 }) {
+            if !isPresent {
+                self.localInputActivityManager.transaction { manager in
+                    manager.removeActivity(chatPeerId: peerId, peerId: self.peerId, activity: activity)
+                }
+            }
+            return
+        }
         self.localInputActivityManager.transaction { manager in
             if isPresent {
                 manager.addActivity(chatPeerId: peerId, peerId: self.peerId, activity: activity)
@@ -1647,7 +1656,14 @@ public class Account {
     }
     
     public func acquireLocalInputActivity(peerId: PeerActivitySpace, activity: PeerInputActivity) -> Disposable {
+        if self.ghostModeEnabled.with({ $0 }) {
+            return EmptyDisposable
+        }
         return self.localInputActivityManager.acquireActivity(chatPeerId: peerId, peerId: self.peerId, activity: activity)
+    }
+
+    public func setGhostModeEnabled(_ value: Bool) {
+        _ = self.ghostModeEnabled.swap(value)
     }
     
     public func addUpdates(serializedData: Data) -> Void {

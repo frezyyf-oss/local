@@ -308,6 +308,27 @@ private func eahatGramGiftChainPathText(
     return pathPeerIds.map { "\($0.id._internalGetInt64Value())" }.joined(separator: " -> ")
 }
 
+private func eahatGramGiftChainPathCopyComponent(
+    graph: EahatGramGiftChainGraph,
+    peerId: EnginePeer.Id
+) -> String {
+    if let node = graph.nodes.first(where: { $0.peerId == peerId }), let addressName = node.peer.addressName, !addressName.isEmpty {
+        return "@\(addressName)"
+    }
+    return "\(peerId.id._internalGetInt64Value())"
+}
+
+private func eahatGramGiftChainPathCopyText(
+    graph: EahatGramGiftChainGraph,
+    targetPeerId: EnginePeer.Id
+) -> String {
+    let pathPeerIds = eahatGramGiftChainPathPeerIds(graph: graph, targetPeerId: targetPeerId)
+    guard !pathPeerIds.isEmpty else {
+        return "Path not found"
+    }
+    return pathPeerIds.map { eahatGramGiftChainPathCopyComponent(graph: graph, peerId: $0) }.joined(separator: " -> ")
+}
+
 private func eahatGramGiftChainDisplayGraph(
     visualizationState: EahatGramGiftChainVisualizationState
 ) -> EahatGramGiftChainGraph {
@@ -1193,7 +1214,8 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
             if arrowAtStart {
                 addArrowHead(path, tip: startPoint, referencePoint: controlPoint1)
             }
-            if addHitRegion, let strokedPath = edgePath.cgPath.copy(strokingWithWidth: 26.0, lineCap: .round, lineJoin: .round, miterLimit: 0.0) {
+            if addHitRegion {
+                let strokedPath = edgePath.cgPath.copy(strokingWithWidth: 26.0, lineCap: .round, lineJoin: .round, miterLimit: 0.0)
                 self.edgeHitRegions.append((edge: edge, path: strokedPath))
             }
         }
@@ -1487,6 +1509,13 @@ final class EahatGramGiftChainScreen: ViewController {
                 ActionSheetButtonItem(title: "Copy @tag + id", color: .accent, action: { [weak actionSheet] in
                     actionSheet?.dismissAnimated()
                     UIPasteboard.general.string = eahatGramGiftChainCopyText(node: node)
+                }),
+                ActionSheetButtonItem(title: "Copy path", color: .accent, action: { [weak self, weak actionSheet] in
+                    actionSheet?.dismissAnimated()
+                    guard let self else {
+                        return
+                    }
+                    UIPasteboard.general.string = eahatGramGiftChainPathCopyText(graph: self.visualizationState.graph, targetPeerId: peerId)
                 })
             ]),
             ActionSheetItemGroup(items: [

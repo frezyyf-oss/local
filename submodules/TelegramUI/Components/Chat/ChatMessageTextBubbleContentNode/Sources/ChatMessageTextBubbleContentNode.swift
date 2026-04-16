@@ -662,6 +662,19 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     }
                     attributedText = updatedString
                 }
+
+                if item.attributes.isSavedDeleted || item.attributes.savedEditPreviousText != nil {
+                    let updatedString = NSMutableAttributedString(attributedString: attributedText)
+                    let markerFont = Font.regular(max(11.0, textFont.pointSize - 3.0))
+                    let markerColor = messageTheme.secondaryTextColor
+                    if item.attributes.isSavedDeleted {
+                        updatedString.append(NSAttributedString(string: "\n🗑", font: markerFont, textColor: markerColor))
+                    }
+                    if let savedEditPreviousText = item.attributes.savedEditPreviousText, !savedEditPreviousText.isEmpty {
+                        updatedString.append(NSAttributedString(string: "\n✏ \(savedEditPreviousText)", font: markerFont, textColor: markerColor))
+                    }
+                    attributedText = updatedString
+                }
                                 
                 var customTruncationToken: ((UIFont, Bool) -> NSAttributedString?)?
                 var maximumNumberOfLines: Int = 0

@@ -86,6 +86,7 @@ import LottieMetal
 import AvatarNode
 import ChatMessageSuggestedPostInfoNode
 import PremiumAlertController
+import GlassBackgroundComponent
 
 private struct BubbleItemAttributes {
     var index: Int?
@@ -671,6 +672,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
     private var backgroundHighlightNode: ChatMessageBackground?
     private let shadowNode: ChatMessageShadowNode
     private var clippingNode: ChatMessageBubbleClippingNode
+    private var liquidGlassView: GlassBackgroundView?
     
     private var suggestedPostInfoNode: ChatMessageSuggestedPostInfoNode?
     
@@ -5184,6 +5186,40 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
         var isCurrentlyPlayingMedia = false
         if item.associatedData.currentlyPlayingMessageId == item.message.index, let file = item.message.media.first(where: { $0 is TelegramMediaFile }) as? TelegramMediaFile, file.isInstantVideo {
             isCurrentlyPlayingMedia = true
+        }
+
+        let liquidGlassEnabled = item.context.sharedContext.immediateExperimentalUISettings.fakeGlass && !hideBackground
+        if liquidGlassEnabled {
+            let liquidGlassView: GlassBackgroundView
+            if let current = strongSelf.liquidGlassView {
+                liquidGlassView = current
+            } else {
+                liquidGlassView = GlassBackgroundView()
+                liquidGlassView.isUserInteractionEnabled = false
+                strongSelf.liquidGlassView = liquidGlassView
+                strongSelf.mainContextSourceNode.contentNode.view.insertSubview(liquidGlassView, belowSubview: strongSelf.clippingNode.view)
+            }
+            liquidGlassView.frame = backgroundFrame
+            liquidGlassView.update(
+                size: backgroundFrame.size,
+                cornerRadius: min(18.0, floor(min(backgroundFrame.width, backgroundFrame.height) * 0.2)),
+                isDark: item.presentationData.theme.overallDarkAppearance,
+                tintColor: .init(kind: .panel),
+                transition: ComponentTransition(legacyTransition)
+            )
+            strongSelf.backgroundWallpaperNode.alpha = 0.0
+            strongSelf.shadowNode.alpha = 0.0
+            strongSelf.backgroundNode.alpha = 0.18
+            strongSelf.backgroundHighlightNode?.alpha = 0.18
+        } else {
+            if let liquidGlassView = strongSelf.liquidGlassView {
+                strongSelf.liquidGlassView = nil
+                liquidGlassView.removeFromSuperview()
+            }
+            strongSelf.backgroundWallpaperNode.alpha = 1.0
+            strongSelf.shadowNode.alpha = 1.0
+            strongSelf.backgroundNode.alpha = 1.0
+            strongSelf.backgroundHighlightNode?.alpha = 1.0
         }
         
         if case .System = animation/*, !strongSelf.mainContextSourceNode.isExtractedToContextPreview*/ {

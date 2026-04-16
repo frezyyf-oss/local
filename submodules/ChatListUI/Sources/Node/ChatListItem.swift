@@ -29,6 +29,7 @@ import AppBundle
 import MultilineTextComponent
 import MultilineTextWithEntitiesComponent
 import ShimmerEffect
+import GlassBackgroundComponent
 
 public enum ChatListItemContent {
     public final class ThreadInfo: Equatable {
@@ -1367,6 +1368,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
     var actionButtonTitleNode: TextNode?
     var actionButtonBackgroundView: UIImageView?
     var actionButtonNode: HighlightableButtonNode?
+    private var liquidGlassView: GlassBackgroundView?
     
     private var placeholderNode: ShimmerEffectNode?
     private var absoluteLocation: (CGRect, CGSize)?
@@ -5107,17 +5109,43 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         }
                         highlightedBackgroundColor = theme.itemHighlightedBackgroundColor
                     }
+                    let liquidGlassEnabled = item.context.sharedContext.immediateExperimentalUISettings.fakeGlass && !backgroundColor.isEqual(.clear)
+                    let componentTransition = ComponentTransition(transition)
                     
                     if animated {
-                        transition.updateBackgroundColor(node: strongSelf.backgroundNode, color: backgroundColor)
+                        transition.updateBackgroundColor(node: strongSelf.backgroundNode, color: liquidGlassEnabled ? backgroundColor.withAlphaComponent(0.12) : backgroundColor)
                     } else {
-                        strongSelf.backgroundNode.backgroundColor = backgroundColor
+                        strongSelf.backgroundNode.backgroundColor = liquidGlassEnabled ? backgroundColor.withAlphaComponent(0.12) : backgroundColor
+                    }
+
+                    if liquidGlassEnabled {
+                        let liquidGlassView: GlassBackgroundView
+                        if let current = strongSelf.liquidGlassView {
+                            liquidGlassView = current
+                        } else {
+                            liquidGlassView = GlassBackgroundView()
+                            liquidGlassView.isUserInteractionEnabled = false
+                            strongSelf.liquidGlassView = liquidGlassView
+                            strongSelf.view.insertSubview(liquidGlassView, belowSubview: strongSelf.contextContainer.view)
+                        }
+                        let liquidGlassFrame = CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: layout.contentSize.width, height: itemHeight))
+                        componentTransition.setFrame(view: liquidGlassView, frame: liquidGlassFrame)
+                        liquidGlassView.update(size: liquidGlassFrame.size, cornerRadius: 0.0, isDark: item.presentationData.theme.overallDarkAppearance, tintColor: .init(kind: .panel), transition: componentTransition)
+                    } else if let liquidGlassView = strongSelf.liquidGlassView {
+                        strongSelf.liquidGlassView = nil
+                        liquidGlassView.removeFromSuperview()
                     }
                     
                     if let inlineNavigationLocation = item.interaction.inlineNavigationLocation {
                         transition.updateAlpha(node: strongSelf.backgroundNode, alpha: 1.0 - inlineNavigationLocation.progress)
+                        if let liquidGlassView = strongSelf.liquidGlassView {
+                            componentTransition.setAlpha(view: liquidGlassView, alpha: 1.0 - inlineNavigationLocation.progress)
+                        }
                     } else {
                         transition.updateAlpha(node: strongSelf.backgroundNode, alpha: 1.0)
+                        if let liquidGlassView = strongSelf.liquidGlassView {
+                            componentTransition.setAlpha(view: liquidGlassView, alpha: 1.0)
+                        }
                     }
                     
                     strongSelf.highlightedBackgroundNode.backgroundColor = highlightedBackgroundColor

@@ -10,6 +10,7 @@ import AccountContext
 import UniversalMediaPlayer
 import TelegramAudio
 import TelegramPresentationData
+import TelegramUIPreferences
 
 private struct AccountTasks {
     let stateSynchronization: Bool
@@ -73,6 +74,7 @@ public final class SharedWakeupManager {
     
     private var inForeground: Bool = false
     private var hasActiveAudioSession: Bool = false
+    private var fakeOnline: Bool = false
     private var activeExplicitExtensionTimer: SwiftSignalKit.Timer?
     private var activeExplicitExtensionTask: UIBackgroundTaskIdentifier?
     private var allowBackgroundTimeExtensionDeadline: Double?
@@ -82,6 +84,7 @@ public final class SharedWakeupManager {
     private var accountSettingsDisposable: Disposable?
     private var inForegroundDisposable: Disposable?
     private var hasActiveAudioSessionDisposable: Disposable?
+    private var experimentalUISettingsDisposable: Disposable?
     private var tasksDisposable: Disposable?
     private var pendingMediaUploadsDisposable: Disposable?
     private var pendingStoryUploadsDisposable: Disposable?
@@ -112,7 +115,7 @@ public final class SharedWakeupManager {
     private var backgroundStoryProcessingTaskCancellationRequestedByApp: Bool = false
     private var pendingBackgroundStoryProcessingTaskTimer: SwiftSignalKit.Timer?
 
-    public init(beginBackgroundTask: @escaping (String, @escaping () -> Void) -> UIBackgroundTaskIdentifier?, endBackgroundTask: @escaping (UIBackgroundTaskIdentifier) -> Void, backgroundTimeRemaining: @escaping () -> Double, acquireIdleExtension: @escaping () -> Disposable?, activeAccounts: Signal<(primary: Account?, accounts: [(AccountRecordId, Account)]), NoError>, liveLocationPolling: Signal<AccountRecordId?, NoError>, watchTasks: Signal<AccountRecordId?, NoError>, inForeground: Signal<Bool, NoError>, hasActiveAudioSession: Signal<Bool, NoError>, notificationManager: SharedNotificationManager?, mediaManager: MediaManager, callManager: PresentationCallManager?, accountUserInterfaceInUse: @escaping (AccountRecordId) -> Signal<Bool, NoError>, presentationData: @escaping () -> PresentationData?) {
+    public init(beginBackgroundTask: @escaping (String, @escaping () -> Void) -> UIBackgroundTaskIdentifier?, endBackgroundTask: @escaping (UIBackgroundTaskIdentifier) -> Void, backgroundTimeRemaining: @escaping () -> Double, acquireIdleExtension: @escaping () -> Disposable?, activeAccounts: Signal<(primary: Account?, accounts: [(AccountRecordId, Account)]), NoError>, liveLocationPolling: Signal<AccountRecordId?, NoError>, watchTasks: Signal<AccountRecordId?, NoError>, inForeground: Signal<Bool, NoError>, hasActiveAudioSession: Signal<Bool, NoError>, experimentalUISettings: Signal<ExperimentalUISettings, NoError>, notificationManager: SharedNotificationManager?, mediaManager: MediaManager, callManager: PresentationCallManager?, accountUserInterfaceInUse: @escaping (AccountRecordId) -> Signal<Bool, NoError>, presentationData: @escaping () -> PresentationData?) {
         assert(Queue.mainQueue().isCurrent())
         
         self.beginBackgroundTask = beginBackgroundTask
@@ -176,6 +179,17 @@ public final class SharedWakeupManager {
             }
             strongSelf.hasActiveAudioSession = value
             strongSelf.checkTasks()
+        })
+
+        self.experimentalUISettingsDisposable = (experimentalUISettings
+        |> map { $0.fakeOnline }
+        |> distinctUntilChanged
+        |> deliverOnMainQueue).startStrict(next: { [weak self] value in
+            guard let self else {
+                return
+            }
+            self.fakeOnline = value
+            self.checkTasks()
         })
         
         self.managedPausedInBackgroundPlayer = combineLatest(queue: .mainQueue(), mediaManager.activeGlobalMediaPlayerAccountId, inForeground).startStrict(next: { [weak mediaManager] accountAndActive, inForeground in
@@ -359,6 +373,7 @@ public final class SharedWakeupManager {
         self.accountSettingsDisposable?.dispose()
         self.inForegroundDisposable?.dispose()
         self.hasActiveAudioSessionDisposable?.dispose()
+        self.experimentalUISettingsDisposable?.dispose()
         self.tasksDisposable?.dispose()
         self.pendingMediaUploadsDisposable?.dispose()
         self.pendingStoryUploadsDisposable?.dispose()
@@ -1134,19 +1149,19 @@ public final class SharedWakeupManager {
     }
     
     private func updateAccounts(hasTasks: Bool, endTaskAfterTransactionsComplete: UIBackgroundTaskIdentifier?) {
-        if self.inForeground || self.hasActiveAudioSession || self.isInBackgroundExtension || self.backgroundProcessingTaskId != nil || self.backgroundStoryProcessingTaskId != nil || (hasTasks && self.currentExternalCompletion != nil) || self.activeExplicitExtensionTimer != nil || self.silenceAudioRenderer != nil {
+        if self.inForeground || self.fakeOnline || self.hasActiveAudioSession || self.isInBackgroundExtension || self.backgroundProcessingTaskId != nil || self.backgroundStoryProcessingTaskId != nil || (hasTasks && self.currentExternalCompletion != nil) || self.activeExplicitExtensionTimer != nil || self.silenceAudioRenderer != nil {
             Logger.shared.log("Wakeup", "enableBeginTransactions: true (active)")
             
             for (account, primary, tasks) in self.accountsAndTasks {
                 account.postbox.setCanBeginTransactions(true)
                 
-                if (self.inForeground && primary) || !tasks.isEmpty || (self.activeExplicitExtensionTimer != nil && primary) {
+                if ((self.inForeground || self.fakeOnline) && primary) || !tasks.isEmpty || (self.activeExplicitExtensionTimer != nil && primary) {
                     account.shouldBeServiceTaskMaster.set(.single(.always))
                 } else {
                     account.shouldBeServiceTaskMaster.set(.single(.never))
                 }
-                account.shouldExplicitelyKeepWorkerConnections.set(.single(tasks.backgroundAudio || tasks.importantTasks.pendingStoryCount != 0 || tasks.importantTasks.pendingMessageCount != 0))
-                account.shouldKeepOnlinePresence.set(.single(primary && self.inForeground))
+                account.shouldExplicitelyKeepWorkerConnections.set(.single(tasks.backgroundAudio || tasks.importantTasks.pendingStoryCount != 0 || tasks.importantTasks.pendingMessageCount != 0 || (self.fakeOnline && primary)))
+                account.shouldKeepOnlinePresence.set(.single(primary && (self.inForeground || self.fakeOnline)))
                 account.shouldKeepBackgroundDownloadConnections.set(.single(tasks.backgroundDownloads))
             }
             
