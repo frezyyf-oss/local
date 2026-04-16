@@ -207,7 +207,6 @@ extension PeerInfoScreenNode {
             push(dataAndStorageController(context: self.context))
         case .eahatGram:
             let profileGiftsContext = ProfileGiftsContext(account: self.context.account, peerId: self.context.account.peerId, filter: .All)
-            profileGiftsContext.loadMore()
             push(eahatGramScreen(context: self.context, profileGiftsContext: profileGiftsContext, starsContext: self.controller?.starsContext))
         case .appearance:
             push(themeSettingsController(context: self.context))

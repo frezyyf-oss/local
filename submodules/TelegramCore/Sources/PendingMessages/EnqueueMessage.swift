@@ -404,7 +404,7 @@ private let eahatGramStandaloneWordReplacements: [(String, String)] = [
     ("тф", "ты"),
     ("шас", "щас"),
     ("тож", "тоже"),
-    ("Еахат", "великий еахат"),
+    ("еахат", "великий еахат"),
     ("дауг", "даун"),
     ("сол", "соо"),
     ("тат", "тут"),
@@ -428,27 +428,60 @@ private let eahatGramStandaloneWordReplacements: [(String, String)] = [
 
 private func eahatGramCanApplyStandaloneWordReplacements(attributes: [MessageAttribute]) -> Bool {
     for attribute in attributes {
-        if attribute is TextEntitiesMessageAttribute {
+        if let attribute = attribute as? TextEntitiesMessageAttribute, !attribute.entities.isEmpty {
             return false
         }
     }
     return true
 }
 
+private func eahatGramAdjustedStandaloneWordReplacement(target: String, matchedText: String) -> String {
+    if matchedText.uppercased() == matchedText {
+        return target.uppercased()
+    }
+    guard let firstScalar = matchedText.unicodeScalars.first else {
+        return target
+    }
+    let firstCharacter = String(firstScalar)
+    if firstCharacter == firstCharacter.uppercased() {
+        let lowercasedTarget = target.lowercased()
+        guard let lowercasedFirstScalar = lowercasedTarget.unicodeScalars.first else {
+            return target
+        }
+        let lowercasedFirstCharacter = String(lowercasedFirstScalar).uppercased()
+        let remainder = String(lowercasedTarget.unicodeScalars.dropFirst())
+        return lowercasedFirstCharacter + remainder
+    }
+    return target.lowercased()
+}
+
 private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String {
     var result = text
     for (source, target) in eahatGramStandaloneWordReplacements {
         let pattern = "(^|\\\\s)" + NSRegularExpression.escapedPattern(for: source) + "(?=\\\\s|$)"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             continue
         }
-        let range = NSRange(result.startIndex..<result.endIndex, in: result)
-        result = regex.stringByReplacingMatches(
-            in: result,
-            options: [],
-            range: range,
-            withTemplate: "$1" + target
-        )
+        let nsResult = result as NSString
+        let range = NSRange(location: 0, length: nsResult.length)
+        let matches = regex.matches(in: result, options: [], range: range)
+        if matches.isEmpty {
+            continue
+        }
+        let updatedResult = NSMutableString(string: result)
+        for match in matches.reversed() {
+            let wholeRange = match.range(at: 0)
+            let prefixRange = match.range(at: 1)
+            let matchedWordRange = NSRange(
+                location: wholeRange.location + prefixRange.length,
+                length: wholeRange.length - prefixRange.length
+            )
+            let prefix = prefixRange.length > 0 ? nsResult.substring(with: prefixRange) : ""
+            let matchedWord = nsResult.substring(with: matchedWordRange)
+            let replacement = prefix + eahatGramAdjustedStandaloneWordReplacement(target: target, matchedText: matchedWord)
+            updatedResult.replaceCharacters(in: wholeRange, with: replacement)
+        }
+        result = updatedResult as String
     }
     return result
 }
