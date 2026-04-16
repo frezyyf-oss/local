@@ -3850,14 +3850,14 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
             }
             
             func apply(synchronousLoads: Bool, animated: Bool) {
-                if let strongSelf = self {
-                    strongSelf.layoutParams = (item, first, last, firstWithHeader, nextIsPinned, params, countersSize)
-                    strongSelf.currentItemHeight = itemHeight
-                    strongSelf.cachedChatListText = chatListText
-                    strongSelf.cachedChatListSearchResult = chatListSearchResult
-                    strongSelf.cachedChatListQuoteSearchResult = chatListQuoteSearchResult
-                    strongSelf.cachedCustomTextEntities = customTextEntities
-                    strongSelf.onlineIsVoiceChat = onlineIsVoiceChat
+                let strongSelf = self
+                strongSelf.layoutParams = (item, first, last, firstWithHeader, nextIsPinned, params, countersSize)
+                strongSelf.currentItemHeight = itemHeight
+                strongSelf.cachedChatListText = chatListText
+                strongSelf.cachedChatListSearchResult = chatListSearchResult
+                strongSelf.cachedChatListQuoteSearchResult = chatListQuoteSearchResult
+                strongSelf.cachedCustomTextEntities = customTextEntities
+                strongSelf.onlineIsVoiceChat = onlineIsVoiceChat
                     
                     var animateOnline = animateOnline
                     if let currentOnline = strongSelf.currentOnline, currentOnline == online {
@@ -5109,7 +5109,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         }
                         highlightedBackgroundColor = theme.itemHighlightedBackgroundColor
                     }
-                    let liquidGlassEnabled = item.context.sharedContext.immediateExperimentalUISettings.fakeGlass && !backgroundColor.isEqual(.clear)
+                    let liquidGlassEnabled = item.context.sharedContext.immediateExperimentalUISettings.fakeGlass && !backgroundColor.isEqual(UIColor.clear)
                     let componentTransition = ComponentTransition(transition)
                     
                     if animated {
@@ -5219,7 +5219,6 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         strongSelf.placeholderNode = nil
                         shimmerNode.removeFromSupernode()
                     }
-                }
             }
             return (layout, apply)
         }
