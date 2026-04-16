@@ -106,7 +106,7 @@ private func eahatGramCollectibleUsernameOwnerSignal(context: AccountContext, us
         guard collectibleInfo != nil else {
             _ = eahatGramCollectibleUsernameOwnerCache.modify { current in
                 var current = current
-                current[normalizedUsername] = .none
+                current[normalizedUsername] = EahatGramCollectibleUsernameOwnerCacheEntry.none
                 return current
             }
             return .single(nil)
@@ -124,7 +124,7 @@ private func eahatGramCollectibleUsernameOwnerSignal(context: AccountContext, us
             } else if result.isAuthoritative {
                 _ = eahatGramCollectibleUsernameOwnerCache.modify { current in
                     var current = current
-                    current[normalizedUsername] = .none
+                    current[normalizedUsername] = EahatGramCollectibleUsernameOwnerCacheEntry.none
                     return current
                 }
                 return nil
