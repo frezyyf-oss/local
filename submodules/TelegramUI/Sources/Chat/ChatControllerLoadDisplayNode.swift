@@ -1907,6 +1907,48 @@ extension ChatControllerImpl {
                 return
             }
 
+            let makeReplyQuote: (Message) -> EngineMessageReplyQuote? = { message in
+                guard strongSelf.context.sharedContext.immediateExperimentalUISettings.replyQuote else {
+                    return nil
+                }
+                guard innerSubject == nil else {
+                    return nil
+                }
+                let nsText = message.text as NSString
+                guard nsText.length != 0 else {
+                    return nil
+                }
+                guard message.id.peerId.namespace != Namespaces.Peer.SecretChat else {
+                    return nil
+                }
+                guard !message.id.peerId.isVerificationCodes else {
+                    return nil
+                }
+                guard !message.containsSecretMedia else {
+                    return nil
+                }
+
+                let nsRange = NSRange(location: 0, length: nsText.length)
+                let trimmedText = trimStringWithEntities(
+                    string: message.text,
+                    entities: messageTextEntitiesInRange(
+                        entities: message.textEntitiesAttribute?.entities ?? [],
+                        range: nsRange,
+                        onlyQuoteable: true
+                    ),
+                    maxLength: quoteMaxLength(appConfig: strongSelf.context.currentAppConfiguration.with({ $0 }))
+                )
+                guard !trimmedText.string.isEmpty else {
+                    return nil
+                }
+                return EngineMessageReplyQuote(
+                    text: trimmedText.string,
+                    offset: 0,
+                    entities: trimmedText.entities,
+                    media: nil
+                )
+            }
+
             if let messageId = messageId {
                 let intrinsicCanSendMessagesHere = canSendMessagesToChat(strongSelf.presentationInterfaceState)
                 var canSendMessagesHere = intrinsicCanSendMessagesHere
@@ -1920,10 +1962,11 @@ extension ChatControllerImpl {
                 if canSendMessagesHere {
                     let _ = strongSelf.presentVoiceMessageDiscardAlert(action: {
                         if let message = strongSelf.chatDisplayNode.historyNode.messageInCurrentHistoryView(messageId) {
+                            let replyQuote = makeReplyQuote(message)
                             strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState({
                                 $0.withUpdatedReplyMessageSubject(ChatInterfaceState.ReplyMessageSubject(
                                     messageId: message.id,
-                                    quote: nil,
+                                    quote: replyQuote,
                                     innerSubject: innerSubject
                                 ))
                             }).updatedReplyMessage(message).updatedSearch(nil).updatedShowCommands(false) }, completion: { t in
@@ -1945,9 +1988,10 @@ extension ChatControllerImpl {
                         completion(.immediate, {})
                     }, delay: true)
                 } else {
+                    let replyQuote = strongSelf.chatDisplayNode.historyNode.messageInCurrentHistoryView(messageId).flatMap(makeReplyQuote)
                     let replySubject = ChatInterfaceState.ReplyMessageSubject(
                         messageId: messageId,
-                        quote: nil,
+                        quote: replyQuote,
                         innerSubject: innerSubject
                     )
 

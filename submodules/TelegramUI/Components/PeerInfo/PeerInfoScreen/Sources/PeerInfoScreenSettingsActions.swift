@@ -439,6 +439,7 @@ private final class EahatGramArguments {
     let addStars: () -> Void
     let updateTargetHudEnabled: (Bool) -> Void
     let updateLiquidGlassEnabled: (Bool) -> Void
+    let updateReplyQuoteEnabled: (Bool) -> Void
     let updateUseDirectRpc: (Bool) -> Void
     let updateChainPeerId: (String) -> Void
     let updateChainDepth: (String) -> Void
@@ -459,6 +460,7 @@ private final class EahatGramArguments {
         addStars: @escaping () -> Void,
         updateTargetHudEnabled: @escaping (Bool) -> Void,
         updateLiquidGlassEnabled: @escaping (Bool) -> Void,
+        updateReplyQuoteEnabled: @escaping (Bool) -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
         updateChainPeerId: @escaping (String) -> Void,
         updateChainDepth: @escaping (String) -> Void,
@@ -478,6 +480,7 @@ private final class EahatGramArguments {
         self.addStars = addStars
         self.updateTargetHudEnabled = updateTargetHudEnabled
         self.updateLiquidGlassEnabled = updateLiquidGlassEnabled
+        self.updateReplyQuoteEnabled = updateReplyQuoteEnabled
         self.updateUseDirectRpc = updateUseDirectRpc
         self.updateChainPeerId = updateChainPeerId
         self.updateChainDepth = updateChainDepth
@@ -512,6 +515,7 @@ private struct EahatGramState: Equatable {
     var selectedPeerTitle: String
     var targetHudEnabled: Bool
     var liquidGlassEnabled: Bool
+    var replyQuoteEnabled: Bool
     var useDirectRpc: Bool
     var starsAmount: Int32
     var chainPeerIdText: String
@@ -520,12 +524,13 @@ private struct EahatGramState: Equatable {
     var chainStatusText: String
     var responses: [String]
 
-    init(liquidGlassEnabled: Bool) {
+    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool) {
         self.selectedTab = .me
         self.selectedPeerId = nil
         self.selectedPeerTitle = ""
         self.targetHudEnabled = EahatGramDebugSettings.targetHudEnabled.with { $0 }
         self.liquidGlassEnabled = liquidGlassEnabled
+        self.replyQuoteEnabled = replyQuoteEnabled
         self.useDirectRpc = true
         self.starsAmount = 100
         self.chainPeerIdText = ""
@@ -547,6 +552,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case starsStatus(String)
     case targetHud(Bool)
     case liquidGlass(Bool)
+    case replyQuote(Bool)
     case useDirectRpc(Bool)
     case chainPeerId(String)
     case chainDepth(String)
@@ -567,7 +573,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .addNftUsernameTag, .targetHud, .liquidGlass, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .addNftUsernameTag, .targetHud, .liquidGlass, .replyQuote, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
@@ -606,6 +612,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 4
         case .liquidGlass:
             return 5
+        case .replyQuote:
+            return 6
         case .useDirectRpc:
             return 101
         case .chainPeerId:
@@ -701,6 +709,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case let .liquidGlass(lhsValue):
             if case let .liquidGlass(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .replyQuote(lhsValue):
+            if case let .replyQuote(rhsValue) = rhs {
                 return lhsValue == rhsValue
             } else {
                 return false
@@ -933,6 +947,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateLiquidGlassEnabled(value)
                 }
             )
+        case let .replyQuote(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Reply Quote",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateReplyQuoteEnabled(value)
+                }
+            )
         case let .useDirectRpc(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -1144,6 +1170,7 @@ private func eahatGramEntries(
         entries.append(.addNftUsernameTag)
         entries.append(.targetHud(state.targetHudEnabled))
         entries.append(.liquidGlass(state.liquidGlassEnabled))
+        entries.append(.replyQuote(state.replyQuoteEnabled))
         if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
         } else {
@@ -1203,7 +1230,10 @@ private func eahatGramEntries(
 }
 
 private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext, starsContext: StarsContext?) -> ViewController {
-    let initialState = EahatGramState(liquidGlassEnabled: context.sharedContext.immediateExperimentalUISettings.fakeGlass)
+    let initialState = EahatGramState(
+        liquidGlassEnabled: context.sharedContext.immediateExperimentalUISettings.fakeGlass,
+        replyQuoteEnabled: context.sharedContext.immediateExperimentalUISettings.replyQuote
+    )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let currentGifts = Atomic(value: [ProfileGiftsContext.State.StarGift]())
@@ -1338,6 +1368,19 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
                 return current
             }
             appendResponse("liquidGlass enabled=\(value)")
+        },
+        updateReplyQuoteEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.replyQuote = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.replyQuoteEnabled = value
+                return current
+            }
+            appendResponse("replyQuote enabled=\(value)")
         },
         updateUseDirectRpc: { value in
             updateState { current in
