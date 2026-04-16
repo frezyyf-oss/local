@@ -2174,7 +2174,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
         let currentChatListQuoteSearchResult = self.cachedChatListQuoteSearchResult
         let currentCustomTextEntities = self.cachedCustomTextEntities
         
-        return { (item: ChatListItem, params: ListViewItemLayoutParams, first: Bool, last: Bool, firstWithHeader: Bool, nextIsPinned: Bool) -> (ListViewItemNodeLayout, (Bool, Bool) -> Void) in
+        func layout(item: ChatListItem, params: ListViewItemLayoutParams, first: Bool, last: Bool, firstWithHeader: Bool, nextIsPinned: Bool) -> (ListViewItemNodeLayout, (Bool, Bool) -> Void) {
             let titleFont = Font.medium(floor(item.presentationData.fontSize.itemListBaseFontSize * 16.0 / 17.0))
             let textFont = Font.regular(floor(item.presentationData.fontSize.itemListBaseFontSize * 15.0 / 17.0))
             let italicTextFont = Font.italic(floor(item.presentationData.fontSize.itemListBaseFontSize * 15.0 / 17.0))
@@ -5222,6 +5222,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                 }
             })
         }
+        return layout
     }
     
     override public func updateAbsoluteRect(_ rect: CGRect, within containerSize: CGSize) {
