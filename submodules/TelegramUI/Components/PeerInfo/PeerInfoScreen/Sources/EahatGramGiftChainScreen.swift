@@ -14,6 +14,7 @@ private let eahatGramGiftChainMaximumNodes = 180
 let eahatGramGiftChainDefaultConcurrentPeers = 4
 private let eahatGramGiftChainCacheLock = NSLock()
 private let eahatGramGiftChainBranchTimeout = 4.0
+private let eahatGramGiftChainFinalizeTimeout = 5.0
 
 private struct EahatGramGiftChainCacheKey: Hashable {
     let peerId: EnginePeer.Id
@@ -445,12 +446,19 @@ func eahatGramBuildGiftChainSignal(
         var hasFinished = false
         var isTruncated = false
         var activeOperations: [EnginePeer.Id: Disposable] = [:]
+        var finishTimer: SwiftSignalKit.Timer?
+
+        let invalidateFinishTimer: () -> Void = {
+            finishTimer?.invalidate()
+            finishTimer = nil
+        }
 
         let finish: () -> Void = {
             guard !hasFinished else {
                 return
             }
             hasFinished = true
+            invalidateFinishTimer()
             let sortedNodes = nodes.values.sorted { lhs, rhs in
                 if lhs.depth != rhs.depth {
                     return lhs.depth < rhs.depth
@@ -483,8 +491,28 @@ func eahatGramBuildGiftChainSignal(
             guard !isDisposed, !hasFinished else {
                 return
             }
-            if pendingIndex >= pending.count && activeOperations.isEmpty {
-                finish()
+            if pendingIndex >= pending.count {
+                if activeOperations.isEmpty {
+                    finish()
+                } else if finishTimer == nil {
+                    finishTimer = SwiftSignalKit.Timer(timeout: eahatGramGiftChainFinalizeTimeout, repeat: false, completion: {
+                        guard !isDisposed, !hasFinished else {
+                            return
+                        }
+                        guard pendingIndex >= pending.count, !activeOperations.isEmpty else {
+                            return
+                        }
+                        let disposables = Array(activeOperations.values)
+                        activeOperations.removeAll()
+                        for disposable in disposables {
+                            disposable.dispose()
+                        }
+                        finish()
+                    }, queue: eahatGramGiftChainQueue)
+                    finishTimer?.start()
+                }
+            } else {
+                invalidateFinishTimer()
             }
         }
 
@@ -496,7 +524,7 @@ func eahatGramBuildGiftChainSignal(
             while activeOperations.count < boundedConcurrentPeers && pendingIndex < pending.count {
                 let current = pending[pendingIndex]
                 pendingIndex += 1
-                subscriber.putNext(.progress("giftChain scan peerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) pending=\(pending.count - pendingIndex) active=\(activeOperations.count + 1)"))
+                subscriber.putNext(.progress("giftChain scan rootPeerId=\(eahatGramRawPeerId(rootPeerId)) currentPeerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) pending=\(pending.count - pendingIndex) active=\(activeOperations.count + 1)"))
 
                 let operationDisposable = MetaDisposable()
                 activeOperations[current.peerId] = operationDisposable
@@ -544,7 +572,7 @@ func eahatGramBuildGiftChainSignal(
                         }
                     }
 
-                    subscriber.putNext(.progress("giftChain loaded peerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) gifts=\(result.totalGiftCount) uniquePeople=\(result.senders.count) active=\(activeOperations.count)"))
+                    subscriber.putNext(.progress("giftChain loaded rootPeerId=\(eahatGramRawPeerId(rootPeerId)) currentPeerId=\(eahatGramRawPeerId(current.peerId)) depth=\(current.depth) gifts=\(result.totalGiftCount) uniquePeople=\(result.senders.count) pending=\(pending.count - pendingIndex) active=\(activeOperations.count)"))
 
                     if current.depth < maxDepth {
                         for sender in result.senders {
@@ -603,6 +631,7 @@ func eahatGramBuildGiftChainSignal(
         return ActionDisposable {
             eahatGramGiftChainQueue.async {
                 isDisposed = true
+                invalidateFinishTimer()
                 let disposables = Array(activeOperations.values)
                 activeOperations.removeAll()
                 for disposable in disposables {
