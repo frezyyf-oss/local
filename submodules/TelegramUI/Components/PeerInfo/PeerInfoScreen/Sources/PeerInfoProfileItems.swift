@@ -21,6 +21,10 @@ import BoostLevelIconComponent
 private let enabledPublicBioEntities: EnabledEntityTypes = [.allUrl, .mention, .hashtag]
 private let enabledPrivateBioEntities: EnabledEntityTypes = [.internalUrl, .mention, .hashtag]
 
+private func eahatGramNormalizedCollectibleUsername(_ username: String) -> String {
+    return username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+}
+
 private func eahatGramParsedVisualCollectibleTonAmount(_ value: String) -> Int64? {
     let filtered = value.filter { $0.isNumber || $0 == "." || $0 == "," }
     guard !filtered.isEmpty else {
