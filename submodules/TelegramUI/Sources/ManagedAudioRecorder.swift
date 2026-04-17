@@ -81,13 +81,30 @@ private func eahatGramRobotizedAudioPacket(_ input: [Int16]) -> [Int16] {
     return output
 }
 
+private enum EahatGramManagedAudioVoiceModPreset: String {
+    case chipmunk
+    case deep
+    case robot
+}
+
+private let eahatGramVoiceModEnabledDefaultsKey = "eahatGram.voiceModEnabled"
+private let eahatGramVoiceModPresetDefaultsKey = "eahatGram.voiceModPreset"
+
+private func eahatGramManagedAudioVoiceModEnabled() -> Bool {
+    return UserDefaults.standard.object(forKey: eahatGramVoiceModEnabledDefaultsKey) as? Bool ?? false
+}
+
+private func eahatGramManagedAudioVoiceModPreset() -> EahatGramManagedAudioVoiceModPreset {
+    return EahatGramManagedAudioVoiceModPreset(rawValue: UserDefaults.standard.string(forKey: eahatGramVoiceModPresetDefaultsKey) ?? EahatGramManagedAudioVoiceModPreset.chipmunk.rawValue) ?? .chipmunk
+}
+
 private func eahatGramApplyVoiceMod(samples: UnsafeMutablePointer<Int16>, count: Int) {
-    guard count > 1, EahatGramDebugSettings.voiceModEnabled.with({ $0 }) else {
+    guard count > 1, eahatGramManagedAudioVoiceModEnabled() else {
         return
     }
     let input = Array(UnsafeBufferPointer(start: samples, count: count))
     let output: [Int16]
-    switch EahatGramDebugSettings.resolvedVoiceModPreset() {
+    switch eahatGramManagedAudioVoiceModPreset() {
     case .chipmunk:
         output = eahatGramResampledAudioPacket(input, rate: 1.18)
     case .deep:
