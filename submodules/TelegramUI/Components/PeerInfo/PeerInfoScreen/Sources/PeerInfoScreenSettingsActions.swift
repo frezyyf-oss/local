@@ -894,6 +894,9 @@ private enum EahatGramEntry: ItemListNodeEntry {
     }
 
     static func <(lhs: EahatGramEntry, rhs: EahatGramEntry) -> Bool {
+        if lhs.section != rhs.section {
+            return lhs.section < rhs.section
+        }
         return lhs.stableId < rhs.stableId
     }
 
