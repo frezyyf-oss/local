@@ -32,19 +32,19 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
     guard let data = data else {
         return []
     }
-    
+
     var items: [SettingsSection: [PeerInfoScreenItem]] = [:]
     for section in SettingsSection.allCases {
         items[section] = []
     }
-    
+
     let setPhotoTitle: String
     if let peer = data.peer, !peer.profileImageRepresentations.isEmpty {
         setPhotoTitle = presentationData.strings.Settings_ChangeProfilePhoto
     } else {
         setPhotoTitle = presentationData.strings.Settings_SetProfilePhotoOrVideo
     }
-    
+
     var setStatusTitle: String = ""
     let displaySetStatus: Bool
     var hasEmojiStatus = false
@@ -59,27 +59,27 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
     } else {
         displaySetStatus = false
     }
-    
+
     if displaySetStatus {
         items[.edit]!.append(PeerInfoScreenActionItem(id: 0, text: setStatusTitle, icon: UIImage(bundleImageName: hasEmojiStatus ? "Settings/EditEmojiStatus" : "Settings/SetEmojiStatus"), action: {
             interaction.openSettings(.emojiStatus)
         }))
-        
+
         items[.edit]!.append(PeerInfoScreenActionItem(id: 1, text: presentationData.strings.PeerInfo_ChangeProfileColor, icon: UIImage(bundleImageName: "Premium/BoostPerk/CoverColor"), action: {
             interaction.openSettings(.profileColor)
         }))
     }
-    
+
     items[.edit]!.append(PeerInfoScreenActionItem(id: 2, text: setPhotoTitle, icon: UIImage(bundleImageName: "Settings/SetAvatar"), action: {
         interaction.openSettings(.avatar)
     }))
-    
+
     if let peer = data.peer, (peer.addressName ?? "").isEmpty {
         items[.edit]!.append(PeerInfoScreenActionItem(id: 3, text: presentationData.strings.Settings_SetUsername, icon: UIImage(bundleImageName: "Settings/SetUsername"), action: {
             interaction.openSettings(.username)
         }))
     }
-    
+
     if let settings = data.globalSettings {
         if settings.premiumGracePeriod {
             items[.phone]!.append(PeerInfoScreenInfoItem(id: 0, title: "Your access to Telegram Premium will expire soon!", text: .markdown("Unfortunately, your latest payment didn't come through. To keep your access to exclusive features, please renew the subscription."), isWarning: true, linkAction: nil))
@@ -115,7 +115,7 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
                 interaction.openSettings(.passwordSetup)
             }))
         }
-        
+
         if !settings.accountsAndPeers.isEmpty {
             for (peerAccountContext, peer, badgeCount) in settings.accountsAndPeers {
                 let mappedContext = ItemListPeerItem.Context.custom(ItemListPeerItem.Context.Custom(
@@ -143,16 +143,16 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
                     interaction.accountContextMenu(peerAccountContext.account.id, node, gesture)
                 }))
             }
-            
+
             items[.accounts]!.append(PeerInfoScreenActionItem(id: 100, text: presentationData.strings.Settings_AddAccount, icon: PresentationResourcesItemList.plusIconImage(presentationData.theme), action: {
                 interaction.openSettings(.addAccount)
             }))
         }
-        
+
         items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_MyProfile, icon: PresentationResourcesSettings.myProfile, action: {
             interaction.openSettings(.profile)
         }))
-        
+
         if !settings.proxySettings.servers.isEmpty {
             let proxyType: String
             if settings.proxySettings.enabled, let activeServer = settings.proxySettings.activeServer {
@@ -170,7 +170,7 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
             }))
         }
     }
-    
+
     var appIndex = 1000
     if let settings = data.globalSettings {
         for bot in settings.bots {
@@ -197,14 +197,14 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
             appIndex += 1
         }
     }
-    
+
     items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 1, text: presentationData.strings.Settings_SavedMessages, icon: PresentationResourcesSettings.savedMessages, action: {
         interaction.openSettings(.savedMessages)
     }))
     items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 2, text: presentationData.strings.CallSettings_RecentCalls, icon: PresentationResourcesSettings.recentCalls, action: {
         interaction.openSettings(.recentCalls)
     }))
-    
+
     let devicesLabel: String
     if let settings = data.globalSettings, let otherSessionsCount = settings.otherSessionsCount {
         if settings.enableQRLogin {
@@ -215,14 +215,14 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
     } else {
         devicesLabel = ""
     }
-    
+
     items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 3, label: .text(devicesLabel), text: presentationData.strings.Settings_Devices, icon: PresentationResourcesSettings.devices, action: {
         interaction.openSettings(.devices)
     }))
     items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 4, text: presentationData.strings.Settings_ChatFolders, icon: PresentationResourcesSettings.chatFolders, action: {
         interaction.openSettings(.chatFolders)
     }))
-    
+
     let notificationsWarning: Bool
     if let settings = data.globalSettings {
         notificationsWarning = shouldDisplayNotificationsPermissionWarning(status: settings.notificationAuthorizationStatus, suppressed:  settings.notificationWarningSuppressed)
@@ -244,16 +244,16 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
     items[.advanced]!.append(PeerInfoScreenDisclosureItem(id: 3, text: presentationData.strings.Settings_Appearance, icon: PresentationResourcesSettings.appearance, action: {
         interaction.openSettings(.appearance)
     }))
-    
+
     items[.advanced]!.append(PeerInfoScreenDisclosureItem(id: 6, label: .text(data.isPowerSavingEnabled == true ? presentationData.strings.Settings_PowerSavingOn : presentationData.strings.Settings_PowerSavingOff), text: presentationData.strings.Settings_PowerSaving, icon: PresentationResourcesSettings.powerSaving, action: {
         interaction.openSettings(.powerSaving)
     }))
-    
+
     let languageName = presentationData.strings.primaryComponent.localizedName
     items[.advanced]!.append(PeerInfoScreenDisclosureItem(id: 4, label: .text(languageName.isEmpty ? presentationData.strings.Localization_LanguageName : languageName), text: presentationData.strings.Settings_AppLanguage, icon: PresentationResourcesSettings.language, action: {
         interaction.openSettings(.language)
     }))
-    
+
     let premiumConfiguration = PremiumConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 })
     let isPremiumDisabled = premiumConfiguration.isPremiumDisabled
     if !isPremiumDisabled || context.isPremium {
@@ -307,7 +307,7 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
             }))
         }
     }
-    
+
     if let settings = data.globalSettings {
         if settings.hasPassport {
             items[.extra]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_Passport, icon: PresentationResourcesSettings.passport, action: {
@@ -320,7 +320,7 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
             }))
         }
     }
-    
+
     items[.support]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_Support, icon: PresentationResourcesSettings.support, action: {
         interaction.openSettings(.support)
     }))
@@ -330,7 +330,7 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
     items[.support]!.append(PeerInfoScreenDisclosureItem(id: 2, text: presentationData.strings.Settings_Tips, icon: PresentationResourcesSettings.tips, action: {
         interaction.openSettings(.tips)
     }))
-    
+
     var result: [(AnyHashable, [PeerInfoScreenItem])] = []
     for section in SettingsSection.allCases {
         if let sectionItems = items[section], !sectionItems.isEmpty {
@@ -345,9 +345,6 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
         return []
     }
 
-    let fakePhoneNumber = EahatGramDebugSettings.fakePhoneNumber.with { $0 }
-    let nftUsernameTag = EahatGramDebugSettings.nftUsernameTag.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-    
     enum Section: Int, CaseIterable {
         case help
         case bio
@@ -356,12 +353,12 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
         case account
         case logout
     }
-    
+
     var items: [Section: [PeerInfoScreenItem]] = [:]
     for section in Section.allCases {
         items[section] = []
     }
-    
+
     let ItemNameHelp = 0
     let ItemBio: AnyHashable = AnyHashable("bio_edit")
     let ItemBioHelp = 2
@@ -376,9 +373,9 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
     let ItemBirthdayRemove = 11
     let ItemBirthdayHelp = 12
     let ItemPeerPersonalChannel = 13
-    
+
     items[.help]!.append(PeerInfoScreenCommentItem(id: ItemNameHelp, text: presentationData.strings.EditProfile_NameAndPhotoOrVideoHelp))
-    
+
     if let cachedData = data.cachedData as? CachedUserData {
         items[.bio]!.append(PeerInfoScreenMultilineInputItem(id: ItemBio, text: state.updatingBio ?? (cachedData.about ?? ""), placeholder: presentationData.strings.UserInfo_About_Placeholder, textUpdated: { updatedText in
             interaction.updateBio(updatedText)
@@ -389,22 +386,22 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
             interaction.openBioPrivacy()
         }))
     }
-    
-    
+
+
     var birthday: TelegramBirthday?
     if let updatingBirthDate = state.updatingBirthDate {
         birthday = updatingBirthDate
     } else {
         birthday = (data.cachedData as? CachedUserData)?.birthday
     }
-    
+
     var birthDateString: String
     if let birthday {
         birthDateString = stringForCompactBirthday(birthday, strings: presentationData.strings)
     } else {
         birthDateString = presentationData.strings.Settings_Birthday_Add
     }
-    
+
     let isEditingBirthDate = state.isEditingBirthDate
     items[.birthday]!.append(PeerInfoScreenDisclosureItem(id: ItemBirthday, label: .coloredText(birthDateString, isEditingBirthDate ? .accent : .generic), text: presentationData.strings.Settings_Birthday, icon: nil, hasArrow: false, action: {
         interaction.updateIsEditingBirthdate(!isEditingBirthDate)
@@ -418,8 +415,8 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
             interaction.updateIsEditingBirthdate(false)
         }))
     }
-    
-    
+
+
     var birthdayIsForContactsOnly = false
     if let birthdayPrivacy = data.globalSettings?.privacySettings?.birthday, case .enableContacts = birthdayPrivacy {
         birthdayIsForContactsOnly = true
@@ -427,33 +424,18 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
     items[.birthday]!.append(PeerInfoScreenCommentItem(id: ItemBirthdayHelp, text: birthdayIsForContactsOnly ? presentationData.strings.Settings_Birthday_ContactsHelp : presentationData.strings.Settings_Birthday_Help, linkAction: { _ in
         interaction.openBirthdatePrivacy()
     }))
-    
+
     if let user = data.peer as? TelegramUser {
-        let displayedPhoneNumber: String
-        if !fakePhoneNumber.isEmpty {
-            displayedPhoneNumber = formatPhoneNumber(context: context, number: fakePhoneNumber)
-        } else {
-            displayedPhoneNumber = user.phone.flatMap({ formatPhoneNumber(context: context, number: $0) }) ?? ""
-        }
+        let displayedPhoneNumber = eahatGramDisplayedPhoneText(context: context, phone: user.phone)
         items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemPhoneNumber, label: .text(displayedPhoneNumber), text: presentationData.strings.Settings_PhoneNumber, action: {
             interaction.openSettings(.phoneNumber)
         }))
     }
-    var username = ""
-    if let addressName = data.peer?.addressName, !addressName.isEmpty {
-        username = "@\(addressName)"
-    }
-    if !nftUsernameTag.isEmpty {
-        if username.isEmpty {
-            username = nftUsernameTag.hasPrefix("@") ? nftUsernameTag : "@\(nftUsernameTag)"
-        } else {
-            username += " | " + (nftUsernameTag.hasPrefix("@") ? nftUsernameTag : "@\(nftUsernameTag)")
-        }
-    }
+    let username = eahatGramDisplayedUsernameText(mainUsername: data.peer?.addressName)
     items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemUsername, label: .text(username), text: presentationData.strings.Settings_Username, action: {
           interaction.openSettings(.username)
     }))
-    
+
     if let peer = data.peer as? TelegramUser {
         var colors: [PeerNameColors.Colors] = []
         if let nameColor = peer.nameColor {
@@ -470,11 +452,11 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
             colors.append(profileColor)
         }
         let colorImage = generateSettingsMenuPeerColorsLabelIcon(colors: colors)
-        
+
         items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemPeerColor, label: .image(colorImage, colorImage.size), text: presentationData.strings.Settings_YourColor, icon: nil, action: {
             interaction.editingOpenNameColorSetup()
         }))
-        
+
         var displayPersonalChannel = false
         if data.personalChannel != nil {
             displayPersonalChannel = true
@@ -486,17 +468,17 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
             if let personalChannel = data.personalChannel, let peer = personalChannel.peer.chatOrMonoforumMainPeer {
                 personalChannelTitle = peer.compactDisplayTitle
             }
-            
+
             items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemPeerPersonalChannel, label: .text(personalChannelTitle ?? presentationData.strings.Settings_PersonalChannelEmptyValue), text: presentationData.strings.Settings_PersonalChannelItem, icon: nil, action: {
                 interaction.editingOpenPersonalChannel()
             }))
         }
     }
-    
+
     items[.account]!.append(PeerInfoScreenActionItem(id: ItemAddAccount, text: presentationData.strings.Settings_AddAnotherAccount, alignment: .center, action: {
         interaction.openSettings(.addAccount)
     }))
-    
+
     var hasPremiumAccounts = false
     if data.peer?.isPremium == true && !context.account.testingEnvironment {
         hasPremiumAccounts = true
@@ -511,13 +493,13 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
             }
         }
     }
-    
+
     items[.account]!.append(PeerInfoScreenCommentItem(id: ItemAddAccountHelp, text: hasPremiumAccounts ? presentationData.strings.Settings_AddAnotherAccount_PremiumHelp : presentationData.strings.Settings_AddAnotherAccount_Help))
-    
+
     items[.logout]!.append(PeerInfoScreenActionItem(id: ItemLogout, text: presentationData.strings.Settings_Logout, color: .destructive, alignment: .center, action: {
         interaction.openSettings(.logout)
     }))
-    
+
     var result: [(AnyHashable, [PeerInfoScreenItem])] = []
     for section in Section.allCases {
         if let sectionItems = items[section], !sectionItems.isEmpty {

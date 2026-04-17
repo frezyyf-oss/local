@@ -18,6 +18,7 @@ import PresentationDataUtils
 import PasswordSetupUI
 import InstantPageCache
 import ItemListUI
+import AlertUI
 import GlassBackgroundComponent
 private let eahatGramPersistedChainVisualizationState = Atomic<EahatGramGiftChainVisualizationState?>(value: nil)
 
@@ -47,6 +48,39 @@ private func eahatGramPeerIdFromText(_ value: String) -> EnginePeer.Id? {
         return nil
     }
     return EnginePeer.Id(namespace: Namespaces.Peer.CloudUser, id: EnginePeer.Id.Id._internalFromInt64Value(parsed))
+}
+
+private final class EahatGramItemListController: ItemListController, UIGestureRecognizerDelegate {
+    private var dismissKeyboardGesture: UITapGestureRecognizer?
+
+    override func displayNodeDidLoad() {
+        super.displayNodeDidLoad()
+
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(self.dismissKeyboardGestureAction(_:)))
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        self.view.addGestureRecognizer(gesture)
+        self.dismissKeyboardGesture = gesture
+    }
+
+    @objc private func dismissKeyboardGestureAction(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended else {
+            return
+        }
+        self.view.window?.endEditing(true)
+        self.view.endEditing(true)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var currentView = touch.view
+        while let view = currentView {
+            if view is UITextField || view is UITextView || view is UISwitch || view is UIButton || view is UISegmentedControl {
+                return false
+            }
+            currentView = view.superview
+        }
+        return true
+    }
 }
 
 extension PeerInfoScreenNode {
@@ -415,6 +449,8 @@ private final class EahatGramArguments {
     let updateFakeOnlineEnabled: (Bool) -> Void
     let updateSaveDeletedMessagesEnabled: (Bool) -> Void
     let updateSaveEditedMessagesEnabled: (Bool) -> Void
+    let updateVoiceModEnabled: (Bool) -> Void
+    let selectVoiceModPreset: () -> Void
     let updateUseDirectRpc: (Bool) -> Void
     let updateChainPeerId: (String) -> Void
     let updateChainDepth: (String) -> Void
@@ -443,6 +479,8 @@ private final class EahatGramArguments {
         updateFakeOnlineEnabled: @escaping (Bool) -> Void,
         updateSaveDeletedMessagesEnabled: @escaping (Bool) -> Void,
         updateSaveEditedMessagesEnabled: @escaping (Bool) -> Void,
+        updateVoiceModEnabled: @escaping (Bool) -> Void,
+        selectVoiceModPreset: @escaping () -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
         updateChainPeerId: @escaping (String) -> Void,
         updateChainDepth: @escaping (String) -> Void,
@@ -470,6 +508,8 @@ private final class EahatGramArguments {
         self.updateFakeOnlineEnabled = updateFakeOnlineEnabled
         self.updateSaveDeletedMessagesEnabled = updateSaveDeletedMessagesEnabled
         self.updateSaveEditedMessagesEnabled = updateSaveEditedMessagesEnabled
+        self.updateVoiceModEnabled = updateVoiceModEnabled
+        self.selectVoiceModPreset = selectVoiceModPreset
         self.updateUseDirectRpc = updateUseDirectRpc
         self.updateChainPeerId = updateChainPeerId
         self.updateChainDepth = updateChainDepth
@@ -510,6 +550,8 @@ private struct EahatGramState: Equatable {
     var fakeOnlineEnabled: Bool
     var saveDeletedMessagesEnabled: Bool
     var saveEditedMessagesEnabled: Bool
+    var voiceModEnabled: Bool
+    var voiceModPreset: String
     var nftUsernameTagText: String
     var fakePhoneNumberText: String
     var useDirectRpc: Bool
@@ -533,6 +575,8 @@ private struct EahatGramState: Equatable {
         self.fakeOnlineEnabled = fakeOnlineEnabled
         self.saveDeletedMessagesEnabled = saveDeletedMessagesEnabled
         self.saveEditedMessagesEnabled = saveEditedMessagesEnabled
+        self.voiceModEnabled = EahatGramDebugSettings.voiceModEnabled.with { $0 }
+        self.voiceModPreset = EahatGramDebugSettings.resolvedVoiceModPreset().title
         self.nftUsernameTagText = EahatGramDebugSettings.nftUsernameTag.with { $0 }
         self.fakePhoneNumberText = EahatGramDebugSettings.fakePhoneNumber.with { $0 }
         self.useDirectRpc = true
@@ -564,6 +608,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case fakeOnline(Bool)
     case saveDeletedMessages(Bool)
     case saveEditedMessages(Bool)
+    case voiceMod(Bool)
+    case voiceModPreset(String)
     case useDirectRpc(Bool)
     case chainPeerId(String)
     case chainDepth(String)
@@ -586,7 +632,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .fakePhoneNumber, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .fakePhoneNumber, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .voiceMod, .voiceModPreset, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
@@ -637,6 +683,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 9
         case .saveEditedMessages:
             return 10
+        case .voiceMod:
+            return 12
+        case .voiceModPreset:
+            return 13
         case .useDirectRpc:
             return 101
         case .chainPeerId:
@@ -773,6 +823,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case let .saveEditedMessages(lhsValue):
             if case let .saveEditedMessages(rhsValue) = rhs {
                 return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .voiceMod(lhsValue):
+            if case let .voiceMod(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .voiceModPreset(lhsText):
+            if case let .voiceModPreset(rhsText) = rhs {
+                return lhsText == rhsText
             } else {
                 return false
             }
@@ -1101,6 +1163,30 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateSaveEditedMessagesEnabled(value)
                 }
             )
+        case let .voiceMod(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Clownfish",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateVoiceModEnabled(value)
+                }
+            )
+        case let .voiceModPreset(text):
+            return ItemListDisclosureItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Voice",
+                label: text,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.selectVoiceModPreset()
+                }
+            )
         case let .useDirectRpc(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -1349,11 +1435,15 @@ private func eahatGramEntries(
         entries.append(.targetHud(state.targetHudEnabled))
         entries.append(.liquidGlass(state.liquidGlassEnabled))
         entries.append(.replyQuote(state.replyQuoteEnabled))
-        entries.append(.ghostMode(state.ghostModeEnabled))
-        entries.append(.fakeOnline(state.fakeOnlineEnabled))
-        entries.append(.saveDeletedMessages(state.saveDeletedMessagesEnabled))
-        entries.append(.saveEditedMessages(state.saveEditedMessagesEnabled))
-        if gifts.isEmpty {
+            entries.append(.ghostMode(state.ghostModeEnabled))
+            entries.append(.fakeOnline(state.fakeOnlineEnabled))
+            entries.append(.saveDeletedMessages(state.saveDeletedMessagesEnabled))
+            entries.append(.saveEditedMessages(state.saveEditedMessagesEnabled))
+            entries.append(.voiceMod(state.voiceModEnabled))
+            if state.voiceModEnabled {
+                entries.append(.voiceModPreset(state.voiceModPreset))
+            }
+            if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
         } else {
             entries.append(.giftsSummary("Loaded gifts: \(gifts.count)"))
@@ -1395,7 +1485,15 @@ private func eahatGramEntries(
     }
 
     entries.sort()
-    return entries
+    var uniqueEntries: [EahatGramEntry] = []
+    var seenStableIds = Set<Int>()
+    uniqueEntries.reserveCapacity(entries.count)
+    for entry in entries {
+        if seenStableIds.insert(entry.stableId).inserted {
+            uniqueEntries.append(entry)
+        }
+    }
+    return uniqueEntries
 }
 
 private func eahatGramScreen(context: AccountContext, starsContext: StarsContext?) -> ViewController {
@@ -1488,6 +1586,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
     }
 
     var pushControllerImpl: ((ViewController) -> Void)?
+    var presentControllerImpl: ((ViewController) -> Void)?
     var openCurrentChainVisualizationImpl: (() -> Void)?
 
     let arguments = EahatGramArguments(
@@ -1583,7 +1682,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 }
                 return settings
             }).start()
-            GlassBackgroundView.useCustomGlassImpl = !value
+            GlassBackgroundView.useCustomGlassImpl = value
             updateState { current in
                 var current = current
                 current.liquidGlassEnabled = value
@@ -1656,6 +1755,40 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 return current
             }
             appendResponse("saveEditedMessages enabled=\(value)")
+        },
+        updateVoiceModEnabled: { value in
+            EahatGramDebugSettings.setVoiceModEnabled(value)
+            updateState { current in
+                var current = current
+                current.voiceModEnabled = value
+                return current
+            }
+            appendResponse("voiceMod enabled=\(value)")
+        },
+        selectVoiceModPreset: {
+            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+            let actionSheet = ActionSheetController(presentationData: presentationData)
+            let items: [ActionSheetItem] = EahatGramVoiceModPreset.allCases.map { preset in
+                ActionSheetButtonItem(title: preset.title, color: .accent, action: { [weak actionSheet] in
+                    actionSheet?.dismissAnimated()
+                    EahatGramDebugSettings.setVoiceModPreset(preset)
+                    updateState { current in
+                        var current = current
+                        current.voiceModPreset = preset.title
+                        return current
+                    }
+                    appendResponse("voiceMod preset=\(preset.rawValue)")
+                })
+            }
+            actionSheet.setItemGroups([
+                ActionSheetItemGroup(items: items),
+                ActionSheetItemGroup(items: [
+                    ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
+                        actionSheet?.dismissAnimated()
+                    })
+                ])
+            ])
+            presentControllerImpl?(actionSheet)
         },
         updateUseDirectRpc: { value in
             updateState { current in
@@ -1817,7 +1950,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         profileGiftsContextStateDisposable.dispose()
     }
 
-    let controller = ItemListController(context: context, state: signal)
+    let controller = EahatGramItemListController(context: context, state: signal)
     controller.titleControlValueChanged = { index in
         guard let selectedTab = EahatGramTab(rawValue: index) else {
             return
@@ -1830,6 +1963,9 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
     }
     pushControllerImpl = { [weak controller] c in
         (controller?.navigationController as? NavigationController)?.pushViewController(c)
+    }
+    presentControllerImpl = { [weak controller] c in
+        controller?.present(c, in: .window(.root))
     }
     openCurrentChainVisualizationImpl = {
         guard let visualizationState = eahatGramPersistedChainVisualizationState.with({ $0 }) else {

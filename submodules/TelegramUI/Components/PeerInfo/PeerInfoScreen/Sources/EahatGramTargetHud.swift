@@ -139,10 +139,14 @@ final class EahatGramDebugSettings {
     private static let targetHudEnabledKey = "eahatGram.targetHudEnabled"
     private static let nftUsernameTagKey = "eahatGram.nftUsernameTag"
     private static let fakePhoneNumberKey = "eahatGram.fakePhoneNumber"
+    private static let voiceModEnabledKey = "eahatGram.voiceModEnabled"
+    private static let voiceModPresetKey = "eahatGram.voiceModPreset"
 
     static let targetHudEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: targetHudEnabledKey) as? Bool ?? false)
     static let nftUsernameTag = Atomic<String>(value: UserDefaults.standard.string(forKey: nftUsernameTagKey) ?? "")
     static let fakePhoneNumber = Atomic<String>(value: UserDefaults.standard.string(forKey: fakePhoneNumberKey) ?? "")
+    static let voiceModEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: voiceModEnabledKey) as? Bool ?? false)
+    static let voiceModPreset = Atomic<String>(value: UserDefaults.standard.string(forKey: voiceModPresetKey) ?? EahatGramVoiceModPreset.chipmunk.rawValue)
     static let targetHudOrigin = Atomic<CGPoint?>(value: nil)
 
     static func setTargetHudEnabled(_ value: Bool) {
@@ -165,6 +169,105 @@ final class EahatGramDebugSettings {
         }
         UserDefaults.standard.set(value, forKey: self.fakePhoneNumberKey)
     }
+
+    static func setVoiceModEnabled(_ value: Bool) {
+        _ = self.voiceModEnabled.modify { _ in
+            value
+        }
+        UserDefaults.standard.set(value, forKey: self.voiceModEnabledKey)
+    }
+
+    static func setVoiceModPreset(_ value: EahatGramVoiceModPreset) {
+        _ = self.voiceModPreset.modify { _ in
+            value.rawValue
+        }
+        UserDefaults.standard.set(value.rawValue, forKey: self.voiceModPresetKey)
+    }
+
+    static func resolvedVoiceModPreset() -> EahatGramVoiceModPreset {
+        return EahatGramVoiceModPreset(rawValue: self.voiceModPreset.with { $0 }) ?? .chipmunk
+    }
+}
+
+enum EahatGramVoiceModPreset: String, CaseIterable {
+    case chipmunk
+    case deep
+    case robot
+
+    var title: String {
+        switch self {
+        case .chipmunk:
+            return "Chipmunk"
+        case .deep:
+            return "Deep"
+        case .robot:
+            return "Robot"
+        }
+    }
+}
+
+struct EahatGramDisplayedUsername: Equatable {
+    let text: String?
+    let additionalText: String?
+    let openValue: String?
+}
+
+func eahatGramNormalizedUsernameTag(_ value: String) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return ""
+    }
+    if trimmed.hasPrefix("@") {
+        return String(trimmed.dropFirst())
+    } else {
+        return trimmed
+    }
+}
+
+func eahatGramDisplayedUsername(mainUsername: String?) -> EahatGramDisplayedUsername {
+    let normalizedMainUsername = mainUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let mainUsernameValue = (normalizedMainUsername?.isEmpty == false) ? normalizedMainUsername : nil
+    let nftUsernameTag = eahatGramNormalizedUsernameTag(EahatGramDebugSettings.nftUsernameTag.with { $0 })
+
+    if let mainUsernameValue {
+        let mainText = "@\(mainUsernameValue)"
+        if !nftUsernameTag.isEmpty && nftUsernameTag != mainUsernameValue {
+            return EahatGramDisplayedUsername(text: mainText, additionalText: "а также @\(nftUsernameTag)", openValue: mainUsernameValue)
+        } else {
+            return EahatGramDisplayedUsername(text: mainText, additionalText: nil, openValue: mainUsernameValue)
+        }
+    } else if !nftUsernameTag.isEmpty {
+        return EahatGramDisplayedUsername(text: "@\(nftUsernameTag)", additionalText: nil, openValue: nftUsernameTag)
+    } else {
+        return EahatGramDisplayedUsername(text: nil, additionalText: nil, openValue: nil)
+    }
+}
+
+func eahatGramDisplayedUsernameText(mainUsername: String?) -> String {
+    let displayedUsername = eahatGramDisplayedUsername(mainUsername: mainUsername)
+    if let text = displayedUsername.text, let additionalText = displayedUsername.additionalText, !additionalText.isEmpty {
+        return "\(text) \(additionalText)"
+    } else {
+        return displayedUsername.text ?? ""
+    }
+}
+
+func eahatGramDisplayedPhoneRaw(phone: String?) -> String? {
+    let fakePhoneNumber = EahatGramDebugSettings.fakePhoneNumber.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    if !fakePhoneNumber.isEmpty {
+        return fakePhoneNumber
+    } else if let phone, !phone.isEmpty {
+        return phone
+    } else {
+        return nil
+    }
+}
+
+func eahatGramDisplayedPhoneText(context: AccountContext, phone: String?) -> String {
+    guard let rawPhone = eahatGramDisplayedPhoneRaw(phone: phone) else {
+        return ""
+    }
+    return formatPhoneNumber(context: context, number: rawPhone)
 }
 
 enum EahatGramTargetHudRentState: Equatable {

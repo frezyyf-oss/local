@@ -22,6 +22,7 @@ swift_library(
         "//submodules/TelegramStringFormatting",
         "//submodules/TextFormat",
         "//submodules/LocalizedPeerData",
+        "//submodules/TelegramUI/Components/Chat/ChatHistoryEntry",
         "//submodules/Components/ReactionButtonListComponent",
         "//submodules/Components/ReactionImageComponent",
         "//submodules/TelegramUI/Components/AnimationCache",

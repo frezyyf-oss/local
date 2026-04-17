@@ -933,7 +933,10 @@ public final class ChatMessageInteractiveFileNode: ASDisplayNode {
                     } else {
                         dateFormat = .regular
                     }
-                    let dateText = stringForMessageTimestampStatus(accountPeerId: arguments.context.account.peerId, message: arguments.message, dateTimeFormat: arguments.presentationData.dateTimeFormat, nameDisplayOrder: arguments.presentationData.nameDisplayOrder, strings: arguments.presentationData.strings, format: dateFormat, associatedData: arguments.associatedData)
+                    let dateText = eahatGramDecoratedStatusText(
+                        stringForMessageTimestampStatus(accountPeerId: arguments.context.account.peerId, message: arguments.message, dateTimeFormat: arguments.presentationData.dateTimeFormat, nameDisplayOrder: arguments.presentationData.nameDisplayOrder, strings: arguments.presentationData.strings, format: dateFormat, associatedData: arguments.associatedData),
+                        attributes: arguments.attributes
+                    )
                     
                     let displayReactionsInline = shouldDisplayInlineDateReactions(message: arguments.message, isPremium: arguments.associatedData.isPremium, forceInline: arguments.associatedData.forceInlineReactions)
                     var reactionSettings: ChatMessageDateAndStatusNode.TrailingReactionSettings?
@@ -2227,4 +2230,3 @@ public final class FileMessageSelectionNode: ASDisplayNode {
         self.checkNode.frame = CGRect(origin: checkOrigin, size: checkSize)
     }
 }
-

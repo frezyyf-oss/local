@@ -714,7 +714,10 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                 } else {
                     dateFormat = .regular
                 }
-                let dateText = stringForMessageTimestampStatus(accountPeerId: context.account.peerId, message: message, dateTimeFormat: presentationData.dateTimeFormat, nameDisplayOrder: presentationData.nameDisplayOrder, strings: presentationData.strings, format: dateFormat, associatedData: associatedData)
+                let dateText = eahatGramDecoratedStatusText(
+                    stringForMessageTimestampStatus(accountPeerId: context.account.peerId, message: message, dateTimeFormat: presentationData.dateTimeFormat, nameDisplayOrder: presentationData.nameDisplayOrder, strings: presentationData.strings, format: dateFormat, associatedData: associatedData),
+                    attributes: attributes
+                )
                 
                 let statusType: ChatMessageDateAndStatusType
                 if incoming {

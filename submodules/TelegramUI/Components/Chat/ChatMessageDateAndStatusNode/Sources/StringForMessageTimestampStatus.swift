@@ -7,11 +7,23 @@ import TelegramStringFormatting
 import TextFormat
 import LocalizedPeerData
 import AccountContext
+import ChatHistoryEntry
 
 public enum MessageTimestampStatusFormat {
     case full
     case regular
     case minimal
+}
+
+public func eahatGramDecoratedStatusText(_ text: String, attributes: ChatMessageEntryAttributes) -> String {
+    var text = text
+    if attributes.isSavedDeleted {
+        text += " \u{1F5D1}\u{FE0E}"
+    }
+    if let savedEditPreviousText = attributes.savedEditPreviousText, !savedEditPreviousText.isEmpty {
+        text += " \u{270F}\u{FE0E}"
+    }
+    return text
 }
 
 private func dateStringForDay(strings: PresentationStrings, dateTimeFormat: PresentationDateTimeFormat, timestamp: Int32) -> String {

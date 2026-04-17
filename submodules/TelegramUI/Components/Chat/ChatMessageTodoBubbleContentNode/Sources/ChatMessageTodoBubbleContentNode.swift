@@ -1138,7 +1138,10 @@ public class ChatMessageTodoBubbleContentNode: ChatMessageBubbleContentNode {
                 } else {
                     dateFormat = .regular
                 }
-                let dateText = stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: dateFormat, associatedData: item.associatedData)
+                let dateText = eahatGramDecoratedStatusText(
+                    stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: dateFormat, associatedData: item.associatedData),
+                    attributes: item.attributes
+                )
                 
                 let statusType: ChatMessageDateAndStatusType?
                 if case .customChatContents = item.associatedData.subject {

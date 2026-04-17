@@ -552,7 +552,10 @@ public class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
             } else {
                 dateFormat = .regular
             }
-            let dateText = stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: dateFormat, associatedData: item.associatedData, ignoreAuthor: item.presentationData.isPreview)
+            let dateText = eahatGramDecoratedStatusText(
+                stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: dateFormat, associatedData: item.associatedData, ignoreAuthor: item.presentationData.isPreview),
+                attributes: item.attributes
+            )
             
             let maxDateAndStatusWidth: CGFloat
             if case .bubble = statusDisplayType {

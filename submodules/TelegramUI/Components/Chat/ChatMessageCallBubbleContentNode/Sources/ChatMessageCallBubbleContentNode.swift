@@ -239,7 +239,10 @@ public class ChatMessageCallBubbleContentNode: ChatMessageBubbleContentNode {
                     }
                 }
                 
-                let dateText = stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, associatedData: item.associatedData)
+                let dateText = eahatGramDecoratedStatusText(
+                    stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, associatedData: item.associatedData),
+                    attributes: item.attributes
+                )
                 
                 var statusText: String
                 if let callDuration = callDuration, callDuration > 1 {
