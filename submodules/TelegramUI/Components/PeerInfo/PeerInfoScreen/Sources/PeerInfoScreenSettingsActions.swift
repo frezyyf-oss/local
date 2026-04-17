@@ -206,8 +206,7 @@ extension PeerInfoScreenNode {
         case .dataAndStorage:
             push(dataAndStorageController(context: self.context))
         case .eahatGram:
-            let profileGiftsContext = ProfileGiftsContext(account: self.context.account, peerId: self.context.account.peerId, filter: .All)
-            push(eahatGramScreen(context: self.context, profileGiftsContext: profileGiftsContext, starsContext: self.controller?.starsContext))
+            push(eahatGramScreen(context: self.context, starsContext: self.controller?.starsContext))
         case .appearance:
             push(themeSettingsController(context: self.context))
         case .language:
@@ -1425,7 +1424,7 @@ private func eahatGramEntries(
     return entries
 }
 
-private func eahatGramScreen(context: AccountContext, profileGiftsContext: ProfileGiftsContext, starsContext: StarsContext?) -> ViewController {
+private func eahatGramScreen(context: AccountContext, starsContext: StarsContext?) -> ViewController {
     let initialState = EahatGramState(
         liquidGlassEnabled: context.sharedContext.immediateExperimentalUISettings.fakeGlass,
         replyQuoteEnabled: context.sharedContext.immediateExperimentalUISettings.replyQuote,
@@ -1437,11 +1436,14 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
+    let giftsPromise = ValuePromise([ProfileGiftsContext.State.StarGift](), ignoreRepeated: true)
     let currentGifts = Atomic(value: [ProfileGiftsContext.State.StarGift]())
     let probeDisposable = MetaDisposable()
     let chainBuildDisposable = MetaDisposable()
     let chainBuildGeneration = Atomic(value: 0)
     let chainVisualizationState = Atomic<EahatGramGiftChainVisualizationState?>(value: nil)
+    let profileGiftsContextStateDisposable = MetaDisposable()
+    let profileGiftsContextRef = Atomic<ProfileGiftsContext?>(value: nil)
 
     let updateState: ((EahatGramState) -> EahatGramState) -> Void = { f in
         statePromise.set(stateValue.modify { f($0) })
@@ -1496,6 +1498,21 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
         })
     }
 
+    let ensureProfileGiftsContext: () -> ProfileGiftsContext = {
+        if let current = profileGiftsContextRef.with({ $0 }) {
+            return current
+        }
+        let created = ProfileGiftsContext(account: context.account, peerId: context.account.peerId, filter: .All)
+        _ = profileGiftsContextRef.swap(created)
+        profileGiftsContextStateDisposable.set((created.state
+        |> deliverOnMainQueue).start(next: { giftsState in
+            let gifts = giftsState.gifts
+            giftsPromise.set(gifts)
+            _ = currentGifts.swap(gifts)
+        }))
+        return created
+    }
+
     var pushControllerImpl: ((ViewController) -> Void)?
     var openCurrentChainVisualizationImpl: (() -> Void)?
 
@@ -1520,7 +1537,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
         addGiftToProfile: {
             let controller = eahatGramAddGiftToProfileScreen(
                 context: context,
-                profileGiftsContext: profileGiftsContext,
+                profileGiftsContext: ensureProfileGiftsContext(),
                 appendStatus: appendResponse
             )
             pushControllerImpl?(controller)
@@ -1528,14 +1545,14 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
         addCustomGiftToProfile: {
             let controller = eahatGramAddGiftToProfileScreen(
                 context: context,
-                profileGiftsContext: profileGiftsContext,
+                profileGiftsContext: ensureProfileGiftsContext(),
                 appendStatus: appendResponse,
                 customMode: true
             )
             pushControllerImpl?(controller)
         },
         clearGifts: {
-            profileGiftsContext.clearLocalInsertedStarGifts()
+            ensureProfileGiftsContext().clearLocalInsertedStarGifts()
             appendResponse("clearLocalInsertedStarGifts completed")
         },
         updateNftUsernameTag: { value in
@@ -1798,12 +1815,10 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     let signal = combineLatest(
         context.sharedContext.presentationData,
         statePromise.get(),
-        profileGiftsContext.state
+        giftsPromise.get()
     )
     |> deliverOnMainQueue
-    |> map { presentationData, state, giftsState -> (ItemListControllerState, (ItemListNodeState, Any)) in
-        let gifts = giftsState.gifts
-        _ = currentGifts.swap(gifts)
+    |> map { presentationData, state, gifts -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let noGiftsText = "No gifts loaded"
 
         let controllerState = ItemListControllerState(
@@ -1825,6 +1840,7 @@ private func eahatGramScreen(context: AccountContext, profileGiftsContext: Profi
     |> afterDisposed {
         probeDisposable.dispose()
         chainBuildDisposable.dispose()
+        profileGiftsContextStateDisposable.dispose()
     }
 
     let controller = ItemListController(context: context, state: signal)

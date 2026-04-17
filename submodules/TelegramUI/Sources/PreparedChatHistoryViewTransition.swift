@@ -33,6 +33,7 @@ private struct EahatGramSavedChatState {
 }
 
 private let eahatGramSavedChatStateCache = Atomic<[String: EahatGramSavedChatState]>(value: [:])
+private let eahatGramSavedEditedTextsDefaultsKey = "eahatGram.savedEditedTexts"
 
 private func eahatGramSavedChatStateKey(chatLocation: ChatLocation) -> String {
     switch chatLocation {
@@ -43,6 +44,58 @@ private func eahatGramSavedChatStateKey(chatLocation: ChatLocation) -> String {
     case .customChatContents:
         return "custom"
     }
+}
+
+private func eahatGramSavedEditedTextKey(messageId: MessageId) -> String {
+    return "\(messageId.peerId.toInt64()):\(messageId.namespace):\(messageId.id)"
+}
+
+private func eahatGramParsedSavedEditedTextKey(_ key: String) -> MessageId? {
+    let components = key.split(separator: ":", omittingEmptySubsequences: false)
+    guard components.count == 3 else {
+        return nil
+    }
+    guard let peerIdValue = Int64(components[0]), let namespaceValue = Int32(components[1]), let idValue = Int32(components[2]) else {
+        return nil
+    }
+    return MessageId(peerId: PeerId(peerIdValue), namespace: namespaceValue, id: idValue)
+}
+
+private func eahatGramLoadPersistedEditedTexts(cacheKey: String) -> [MessageId: String] {
+    guard let rawRoot = UserDefaults.standard.dictionary(forKey: eahatGramSavedEditedTextsDefaultsKey),
+          let rawChatValues = rawRoot[cacheKey] as? [String: String] else {
+        return [:]
+    }
+    var result: [MessageId: String] = [:]
+    for (messageKey, text) in rawChatValues {
+        guard let messageId = eahatGramParsedSavedEditedTextKey(messageKey), !text.isEmpty else {
+            continue
+        }
+        result[messageId] = text
+    }
+    return result
+}
+
+private func eahatGramStorePersistedEditedTexts(cacheKey: String, editedTexts: [MessageId: String]) {
+    var rawRoot = UserDefaults.standard.dictionary(forKey: eahatGramSavedEditedTextsDefaultsKey) ?? [:]
+    if editedTexts.isEmpty {
+        rawRoot.removeValue(forKey: cacheKey)
+    } else {
+        var rawChatValues: [String: String] = [:]
+        rawChatValues.reserveCapacity(editedTexts.count)
+        for (messageId, text) in editedTexts {
+            guard !text.isEmpty else {
+                continue
+            }
+            rawChatValues[eahatGramSavedEditedTextKey(messageId: messageId)] = text
+        }
+        if rawChatValues.isEmpty {
+            rawRoot.removeValue(forKey: cacheKey)
+        } else {
+            rawRoot[cacheKey] = rawChatValues
+        }
+    }
+    UserDefaults.standard.set(rawRoot, forKey: eahatGramSavedEditedTextsDefaultsKey)
 }
 
 private func eahatGramPreviousMessageEntryDataMap(
@@ -95,6 +148,12 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
     let previousMessageEntries = eahatGramPreviousMessageEntryDataMap(entries: fromView?.filteredEntries ?? [])
     let cacheKey = eahatGramSavedChatStateKey(chatLocation: chatLocation)
     var savedChatState = eahatGramSavedChatStateCache.with { $0[cacheKey] ?? EahatGramSavedChatState() }
+    if saveEditedMessages {
+        let persistedEditedTexts = eahatGramLoadPersistedEditedTexts(cacheKey: cacheKey)
+        for (messageId, text) in persistedEditedTexts where savedChatState.editedTexts[messageId] == nil {
+            savedChatState.editedTexts[messageId] = text
+        }
+    }
     if !saveDeletedMessages {
         savedChatState.deletedEntries.removeAll()
     }
@@ -202,6 +261,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
         }
         return current
     }
+    eahatGramStorePersistedEditedTexts(cacheKey: cacheKey, editedTexts: saveEditedMessages ? savedChatState.editedTexts : [:])
     effectiveToEntries.sort()
     let effectiveToView = ChatHistoryView(
         originalView: toView.originalView,
