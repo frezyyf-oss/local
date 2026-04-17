@@ -426,15 +426,29 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
     }))
 
     if let user = data.peer as? TelegramUser {
-        let displayedPhoneNumber = eahatGramDisplayedPhoneText(context: context, phone: user.phone)
+        let activeAdditionalUsernames = user.usernames.compactMap { username -> String? in
+            guard username.flags.contains(.isActive) else {
+                return nil
+            }
+            if let mainUsername = user.addressName, username.username == mainUsername {
+                return nil
+            }
+            return username.username
+        }
+        let displayedPhoneNumber = eahatGramDisplayedPhoneText(context: context, phone: user.phone, isMyProfile: isMyProfile)
         items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemPhoneNumber, label: .text(displayedPhoneNumber), text: presentationData.strings.Settings_PhoneNumber, action: {
             interaction.openSettings(.phoneNumber)
         }))
+        let username = eahatGramDisplayedUsernameText(mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: isMyProfile)
+        items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemUsername, label: .text(username), text: presentationData.strings.Settings_Username, action: {
+              interaction.openSettings(.username)
+        }))
+    } else {
+        let username = eahatGramDisplayedUsernameText(mainUsername: data.peer?.addressName, additionalActiveUsernames: [], isMyProfile: false)
+        items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemUsername, label: .text(username), text: presentationData.strings.Settings_Username, action: {
+              interaction.openSettings(.username)
+        }))
     }
-    let username = eahatGramDisplayedUsernameText(mainUsername: data.peer?.addressName)
-    items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemUsername, label: .text(username), text: presentationData.strings.Settings_Username, action: {
-          interaction.openSettings(.username)
-    }))
 
     if let peer = data.peer as? TelegramUser {
         var colors: [PeerNameColors.Colors] = []

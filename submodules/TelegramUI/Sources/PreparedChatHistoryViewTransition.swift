@@ -141,6 +141,12 @@ private func eahatGramUpdatedAttributesForSavedEdit(
 }
 
 private func eahatGramCanPersistDeletedEntry(message: Message) -> Bool {
+    if message.flags.contains(.Sending) || message.flags.contains(.Unsent) {
+        return false
+    }
+    if Namespaces.Message.allLocal.contains(message.id.namespace) || Namespaces.Message.allNonRegular.contains(message.id.namespace) {
+        return false
+    }
     return !message.text.isEmpty || !message.media.isEmpty
 }
 
@@ -241,8 +247,13 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
             }
         }
     }
+    var invalidDeletedMessageIds: [MessageId] = []
     for (messageId, previousEntryData) in savedChatState.deletedEntries {
         if currentMessageIds.contains(messageId) {
+            continue
+        }
+        if !eahatGramCanPersistDeletedEntry(message: previousEntryData.message) {
+            invalidDeletedMessageIds.append(messageId)
             continue
         }
         var updatedAttributes = previousEntryData.attributes
@@ -251,6 +262,9 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
             updatedAttributes.savedEditPreviousText = savedEditPreviousText
         }
         effectiveToEntries.append(.MessageEntry(previousEntryData.message, previousEntryData.presentationData, previousEntryData.read, previousEntryData.location, previousEntryData.selection, updatedAttributes))
+    }
+    for messageId in invalidDeletedMessageIds {
+        savedChatState.deletedEntries.removeValue(forKey: messageId)
     }
     _ = eahatGramSavedChatStateCache.modify { current in
         var current = current

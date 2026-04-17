@@ -281,10 +281,18 @@ public class GlassBackgroundView: UIView {
 
         init(view: UIView) {
             self.view = view
+            self.view.backgroundColor = .clear
+            self.view.clipsToBounds = true
+            self.view.layer.masksToBounds = true
+            if #available(iOS 13.0, *) {
+                self.view.layer.cornerCurve = .continuous
+            }
         }
 
         func update(shape: Shape, size: CGSize, transition: ComponentTransition) {
             self.shape = shape
+            self.view.clipsToBounds = true
+            self.view.layer.masksToBounds = true
 
             switch shape {
             case let .roundedRect(cornerRadius):
@@ -338,6 +346,18 @@ public class GlassBackgroundView: UIView {
 
     public static var useCustomGlassImpl: Bool = false
 
+    fileprivate static func configureNativeVisualEffectView(_ nativeView: UIVisualEffectView) {
+        nativeView.backgroundColor = .clear
+        nativeView.contentView.backgroundColor = .clear
+        nativeView.isOpaque = false
+        nativeView.contentView.isOpaque = false
+        nativeView.clipsToBounds = true
+        nativeView.layer.masksToBounds = true
+        if #available(iOS 13.0, *) {
+            nativeView.layer.cornerCurve = .continuous
+        }
+    }
+
     public override init(frame: CGRect) {
         if #available(iOS 26.0, *), !GlassBackgroundView.useCustomGlassImpl {
             self.legacyView = nil
@@ -346,10 +366,13 @@ public class GlassBackgroundView: UIView {
             let glassEffect = UIGlassEffect(style: .regular)
             glassEffect.isInteractive = false
             let nativeView = UIVisualEffectView(effect: glassEffect)
+            GlassBackgroundView.configureNativeVisualEffectView(nativeView)
             self.nativeViewClippingContext = ClippingShapeContext(view: nativeView)
             self.nativeView = nativeView
 
             let nativeParamsView = EffectSettingsContainerView(frame: CGRect())
+            nativeParamsView.backgroundColor = .clear
+            nativeParamsView.isOpaque = false
             self.nativeParamsView = nativeParamsView
 
             nativeParamsView.addSubview(nativeView)
@@ -360,11 +383,14 @@ public class GlassBackgroundView: UIView {
             self.legacyView = nil
             self.legacyHighlightContainerView = nil
 
-            let nativeView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+            let nativeView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+            GlassBackgroundView.configureNativeVisualEffectView(nativeView)
             self.nativeViewClippingContext = ClippingShapeContext(view: nativeView)
             self.nativeView = nativeView
 
             let nativeParamsView = EffectSettingsContainerView(frame: CGRect())
+            nativeParamsView.backgroundColor = .clear
+            nativeParamsView.isOpaque = false
             self.nativeParamsView = nativeParamsView
             nativeParamsView.addSubview(nativeView)
 
@@ -470,18 +496,10 @@ public class GlassBackgroundView: UIView {
             nativeView.overrideUserInterfaceStyle = isDark ? .dark : .light
         }
         if let nativeView = self.nativeView {
-            let usesClearTint: Bool
-            switch tintColor.kind {
-            case .clear:
-                usesClearTint = true
-            case let .custom(style, _):
-                usesClearTint = style == .clear
-            case .panel:
-                usesClearTint = false
-            }
+            nativeView.alpha = isVisible ? 1.0 : 0.0
             if #available(iOS 26.0, *), !GlassBackgroundView.useCustomGlassImpl {
             } else {
-                let effectStyle: UIBlurEffect.Style = usesClearTint ? .systemUltraThinMaterial : .systemThinMaterial
+                let effectStyle: UIBlurEffect.Style = .systemUltraThinMaterial
                 let updatedEffect = UIBlurEffect(style: effectStyle)
                 if nativeView.effect == nil || !(nativeView.effect!.isEqual(updatedEffect)) {
                     nativeView.effect = updatedEffect
@@ -650,7 +668,7 @@ public class GlassBackgroundView: UIView {
                                     glassEffectValue.tintColor = UIColor(white: 1.0, alpha: 0.025)
                                 } else {
                                     glassEffectValue = UIGlassEffect(style: .regular)
-                                    glassEffectValue.tintColor = UIColor(white: 1.0, alpha: 0.1)
+                                    glassEffectValue.tintColor = UIColor(white: 1.0, alpha: 0.045)
                                 }
                             case let .custom(style, color):
                                 switch style {
@@ -664,7 +682,7 @@ public class GlassBackgroundView: UIView {
                             case .clear:
                                 glassEffectValue = UIGlassEffect(style: .clear)
                                 if isDark {
-                                    glassEffectValue.tintColor = UIColor(white: 0.0, alpha: 0.28)
+                                    glassEffectValue.tintColor = UIColor(white: 0.0, alpha: 0.08)
                                 } else {
                                     glassEffectValue.tintColor = nil
                                 }
@@ -758,9 +776,12 @@ public final class GlassBackgroundContainerView: UIView {
             let effect = UIGlassContainerEffect()
             effect.spacing = spacing
             let nativeView = UIVisualEffectView(effect: effect)
+            GlassBackgroundView.configureNativeVisualEffectView(nativeView)
             self.nativeView = nativeView
 
             let nativeParamsView = EffectSettingsContainerView(frame: CGRect())
+            nativeParamsView.backgroundColor = .clear
+            nativeParamsView.isOpaque = false
             self.nativeParamsView = nativeParamsView
             nativeParamsView.addSubview(nativeView)
 

@@ -439,6 +439,7 @@ private final class EahatGramArguments {
     let addCustomGiftToProfile: () -> Void
     let clearGifts: () -> Void
     let updateNftUsernameTag: (String) -> Void
+    let updateNftUsernamePrice: (String) -> Void
     let updateFakePhoneNumber: (String) -> Void
     let updateStarsAmount: (Int32) -> Void
     let addStars: () -> Void
@@ -449,6 +450,8 @@ private final class EahatGramArguments {
     let updateFakeOnlineEnabled: (Bool) -> Void
     let updateSaveDeletedMessagesEnabled: (Bool) -> Void
     let updateSaveEditedMessagesEnabled: (Bool) -> Void
+    let updateNoLagsEnabled: (Bool) -> Void
+    let updateViewUnread2ReadEnabled: (Bool) -> Void
     let updateVoiceModEnabled: (Bool) -> Void
     let selectVoiceModPreset: () -> Void
     let updateUseDirectRpc: (Bool) -> Void
@@ -469,6 +472,7 @@ private final class EahatGramArguments {
         addCustomGiftToProfile: @escaping () -> Void,
         clearGifts: @escaping () -> Void,
         updateNftUsernameTag: @escaping (String) -> Void,
+        updateNftUsernamePrice: @escaping (String) -> Void,
         updateFakePhoneNumber: @escaping (String) -> Void,
         updateStarsAmount: @escaping (Int32) -> Void,
         addStars: @escaping () -> Void,
@@ -479,6 +483,8 @@ private final class EahatGramArguments {
         updateFakeOnlineEnabled: @escaping (Bool) -> Void,
         updateSaveDeletedMessagesEnabled: @escaping (Bool) -> Void,
         updateSaveEditedMessagesEnabled: @escaping (Bool) -> Void,
+        updateNoLagsEnabled: @escaping (Bool) -> Void,
+        updateViewUnread2ReadEnabled: @escaping (Bool) -> Void,
         updateVoiceModEnabled: @escaping (Bool) -> Void,
         selectVoiceModPreset: @escaping () -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
@@ -498,6 +504,7 @@ private final class EahatGramArguments {
         self.addCustomGiftToProfile = addCustomGiftToProfile
         self.clearGifts = clearGifts
         self.updateNftUsernameTag = updateNftUsernameTag
+        self.updateNftUsernamePrice = updateNftUsernamePrice
         self.updateFakePhoneNumber = updateFakePhoneNumber
         self.updateStarsAmount = updateStarsAmount
         self.addStars = addStars
@@ -508,6 +515,8 @@ private final class EahatGramArguments {
         self.updateFakeOnlineEnabled = updateFakeOnlineEnabled
         self.updateSaveDeletedMessagesEnabled = updateSaveDeletedMessagesEnabled
         self.updateSaveEditedMessagesEnabled = updateSaveEditedMessagesEnabled
+        self.updateNoLagsEnabled = updateNoLagsEnabled
+        self.updateViewUnread2ReadEnabled = updateViewUnread2ReadEnabled
         self.updateVoiceModEnabled = updateVoiceModEnabled
         self.selectVoiceModPreset = selectVoiceModPreset
         self.updateUseDirectRpc = updateUseDirectRpc
@@ -550,9 +559,12 @@ private struct EahatGramState: Equatable {
     var fakeOnlineEnabled: Bool
     var saveDeletedMessagesEnabled: Bool
     var saveEditedMessagesEnabled: Bool
+    var noLagsEnabled: Bool
+    var viewUnread2ReadEnabled: Bool
     var voiceModEnabled: Bool
     var voiceModPreset: String
     var nftUsernameTagText: String
+    var nftUsernamePriceText: String
     var fakePhoneNumberText: String
     var useDirectRpc: Bool
     var starsAmount: Int32
@@ -564,7 +576,7 @@ private struct EahatGramState: Equatable {
     var hasCurrentChainVisualization: Bool
     var responses: [String]
 
-    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, ghostModeEnabled: Bool, fakeOnlineEnabled: Bool, saveDeletedMessagesEnabled: Bool, saveEditedMessagesEnabled: Bool, hasCurrentChainVisualization: Bool) {
+    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, ghostModeEnabled: Bool, fakeOnlineEnabled: Bool, saveDeletedMessagesEnabled: Bool, saveEditedMessagesEnabled: Bool, noLagsEnabled: Bool, viewUnread2ReadEnabled: Bool, hasCurrentChainVisualization: Bool) {
         self.selectedTab = .me
         self.selectedPeerId = nil
         self.selectedPeerTitle = ""
@@ -575,9 +587,12 @@ private struct EahatGramState: Equatable {
         self.fakeOnlineEnabled = fakeOnlineEnabled
         self.saveDeletedMessagesEnabled = saveDeletedMessagesEnabled
         self.saveEditedMessagesEnabled = saveEditedMessagesEnabled
+        self.noLagsEnabled = noLagsEnabled
+        self.viewUnread2ReadEnabled = viewUnread2ReadEnabled
         self.voiceModEnabled = EahatGramDebugSettings.voiceModEnabled.with { $0 }
         self.voiceModPreset = EahatGramDebugSettings.resolvedVoiceModPreset().title
         self.nftUsernameTagText = EahatGramDebugSettings.nftUsernameTag.with { $0 }
+        self.nftUsernamePriceText = EahatGramDebugSettings.nftUsernamePrice.with { $0 }
         self.fakePhoneNumberText = EahatGramDebugSettings.fakePhoneNumber.with { $0 }
         self.useDirectRpc = true
         self.starsAmount = 100
@@ -597,6 +612,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case addCustomGiftToProfile
     case clearGifts
     case nftUsernameTag(String)
+    case nftUsernamePrice(String)
     case fakePhoneNumber(String)
     case starsAmount(Int32)
     case addStars
@@ -608,6 +624,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case fakeOnline(Bool)
     case saveDeletedMessages(Bool)
     case saveEditedMessages(Bool)
+    case noLags(Bool)
+    case viewUnread2Read(Bool)
     case voiceMod(Bool)
     case voiceModPreset(String)
     case useDirectRpc(Bool)
@@ -632,7 +650,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .fakePhoneNumber, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .voiceMod, .voiceModPreset, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .viewUnread2Read, .voiceMod, .voiceModPreset, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
@@ -659,6 +677,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 2
         case .nftUsernameTag:
             return 3
+        case .nftUsernamePrice:
+            return 16
         case .fakePhoneNumber:
             return 11
         case .addCustomGiftToProfile:
@@ -683,6 +703,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 9
         case .saveEditedMessages:
             return 10
+        case .noLags:
+            return 14
+        case .viewUnread2Read:
+            return 15
         case .voiceMod:
             return 12
         case .voiceModPreset:
@@ -756,6 +780,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case let .nftUsernameTag(lhsText):
             if case let .nftUsernameTag(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .nftUsernamePrice(lhsText):
+            if case let .nftUsernamePrice(rhsText) = rhs {
                 return lhsText == rhsText
             } else {
                 return false
@@ -1018,6 +1048,21 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 },
                 action: {}
             )
+        case let .nftUsernamePrice(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "NFT Price"),
+                text: text,
+                placeholder: "1200 TON",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateNftUsernamePrice(value)
+                },
+                action: {}
+            )
         case let .fakePhoneNumber(text):
             return ItemListSingleLineInputItem(
                 context: arguments.context,
@@ -1161,6 +1206,30 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 style: .blocks,
                 updated: { value in
                     arguments.updateSaveEditedMessagesEnabled(value)
+                }
+            )
+        case let .noLags(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "No Lags",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateNoLagsEnabled(value)
+                }
+            )
+        case let .viewUnread2Read(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "View Unread2Read",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateViewUnread2ReadEnabled(value)
                 }
             )
         case let .voiceMod(value):
@@ -1426,6 +1495,7 @@ private func eahatGramEntries(
         entries.append(.addCustomGiftToProfile)
         entries.append(.clearGifts)
         entries.append(.nftUsernameTag(state.nftUsernameTagText))
+        entries.append(.nftUsernamePrice(state.nftUsernamePriceText))
         entries.append(.fakePhoneNumber(state.fakePhoneNumberText))
         entries.append(.starsAmount(state.starsAmount))
         entries.append(.addStars)
@@ -1439,6 +1509,8 @@ private func eahatGramEntries(
             entries.append(.fakeOnline(state.fakeOnlineEnabled))
             entries.append(.saveDeletedMessages(state.saveDeletedMessagesEnabled))
             entries.append(.saveEditedMessages(state.saveEditedMessagesEnabled))
+            entries.append(.noLags(state.noLagsEnabled))
+            entries.append(.viewUnread2Read(state.viewUnread2ReadEnabled))
             entries.append(.voiceMod(state.voiceModEnabled))
             if state.voiceModEnabled {
                 entries.append(.voiceModPreset(state.voiceModPreset))
@@ -1504,6 +1576,8 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         fakeOnlineEnabled: context.sharedContext.immediateExperimentalUISettings.fakeOnline,
         saveDeletedMessagesEnabled: context.sharedContext.immediateExperimentalUISettings.saveDeletedMessages,
         saveEditedMessagesEnabled: context.sharedContext.immediateExperimentalUISettings.saveEditedMessages,
+        noLagsEnabled: context.sharedContext.immediateExperimentalUISettings.noLagsEnabled,
+        viewUnread2ReadEnabled: context.sharedContext.immediateExperimentalUISettings.viewUnread2Read,
         hasCurrentChainVisualization: eahatGramPersistedChainVisualizationState.with { $0 != nil }
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -1638,6 +1712,16 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             }
             appendResponse("nftUsernameTag value=\(normalized)")
         },
+        updateNftUsernamePrice: { value in
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            EahatGramDebugSettings.setNftUsernamePrice(normalized)
+            updateState { current in
+                var current = current
+                current.nftUsernamePriceText = normalized
+                return current
+            }
+            appendResponse("nftUsernamePrice value=\(normalized)")
+        },
         updateFakePhoneNumber: { value in
             let normalized = eahatGramNormalizedNumericText(value, maxLength: 15)
             EahatGramDebugSettings.setFakePhoneNumber(normalized)
@@ -1756,6 +1840,49 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             }
             appendResponse("saveEditedMessages enabled=\(value)")
         },
+        updateNoLagsEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.noLagsEnabled = value
+                settings.disableBackgroundAnimation = value
+                settings.forceClearGlass = value
+                if value {
+                    settings.fakeGlass = false
+                }
+                return settings
+            }).start()
+            if value {
+                let _ = updateMediaDownloadSettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                    var settings = settings
+                    settings.downloadInBackground = false
+                    settings.energyUsageSettings = EnergyUsageSettings.powerSavingDefault
+                    return settings
+                }).start()
+                GlassBackgroundView.useCustomGlassImpl = false
+            }
+            updateState { current in
+                var current = current
+                current.noLagsEnabled = value
+                if value {
+                    current.liquidGlassEnabled = false
+                }
+                return current
+            }
+            appendResponse("noLags enabled=\(value)")
+        },
+        updateViewUnread2ReadEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.viewUnread2Read = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.viewUnread2ReadEnabled = value
+                return current
+            }
+            appendResponse("viewUnread2Read enabled=\(value)")
+        },
         updateVoiceModEnabled: { value in
             EahatGramDebugSettings.setVoiceModEnabled(value)
             updateState { current in
@@ -1869,7 +1996,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                     appendResponse(completedLine)
                     let visualizationState = EahatGramGiftChainVisualizationState(
                         graph: graph,
-                        focusedPeerId: nil,
+                        focusedPeerId: graph.rootPeerId,
                         manualOrigins: [:],
                         selectedEdges: [],
                         isVisualLineMode: false

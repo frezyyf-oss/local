@@ -81,10 +81,91 @@ private func eahatGramRobotizedAudioPacket(_ input: [Int16]) -> [Int16] {
     return output
 }
 
+private func eahatGramBitcrushedAudioPacket(_ input: [Int16], step: Int32, gain: Double) -> [Int16] {
+    guard step > 0 else {
+        return input
+    }
+    var output = [Int16](repeating: 0, count: input.count)
+    for index in 0 ..< input.count {
+        let amplified = Int32((Double(input[index]) * gain).rounded())
+        let quantized = (amplified / step) * step
+        output[index] = eahatGramClampedAudioSample(quantized)
+    }
+    return output
+}
+
+private func eahatGramTremoloAudioPacket(_ input: [Int16], depth: Double, period: Double) -> [Int16] {
+    guard period > 0.0 else {
+        return input
+    }
+    let clampedDepth = max(0.0, min(1.0, depth))
+    var output = [Int16](repeating: 0, count: input.count)
+    for index in 0 ..< input.count {
+        let wave = 0.5 + 0.5 * sin((Double(index) / period) * Double.pi * 2.0)
+        let multiplier = 1.0 - clampedDepth + clampedDepth * wave
+        output[index] = eahatGramClampedAudioSample(Int32((Double(input[index]) * multiplier).rounded()))
+    }
+    return output
+}
+
+private func eahatGramHighPassAudioPacket(_ input: [Int16], gain: Double) -> [Int16] {
+    guard !input.isEmpty else {
+        return input
+    }
+    var output = [Int16](repeating: 0, count: input.count)
+    var previous: Int32 = Int32(input[0])
+    for index in 0 ..< input.count {
+        let current = Int32(input[index])
+        let filtered = Int32((Double(current - previous) * gain).rounded())
+        output[index] = eahatGramClampedAudioSample(filtered)
+        previous = current
+    }
+    return output
+}
+
+private func eahatGramEchoAudioPacket(_ input: [Int16], delay: Int, decay: Double) -> [Int16] {
+    guard delay > 0, input.count > delay else {
+        return input
+    }
+    var output = input
+    for index in delay ..< input.count {
+        let mixed = Int32(input[index]) + Int32((Double(output[index - delay]) * decay).rounded())
+        output[index] = eahatGramClampedAudioSample(mixed)
+    }
+    return output
+}
+
+private func eahatGramAlienAudioPacket(_ input: [Int16]) -> [Int16] {
+    let shifted = eahatGramResampledAudioPacket(input, rate: 1.08)
+    let robotized = eahatGramRobotizedAudioPacket(shifted)
+    return eahatGramTremoloAudioPacket(robotized, depth: 0.46, period: 16.0)
+}
+
+private func eahatGramMegaphoneAudioPacket(_ input: [Int16]) -> [Int16] {
+    let filtered = eahatGramHighPassAudioPacket(input, gain: 2.15)
+    return eahatGramBitcrushedAudioPacket(filtered, step: 384, gain: 1.22)
+}
+
+private func eahatGramMaskedPitchAudioPacket(_ input: [Int16], rate: Double, highPassGain: Double, crushStep: Int32, crushGain: Double, tremoloDepth: Double, tremoloPeriod: Double) -> [Int16] {
+    let shifted = eahatGramResampledAudioPacket(input, rate: rate)
+    let filtered = eahatGramHighPassAudioPacket(shifted, gain: highPassGain)
+    let crushed = eahatGramBitcrushedAudioPacket(filtered, step: crushStep, gain: crushGain)
+    return eahatGramTremoloAudioPacket(crushed, depth: tremoloDepth, period: tremoloPeriod)
+}
+
 private enum EahatGramManagedAudioVoiceModPreset: String {
     case chipmunk
     case deep
     case robot
+    case helium
+    case giant
+    case alien
+    case monster
+    case radio
+    case megaphone
+    case whisper
+    case tremolo
+    case echo
 }
 
 private let eahatGramVoiceModEnabledDefaultsKey = "eahatGram.voiceModEnabled"
@@ -106,11 +187,29 @@ private func eahatGramApplyVoiceMod(samples: UnsafeMutablePointer<Int16>, count:
     let output: [Int16]
     switch eahatGramManagedAudioVoiceModPreset() {
     case .chipmunk:
-        output = eahatGramResampledAudioPacket(input, rate: 1.18)
+        output = eahatGramMaskedPitchAudioPacket(input, rate: 1.34, highPassGain: 1.7, crushStep: 160, crushGain: 1.06, tremoloDepth: 0.18, tremoloPeriod: 31.0)
     case .deep:
-        output = eahatGramResampledAudioPacket(input, rate: 0.84)
+        output = eahatGramMaskedPitchAudioPacket(input, rate: 0.72, highPassGain: 1.2, crushStep: 320, crushGain: 1.14, tremoloDepth: 0.12, tremoloPeriod: 43.0)
     case .robot:
         output = eahatGramRobotizedAudioPacket(input)
+    case .helium:
+        output = eahatGramMaskedPitchAudioPacket(input, rate: 1.5, highPassGain: 2.0, crushStep: 224, crushGain: 1.08, tremoloDepth: 0.22, tremoloPeriod: 27.0)
+    case .giant:
+        output = eahatGramMaskedPitchAudioPacket(input, rate: 0.58, highPassGain: 0.95, crushStep: 448, crushGain: 1.2, tremoloDepth: 0.16, tremoloPeriod: 47.0)
+    case .alien:
+        output = eahatGramAlienAudioPacket(input)
+    case .monster:
+        output = eahatGramBitcrushedAudioPacket(eahatGramResampledAudioPacket(input, rate: 0.68), step: 1024, gain: 1.35)
+    case .radio:
+        output = eahatGramBitcrushedAudioPacket(input, step: 768, gain: 1.08)
+    case .megaphone:
+        output = eahatGramMegaphoneAudioPacket(input)
+    case .whisper:
+        output = eahatGramHighPassAudioPacket(input, gain: 2.6)
+    case .tremolo:
+        output = eahatGramTremoloAudioPacket(input, depth: 0.72, period: 22.0)
+    case .echo:
+        output = eahatGramEchoAudioPacket(input, delay: 96, decay: 0.42)
     }
     output.withUnsafeBufferPointer { buffer in
         guard let baseAddress = buffer.baseAddress else {

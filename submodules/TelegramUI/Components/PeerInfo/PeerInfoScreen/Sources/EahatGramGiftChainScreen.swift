@@ -966,13 +966,17 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         tapEdge: ((EahatGramGiftChainEdge) -> Void)?,
         stateUpdated: ((EahatGramGiftChainVisualizationState) -> Void)?
     ) {
+        var initialVisualizationState = visualizationState
+        if initialVisualizationState.focusedPeerId == nil {
+            initialVisualizationState.focusedPeerId = initialVisualizationState.graph.rootPeerId
+        }
         self.context = context
         self.theme = theme
-        self.visualizationState = visualizationState
+        self.visualizationState = initialVisualizationState
         self.tapPeer = tapPeer
         self.tapEdge = tapEdge
         self.stateUpdated = stateUpdated
-        self.centerFocusedAfterLayout = visualizationState.focusedPeerId != nil
+        self.centerFocusedAfterLayout = initialVisualizationState.focusedPeerId != nil
 
         super.init()
 
@@ -1001,9 +1005,13 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         self.scrollView.bouncesZoom = true
         self.scrollView.backgroundColor = .clear
         self.scrollView.delaysContentTouches = false
+        self.scrollView.disablesInteractiveTransitionGestureRecognizer = true
+        self.scrollView.disablesInteractiveTransitionGestureRecognizerNow = { true }
 
         self.view.addSubview(self.scrollView)
         self.scrollView.addSubview(self.contentNode.view)
+        self.view.disablesInteractiveTransitionGestureRecognizerNow = { true }
+        self.contentNode.view.disablesInteractiveTransitionGestureRecognizerNow = { true }
         let lineTapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(self.handleLineTap(_:)))
         lineTapGestureRecognizer.cancelsTouchesInView = false
         self.contentNode.view.addGestureRecognizer(lineTapGestureRecognizer)
@@ -1098,9 +1106,9 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         let graph = eahatGramGiftChainDisplayGraph(visualizationState: self.visualizationState)
         let nodesByPeerId = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.peerId, $0) })
         let cardSize = EahatGramGiftChainCardNode.size
-        let contentInset: CGFloat = 48.0
-        let horizontalSpacing: CGFloat = 84.0
-        let verticalSpacing: CGFloat = 132.0
+        let contentInset: CGFloat = 72.0
+        let horizontalSpacing: CGFloat = 180.0
+        let verticalSpacing: CGFloat = 240.0
 
         var childrenByParentPeerId: [EnginePeer.Id: [EnginePeer.Id]] = [:]
         for node in graph.nodes {
@@ -1243,7 +1251,7 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
             }
             let startPoint = CGPoint(x: fromFrame.midX, y: fromFrame.minY)
             let endPoint = CGPoint(x: toFrame.midX, y: toFrame.maxY)
-            let controlOffset = max(48.0, abs(startPoint.y - endPoint.y) * 0.42)
+            let controlOffset = max(120.0, abs(startPoint.y - endPoint.y) * 0.62)
             let controlPoint1 = CGPoint(x: startPoint.x, y: startPoint.y - controlOffset)
             let controlPoint2 = CGPoint(x: endPoint.x, y: endPoint.y + controlOffset)
             let edgePath = UIBezierPath()
@@ -1411,7 +1419,11 @@ final class EahatGramGiftChainScreen: ViewController {
     ) {
         self.context = context
         self.presentationData = context.sharedContext.currentPresentationData.with { $0 }
-        self.visualizationState = visualizationState
+        var initialVisualizationState = visualizationState
+        if initialVisualizationState.focusedPeerId == nil {
+            initialVisualizationState.focusedPeerId = initialVisualizationState.graph.rootPeerId
+        }
+        self.visualizationState = initialVisualizationState
         self.stateUpdated = stateUpdated
 
         super.init(navigationBarPresentationData: NavigationBarPresentationData(
@@ -1457,6 +1469,10 @@ final class EahatGramGiftChainScreen: ViewController {
                 self.stateUpdated(updatedState)
             }
         )
+        self.view.disablesInteractiveTransitionGestureRecognizer = true
+        self.view.disablesInteractiveTransitionGestureRecognizerNow = { true }
+        self.displayNode.view.disablesInteractiveTransitionGestureRecognizer = true
+        self.displayNode.view.disablesInteractiveTransitionGestureRecognizerNow = { true }
         self.displayNodeDidLoad()
     }
 

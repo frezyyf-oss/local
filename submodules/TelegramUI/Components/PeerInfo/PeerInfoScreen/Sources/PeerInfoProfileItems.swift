@@ -128,7 +128,17 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
             }))
         }
 
-        if let displayedPhone = eahatGramDisplayedPhoneRaw(phone: user.phone) {
+        let activeAdditionalUsernames = user.usernames.compactMap { username -> String? in
+            guard username.flags.contains(.isActive) else {
+                return nil
+            }
+            if let mainUsername = user.addressName, username.username == mainUsername {
+                return nil
+            }
+            return username.username
+        }
+
+        if let displayedPhone = eahatGramDisplayedPhoneRaw(phone: user.phone, isMyProfile: isMyProfile) {
             let formattedPhone = formatPhoneNumber(context: context, number: displayedPhone)
             let label: String
             if formattedPhone.hasPrefix("+888 ") {
@@ -148,14 +158,11 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
                 interaction.requestLayout(animated)
             }))
         }
-        let displayedUsername = eahatGramDisplayedUsername(mainUsername: user.addressName)
+        let displayedUsername = eahatGramDisplayedUsername(mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: isMyProfile)
         if let usernameText = displayedUsername.text {
             var additionalUsernames: String?
-            if let mainUsername = user.addressName {
-                let usernames = user.usernames.filter { $0.isActive && $0.username != mainUsername }
-                if !usernames.isEmpty {
-                    additionalUsernames = presentationData.strings.Profile_AdditionalUsernames(String(usernames.map { "@\($0.username)" }.joined(separator: ", "))).string
-                }
+            if !activeAdditionalUsernames.isEmpty {
+                additionalUsernames = presentationData.strings.Profile_AdditionalUsernames(String(activeAdditionalUsernames.map { "@\($0)" }.joined(separator: ", "))).string
             }
             if let eahatGramAdditionalUsername = displayedUsername.additionalText, !eahatGramAdditionalUsername.isEmpty {
                 if var currentAdditionalUsernames = additionalUsernames, !currentAdditionalUsernames.isEmpty {

@@ -1223,11 +1223,20 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             }
             if title.isEmpty {
                 if let peer = peer as? TelegramUser {
-                    let displayedPhone = eahatGramDisplayedPhoneText(context: self.context, phone: peer.phone)
+                    let activeAdditionalUsernames = peer.usernames.compactMap { username -> String? in
+                        guard username.flags.contains(.isActive) else {
+                            return nil
+                        }
+                        if let mainUsername = peer.addressName, username.username == mainUsername {
+                            return nil
+                        }
+                        return username.username
+                    }
+                    let displayedPhone = eahatGramDisplayedPhoneText(context: self.context, phone: peer.phone, isMyProfile: self.isMyProfile)
                     if !displayedPhone.isEmpty {
                         title = displayedPhone
                     } else {
-                        let displayedUsername = eahatGramDisplayedUsernameText(mainUsername: peer.addressName)
+                        let displayedUsername = eahatGramDisplayedUsernameText(mainUsername: peer.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: self.isMyProfile)
                         if !displayedUsername.isEmpty {
                             title = displayedUsername
                         } else {
@@ -1235,7 +1244,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                         }
                     }
                 } else if let addressName = peer.addressName {
-                    title = eahatGramDisplayedUsernameText(mainUsername: addressName)
+                    title = eahatGramDisplayedUsernameText(mainUsername: addressName, additionalActiveUsernames: [], isMyProfile: false)
                     if title.isEmpty {
                         title = "@\(addressName)"
                     }
@@ -1249,8 +1258,17 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             smallTitleAttributes = MultiScaleTextState.Attributes(font: Font.medium(28.0), color: .white, shadowColor: titleShadowColor)
 
             if self.isSettings, let user = peer as? TelegramUser {
-                let displayedPhone = eahatGramDisplayedPhoneText(context: self.context, phone: user.phone)
-                let displayedUsername = eahatGramDisplayedUsernameText(mainUsername: user.addressName)
+                let activeAdditionalUsernames = user.usernames.compactMap { username -> String? in
+                    guard username.flags.contains(.isActive) else {
+                        return nil
+                    }
+                    if let mainUsername = user.addressName, username.username == mainUsername {
+                        return nil
+                    }
+                    return username.username
+                }
+                let displayedPhone = eahatGramDisplayedPhoneText(context: self.context, phone: user.phone, isMyProfile: self.isMyProfile)
+                let displayedUsername = eahatGramDisplayedUsernameText(mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: self.isMyProfile)
                 var subtitle = displayedPhone
 
                 if !displayedUsername.isEmpty {

@@ -666,6 +666,14 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     attributedText = updatedString
                 }
 
+                if item.attributes.isSavedDeleted {
+                    let updatedString = NSMutableAttributedString(attributedString: attributedText)
+                    let markerFont = Font.regular(max(7.0, textFont.pointSize - 9.0))
+                    let markerColor = messageTheme.secondaryTextColor
+                    updatedString.append(NSAttributedString(string: "\n\u{1F5D1}\u{FE0E} deleted", font: markerFont, textColor: markerColor))
+                    attributedText = updatedString
+                }
+
                 if let savedEditPreviousText = item.attributes.savedEditPreviousText, !savedEditPreviousText.isEmpty {
                     let updatedString = NSMutableAttributedString(attributedString: attributedText)
                     let markerFont = Font.regular(max(7.0, textFont.pointSize - 9.0))

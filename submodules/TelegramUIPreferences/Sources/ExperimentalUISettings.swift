@@ -76,6 +76,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var enableUpdates: Bool
     public var enablePWA: Bool
     public var forceClearGlass: Bool
+    public var noLagsEnabled: Bool
+    public var viewUnread2Read: Bool
     public var debugRipple: Bool
     
     public static var defaultSettings: ExperimentalUISettings {
@@ -131,6 +133,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
             enableUpdates: false,
             enablePWA: false,
             forceClearGlass: false,
+            noLagsEnabled: false,
+            viewUnread2Read: false,
             debugRipple: false
         )
     }
@@ -187,6 +191,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         enableUpdates: Bool,
         enablePWA: Bool,
         forceClearGlass: Bool,
+        noLagsEnabled: Bool,
+        viewUnread2Read: Bool,
         debugRipple: Bool
     ) {
         self.keepChatNavigationStack = keepChatNavigationStack
@@ -240,6 +246,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.enableUpdates = enableUpdates
         self.enablePWA = enablePWA
         self.forceClearGlass = forceClearGlass
+        self.noLagsEnabled = noLagsEnabled
+        self.viewUnread2Read = viewUnread2Read
         self.debugRipple = debugRipple
     }
     
@@ -297,6 +305,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.enableUpdates = try container.decodeIfPresent(Bool.self, forKey: "enableUpdates") ?? false
         self.enablePWA = try container.decodeIfPresent(Bool.self, forKey: "enablePWA") ?? false
         self.forceClearGlass = try container.decodeIfPresent(Bool.self, forKey: "forceClearGlass") ?? false
+        self.noLagsEnabled = try container.decodeIfPresent(Bool.self, forKey: "noLagsEnabled") ?? false
+        self.viewUnread2Read = try container.decodeIfPresent(Bool.self, forKey: "viewUnread2Read") ?? false
         self.debugRipple = try container.decodeIfPresent(Bool.self, forKey: "debugRipple") ?? false
     }
     
@@ -354,6 +364,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encodeIfPresent(self.enableUpdates, forKey: "enableUpdates")
         try container.encodeIfPresent(self.enablePWA, forKey: "enablePWA")
         try container.encodeIfPresent(self.forceClearGlass, forKey: "forceClearGlass")
+        try container.encodeIfPresent(self.noLagsEnabled, forKey: "noLagsEnabled")
+        try container.encodeIfPresent(self.viewUnread2Read, forKey: "viewUnread2Read")
         try container.encodeIfPresent(self.debugRipple, forKey: "debugRipple")
     }
 }
