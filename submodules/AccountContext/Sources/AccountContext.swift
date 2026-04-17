@@ -1430,6 +1430,7 @@ public protocol SharedAccountContext: AnyObject {
     func makeBusinessLinksSetupScreenInitialData(context: AccountContext) -> Signal<BusinessLinksSetupScreenInitialData, NoError>
     func makeCollectibleItemInfoScreen(context: AccountContext, initialData: CollectibleItemInfoScreenInitialData) -> ViewController
     func makeCollectibleItemInfoScreenInitialData(context: AccountContext, peerId: EnginePeer.Id, subject: CollectibleItemInfoScreenSubject) -> Signal<CollectibleItemInfoScreenInitialData?, NoError>
+    func makeCollectibleItemInfoScreenVisualInitialData(peer: EnginePeer?, subject: CollectibleItemInfoScreenSubject, info: TelegramCollectibleItemInfo) -> CollectibleItemInfoScreenInitialData
     func makeBotSettingsScreen(context: AccountContext, peerId: EnginePeer.Id?) -> ViewController
     func makeEditForumTopicScreen(context: AccountContext, peerId: EnginePeer.Id, threadId: Int64, threadInfo: EngineMessageHistoryThread.Info, isHidden: Bool) -> ViewController
     

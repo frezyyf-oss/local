@@ -17,7 +17,6 @@ import WebUI
 import AvatarNode
 import PeerNameColorItem
 import BoostLevelIconComponent
-import CollectibleItemInfoScreen
 
 private let enabledPublicBioEntities: EnabledEntityTypes = [.allUrl, .mention, .hashtag]
 private let enabledPrivateBioEntities: EnabledEntityTypes = [.internalUrl, .mention, .hashtag]
@@ -52,7 +51,7 @@ private func eahatGramVisualCollectibleInitialData(context: AccountContext, user
         cryptoCurrencyAmount: cryptoCurrencyAmount,
         url: "https://fragment.com/username/\(visualCollectible.username)"
     )
-    return CollectibleItemInfoScreen.visualInitialData(peer: EnginePeer(user), subject: .username(visualCollectible.username), info: info)
+    return context.sharedContext.makeCollectibleItemInfoScreenVisualInitialData(peer: EnginePeer(user), subject: .username(visualCollectible.username), info: info)
 }
 
 enum InfoSection: Int, CaseIterable {

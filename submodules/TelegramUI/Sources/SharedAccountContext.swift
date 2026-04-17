@@ -2857,6 +2857,9 @@ public final class SharedAccountContextImpl: SharedAccountContext {
     public func makeCollectibleItemInfoScreenInitialData(context: AccountContext, peerId: EnginePeer.Id, subject: CollectibleItemInfoScreenSubject) -> Signal<CollectibleItemInfoScreenInitialData?, NoError> {
         return CollectibleItemInfoScreen.initialData(context: context, peerId: peerId, subject: subject)
     }
+    public func makeCollectibleItemInfoScreenVisualInitialData(peer: EnginePeer?, subject: CollectibleItemInfoScreenSubject, info: TelegramCollectibleItemInfo) -> CollectibleItemInfoScreenInitialData {
+        return CollectibleItemInfoScreen.visualInitialData(peer: peer, subject: subject, info: info)
+    }
     
     public func makeBotSettingsScreen(context: AccountContext, peerId: EnginePeer.Id?) -> ViewController {
         if let peerId {
