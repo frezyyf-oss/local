@@ -1394,6 +1394,7 @@ private func eahatGramEntries(
         entries.append(.chainStatus(state.chainStatusText))
     }
 
+    entries.sort()
     return entries
 }
 
