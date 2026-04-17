@@ -856,6 +856,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
+        case let .noLags(lhsValue):
+            if case let .noLags(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .viewUnread2Read(lhsValue):
+            if case let .viewUnread2Read(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
         case let .voiceMod(lhsValue):
             if case let .voiceMod(rhsValue) = rhs {
                 return lhsValue == rhsValue
