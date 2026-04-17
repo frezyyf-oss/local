@@ -643,10 +643,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
             } else {
                 dateFormat = .regular
             }
-            let dateText = eahatGramDecoratedStatusText(
-                stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: dateFormat, associatedData: item.associatedData),
-                attributes: item.attributes
-            )
+            let dateText = stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: dateFormat, associatedData: item.associatedData)
             
             var isReplyThread = false
             if case .replyThread = item.chatLocation {

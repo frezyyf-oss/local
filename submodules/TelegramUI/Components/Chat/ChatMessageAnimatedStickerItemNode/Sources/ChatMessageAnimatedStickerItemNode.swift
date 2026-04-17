@@ -1152,10 +1152,7 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
                 tonAmount = stakeTonAmount
             }
             
-            let dateText = eahatGramDecoratedStatusText(
-                stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: .regular, associatedData: item.associatedData),
-                attributes: item.attributes
-            )
+            let dateText = stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: item.message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: .regular, associatedData: item.associatedData)
             
             var isReplyThread = false
             if case .replyThread = item.chatLocation {
