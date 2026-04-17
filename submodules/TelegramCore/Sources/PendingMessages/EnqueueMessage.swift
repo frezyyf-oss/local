@@ -429,15 +429,6 @@ private let eahatGramStandaloneWordReplacements: [(String, String)] = [
 
 private let eahatGramStandaloneWordReplacementMap: [String: String] = Dictionary(uniqueKeysWithValues: eahatGramStandaloneWordReplacements.map { ($0.0.lowercased(), $0.1) })
 
-private func eahatGramCanApplyStandaloneWordReplacements(attributes: [MessageAttribute]) -> Bool {
-    for attribute in attributes {
-        if let attribute = attribute as? TextEntitiesMessageAttribute, !attribute.entities.isEmpty {
-            return false
-        }
-    }
-    return true
-}
-
 private func eahatGramAdjustedStandaloneWordReplacement(target: String, matchedText: String) -> String {
     if matchedText.uppercased() == matchedText {
         return target.uppercased()
@@ -485,16 +476,14 @@ private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String 
 private func eahatGramApplyStandaloneWordReplacements(to message: EnqueueMessage) -> EnqueueMessage {
     switch message {
     case let .message(text, attributes, inlineStickers, mediaReference, threadId, replyToMessageId, replyToStoryId, localGroupingKey, correlationId, bubbleUpEmojiOrStickersets):
-        guard eahatGramCanApplyStandaloneWordReplacements(attributes: attributes) else {
-            return message
-        }
         let updatedText = eahatGramApplyStandaloneWordReplacements(text)
         if updatedText == text {
             return message
         }
+        let updatedAttributes = attributes.filter { !($0 is TextEntitiesMessageAttribute) }
         return .message(
             text: updatedText,
-            attributes: attributes,
+            attributes: updatedAttributes,
             inlineStickers: inlineStickers,
             mediaReference: mediaReference,
             threadId: threadId,
