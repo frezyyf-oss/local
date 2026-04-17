@@ -460,7 +460,7 @@ private func eahatGramAdjustedStandaloneWordReplacement(target: String, matchedT
 
 private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String {
     var result = text
-    guard let regex = try? NSRegularExpression(pattern: "[\\\\p{L}\\\\p{N}_]+", options: []) else {
+    guard let regex = try? NSRegularExpression(pattern: "[\\p{L}\\p{N}_]+", options: []) else {
         return result
     }
     let nsResult = result as NSString
