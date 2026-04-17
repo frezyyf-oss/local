@@ -397,6 +397,7 @@ private let eahatGramStandaloneWordReplacements: [(String, String)] = [
     ("ша", "ща"),
     ("чн", "че"),
     ("се", "че"),
+    ("коя", "кря"),
     ("хцй", "хуй"),
     ("дацн", "даун"),
     ("туплй", "тупой"),
@@ -457,25 +458,25 @@ private func eahatGramAdjustedStandaloneWordReplacement(target: String, matchedT
 
 private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String {
     var result = text
-    for (source, target) in eahatGramStandaloneWordReplacements {
-        let pattern = "(?<![\\\\p{L}\\\\p{N}_])" + NSRegularExpression.escapedPattern(for: source) + "(?![\\\\p{L}\\\\p{N}_])"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            continue
-        }
-        let nsResult = result as NSString
-        let range = NSRange(location: 0, length: nsResult.length)
-        let matches = regex.matches(in: result, options: [], range: range)
-        if matches.isEmpty {
-            continue
-        }
-        let updatedResult = NSMutableString(string: result)
-        for match in matches.reversed() {
-            let matchedWord = nsResult.substring(with: match.range)
-            let replacement = eahatGramAdjustedStandaloneWordReplacement(target: target, matchedText: matchedWord)
-            updatedResult.replaceCharacters(in: match.range, with: replacement)
-        }
-        result = updatedResult as String
+    guard let regex = try? NSRegularExpression(pattern: "[\\\\p{L}\\\\p{N}_]+", options: []) else {
+        return result
     }
+    let nsResult = result as NSString
+    let range = NSRange(location: 0, length: nsResult.length)
+    let matches = regex.matches(in: result, options: [], range: range)
+    if matches.isEmpty {
+        return result
+    }
+    let updatedResult = NSMutableString(string: result)
+    for match in matches.reversed() {
+        let matchedWord = nsResult.substring(with: match.range)
+        guard let replacementEntry = eahatGramStandaloneWordReplacements.first(where: { $0.0.compare(matchedWord, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }) else {
+            continue
+        }
+        let replacement = eahatGramAdjustedStandaloneWordReplacement(target: replacementEntry.1, matchedText: matchedWord)
+        updatedResult.replaceCharacters(in: match.range, with: replacement)
+    }
+    result = updatedResult as String
     return result
 }
 

@@ -1873,7 +1873,5 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         pushControllerImpl?(chainController)
     }
 
-    refreshResponses()
-
     return controller
 }

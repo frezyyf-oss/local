@@ -49,7 +49,7 @@ private func eahatGramTonCenterCollectibleOwnerSignal(username: String) -> Signa
         }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 8.0
+        request.timeoutInterval = 3.0
 
         let task = URLSession.shared.dataTask(with: request) { data, response, _ in
             let result: EahatGramCollectibleUsernameOwnerLookupResult
@@ -278,7 +278,8 @@ final class EahatGramTargetHudStatsContext {
         }
 
         self.currentUserRentLookupKey = lookupKey
-        self.currentUserRentState = nil
+        self.currentUserRentState = false
+        self.updateStatsIfReady()
         self.userRentDisposable.set((combineLatest(collectibleUsernameCandidates.map { username in
             eahatGramCollectibleUsernameOwnerSignal(context: self.context, username: username)
         })
@@ -297,12 +298,7 @@ final class EahatGramTargetHudStatsContext {
         guard let currentGiftsState = self.currentGiftsState else {
             return
         }
-        guard case let .ready(canLoadMore, _) = currentGiftsState.dataState, !canLoadMore else {
-            return
-        }
-        guard let currentUserRentState = self.currentUserRentState else {
-            return
-        }
+        let currentUserRentState = self.currentUserRentState ?? false
 
         let gifts = currentGiftsState.gifts
 
