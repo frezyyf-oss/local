@@ -7,6 +7,7 @@ import AccountContext
 import TelegramCore
 import TelegramPresentationData
 import TelegramStringFormatting
+import PhoneNumberFormat
 import AvatarNode
 
 private enum EahatGramCollectibleUsernameOwnerCacheEntry: Equatable {

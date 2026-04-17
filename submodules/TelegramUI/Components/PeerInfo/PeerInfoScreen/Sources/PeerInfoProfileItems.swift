@@ -158,8 +158,9 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
                 }
             }
             if let eahatGramAdditionalUsername = displayedUsername.additionalText, !eahatGramAdditionalUsername.isEmpty {
-                if let additionalUsernames, !additionalUsernames.isEmpty {
-                    additionalUsernames += "\n" + eahatGramAdditionalUsername
+                if var currentAdditionalUsernames = additionalUsernames, !currentAdditionalUsernames.isEmpty {
+                    currentAdditionalUsernames += "\n" + eahatGramAdditionalUsername
+                    additionalUsernames = currentAdditionalUsernames
                 } else {
                     additionalUsernames = eahatGramAdditionalUsername
                 }
