@@ -50,6 +50,196 @@ private func eahatGramPeerIdFromText(_ value: String) -> EnginePeer.Id? {
     return EnginePeer.Id(namespace: Namespaces.Peer.CloudUser, id: EnginePeer.Id.Id._internalFromInt64Value(parsed))
 }
 
+struct EahatGramFarmJob: Codable, Equatable {
+    let id: Int64
+    var botUsername: String
+    var command: String
+    var intervalMinutes: Int32
+    var isEnabled: Bool
+    var lastTriggeredAt: Int32?
+    var lastResultText: String?
+}
+
+private func eahatGramNormalizedFarmUsername(_ value: String) -> String {
+    return eahatGramNormalizedUsernameTag(value)
+}
+
+public final class EahatGramFarmManager {
+    public static let shared = EahatGramFarmManager()
+
+    private static let jobsDefaultsKey = "eahatGram.farm.jobs"
+
+    private let queue = Queue.mainQueue()
+    private let jobsPromise: ValuePromise<[EahatGramFarmJob]>
+    private var jobsValue: [EahatGramFarmJob]
+    private var timer: SwiftSignalKit.Timer?
+    private weak var primaryContext: AccountContext?
+
+    private init() {
+        let jobsValue = EahatGramFarmManager.loadPersistedJobs()
+        self.jobsValue = jobsValue
+        self.jobsPromise = ValuePromise(jobsValue, ignoreRepeated: true)
+    }
+
+    public func updatePrimaryContext(_ context: AccountContext?) {
+        self.queue.async {
+            self.primaryContext = context
+            self.updateTimer()
+        }
+    }
+
+    func jobsSignal() -> Signal<[EahatGramFarmJob], NoError> {
+        return self.jobsPromise.get()
+    }
+
+    func jobsSnapshot() -> [EahatGramFarmJob] {
+        return self.jobsValue
+    }
+
+    func addJob(botUsername: String, command: String, intervalMinutes: Int32) {
+        self.queue.async {
+            let normalizedBotUsername = eahatGramNormalizedFarmUsername(botUsername)
+            let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedBotUsername.isEmpty, !normalizedCommand.isEmpty else {
+                return
+            }
+            let timestamp = Int32(Date().timeIntervalSince1970)
+            let job = EahatGramFarmJob(
+                id: Int64.random(in: 1 ... Int64.max),
+                botUsername: normalizedBotUsername,
+                command: normalizedCommand,
+                intervalMinutes: max(1, intervalMinutes),
+                isEnabled: true,
+                lastTriggeredAt: timestamp,
+                lastResultText: "scheduled"
+            )
+            self.jobsValue.append(job)
+            self.commitJobs()
+        }
+    }
+
+    func setJobEnabled(id: Int64, value: Bool) {
+        self.queue.async {
+            guard let index = self.jobsValue.firstIndex(where: { $0.id == id }) else {
+                return
+            }
+            self.jobsValue[index].isEnabled = value
+            self.jobsValue[index].lastResultText = value ? "scheduled" : "disabled"
+            if value {
+                self.jobsValue[index].lastTriggeredAt = Int32(Date().timeIntervalSince1970)
+            }
+            self.commitJobs()
+        }
+    }
+
+    func removeJob(id: Int64) {
+        self.queue.async {
+            self.jobsValue.removeAll(where: { $0.id == id })
+            self.commitJobs()
+        }
+    }
+
+    private func commitJobs() {
+        EahatGramFarmManager.storePersistedJobs(self.jobsValue)
+        self.jobsPromise.set(self.jobsValue)
+        self.updateTimer()
+    }
+
+    private func updateTimer() {
+        let shouldRun = self.primaryContext != nil && self.jobsValue.contains(where: { $0.isEnabled })
+        if shouldRun {
+            if self.timer == nil {
+                let timer = SwiftSignalKit.Timer(timeout: 30.0, repeat: true, completion: { [weak self] in
+                    self?.processDueJobs()
+                }, queue: self.queue)
+                self.timer = timer
+                timer.start()
+            }
+            self.processDueJobs()
+        } else if let timer = self.timer {
+            self.timer = nil
+            timer.invalidate()
+        }
+    }
+
+    private func processDueJobs() {
+        guard let context = self.primaryContext else {
+            return
+        }
+        let now = Int32(Date().timeIntervalSince1970)
+        for index in self.jobsValue.indices {
+            guard self.jobsValue[index].isEnabled else {
+                continue
+            }
+            let interval = max(1, self.jobsValue[index].intervalMinutes) * 60
+            let lastTriggeredAt = self.jobsValue[index].lastTriggeredAt ?? 0
+            if now - lastTriggeredAt < interval {
+                continue
+            }
+            let job = self.jobsValue[index]
+            self.jobsValue[index].lastTriggeredAt = now
+            self.jobsValue[index].lastResultText = "sending"
+            self.commitJobs()
+
+            let command = job.command
+            let signal = (context.engine.peers.resolvePeerByName(name: job.botUsername, referrer: nil)
+            |> take(1)
+            |> mapToSignal { result -> Signal<(EnginePeer.Id?, [MessageId?]), NoError> in
+                guard case let .result(peer) = result else {
+                    return .single((nil, []))
+                }
+                let message: EnqueueMessage = .message(
+                    text: command,
+                    attributes: [],
+                    inlineStickers: [:],
+                    mediaReference: nil,
+                    threadId: nil,
+                    replyToMessageId: nil,
+                    replyToStoryId: nil,
+                    localGroupingKey: nil,
+                    correlationId: nil,
+                    bubbleUpEmojiOrStickersets: []
+                )
+                return enqueueMessages(account: context.account, peerId: peer.id, messages: [message])
+                |> map { (peer.id, $0) }
+            }
+            |> deliverOn(self.queue))
+
+            let _ = signal.startStandalone(next: { [weak self] peerId, messageIds in
+                guard let self else {
+                    return
+                }
+                guard let resultIndex = self.jobsValue.firstIndex(where: { $0.id == job.id }) else {
+                    return
+                }
+                if let peerId {
+                    let hasMessageId = messageIds.contains(where: { $0 != nil })
+                    self.jobsValue[resultIndex].lastResultText = "sent peerId=\(peerId.toInt64()) messageId=\(hasMessageId ? 1 : 0)"
+                } else {
+                    self.jobsValue[resultIndex].lastResultText = "resolve_failed"
+                }
+                self.commitJobs()
+            })
+        }
+    }
+
+    private static func loadPersistedJobs() -> [EahatGramFarmJob] {
+        guard let data = UserDefaults.standard.data(forKey: self.jobsDefaultsKey),
+              let jobs = try? JSONDecoder().decode([EahatGramFarmJob].self, from: data) else {
+            return []
+        }
+        return jobs
+    }
+
+    private static func storePersistedJobs(_ jobs: [EahatGramFarmJob]) {
+        if jobs.isEmpty {
+            UserDefaults.standard.removeObject(forKey: self.jobsDefaultsKey)
+        } else if let data = try? JSONEncoder().encode(jobs) {
+            UserDefaults.standard.set(data, forKey: self.jobsDefaultsKey)
+        }
+    }
+}
+
 private final class EahatGramItemListController: ItemListController, UIGestureRecognizerDelegate {
     private var dismissKeyboardGesture: UITapGestureRecognizer?
 
@@ -452,6 +642,12 @@ private final class EahatGramArguments {
     let updateSaveEditedMessagesEnabled: (Bool) -> Void
     let updateNoLagsEnabled: (Bool) -> Void
     let updateViewUnread2ReadEnabled: (Bool) -> Void
+    let updateFarmBotUsername: (String) -> Void
+    let updateFarmCommand: (String) -> Void
+    let updateFarmInterval: (String) -> Void
+    let addFarmJob: () -> Void
+    let updateFarmJobEnabled: (Int, Bool) -> Void
+    let removeFarmJob: (Int) -> Void
     let updateVoiceModEnabled: (Bool) -> Void
     let selectVoiceModPreset: () -> Void
     let updateUseDirectRpc: (Bool) -> Void
@@ -485,6 +681,12 @@ private final class EahatGramArguments {
         updateSaveEditedMessagesEnabled: @escaping (Bool) -> Void,
         updateNoLagsEnabled: @escaping (Bool) -> Void,
         updateViewUnread2ReadEnabled: @escaping (Bool) -> Void,
+        updateFarmBotUsername: @escaping (String) -> Void,
+        updateFarmCommand: @escaping (String) -> Void,
+        updateFarmInterval: @escaping (String) -> Void,
+        addFarmJob: @escaping () -> Void,
+        updateFarmJobEnabled: @escaping (Int, Bool) -> Void,
+        removeFarmJob: @escaping (Int) -> Void,
         updateVoiceModEnabled: @escaping (Bool) -> Void,
         selectVoiceModPreset: @escaping () -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
@@ -517,6 +719,12 @@ private final class EahatGramArguments {
         self.updateSaveEditedMessagesEnabled = updateSaveEditedMessagesEnabled
         self.updateNoLagsEnabled = updateNoLagsEnabled
         self.updateViewUnread2ReadEnabled = updateViewUnread2ReadEnabled
+        self.updateFarmBotUsername = updateFarmBotUsername
+        self.updateFarmCommand = updateFarmCommand
+        self.updateFarmInterval = updateFarmInterval
+        self.addFarmJob = addFarmJob
+        self.updateFarmJobEnabled = updateFarmJobEnabled
+        self.removeFarmJob = removeFarmJob
         self.updateVoiceModEnabled = updateVoiceModEnabled
         self.selectVoiceModPreset = selectVoiceModPreset
         self.updateUseDirectRpc = updateUseDirectRpc
@@ -534,6 +742,7 @@ private final class EahatGramArguments {
 
 private enum EahatGramSection: Int32 {
     case controls
+    case farm
     case custom
     case stars
     case chain
@@ -546,6 +755,7 @@ private enum EahatGramTab: Int, Equatable {
     case me
     case test
     case chain
+    case farm
 }
 
 private struct EahatGramState: Equatable {
@@ -561,6 +771,9 @@ private struct EahatGramState: Equatable {
     var saveEditedMessagesEnabled: Bool
     var noLagsEnabled: Bool
     var viewUnread2ReadEnabled: Bool
+    var farmBotUsernameText: String
+    var farmCommandText: String
+    var farmIntervalText: String
     var voiceModEnabled: Bool
     var voiceModPreset: String
     var nftUsernameTagText: String
@@ -589,6 +802,9 @@ private struct EahatGramState: Equatable {
         self.saveEditedMessagesEnabled = saveEditedMessagesEnabled
         self.noLagsEnabled = noLagsEnabled
         self.viewUnread2ReadEnabled = viewUnread2ReadEnabled
+        self.farmBotUsernameText = ""
+        self.farmCommandText = ""
+        self.farmIntervalText = "240"
         self.voiceModEnabled = EahatGramDebugSettings.voiceModEnabled.with { $0 }
         self.voiceModPreset = EahatGramDebugSettings.resolvedVoiceModPreset().title
         self.nftUsernameTagText = EahatGramDebugSettings.nftUsernameTag.with { $0 }
@@ -626,6 +842,13 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case saveEditedMessages(Bool)
     case noLags(Bool)
     case viewUnread2Read(Bool)
+    case farmBotUsername(String)
+    case farmCommand(String)
+    case farmInterval(String)
+    case addFarmJob
+    case farmJobEnabled(Int, String, Bool)
+    case farmJobInfo(Int, String)
+    case removeFarmJob(Int, String)
     case voiceMod(Bool)
     case voiceModPreset(String)
     case useDirectRpc(Bool)
@@ -652,6 +875,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
         switch self {
         case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .viewUnread2Read, .voiceMod, .voiceModPreset, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
+        case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
+            return EahatGramSection.farm.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
         case .starsAmount, .addStars, .starsStatus:
@@ -707,6 +932,20 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 14
         case .viewUnread2Read:
             return 15
+        case .farmBotUsername:
+            return 17
+        case .farmCommand:
+            return 18
+        case .farmInterval:
+            return 19
+        case .addFarmJob:
+            return 20
+        case let .farmJobEnabled(index, _, _):
+            return 5000000 + index * 3
+        case let .farmJobInfo(index, _):
+            return 5000000 + index * 3 + 1
+        case let .removeFarmJob(index, _):
+            return 5000000 + index * 3 + 2
         case .voiceMod:
             return 12
         case .voiceModPreset:
@@ -865,6 +1104,48 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case let .viewUnread2Read(lhsValue):
             if case let .viewUnread2Read(rhsValue) = rhs {
                 return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .farmBotUsername(lhsText):
+            if case let .farmBotUsername(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .farmCommand(lhsText):
+            if case let .farmCommand(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .farmInterval(lhsText):
+            if case let .farmInterval(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case .addFarmJob:
+            if case .addFarmJob = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .farmJobEnabled(lhsIndex, lhsText, lhsValue):
+            if case let .farmJobEnabled(rhsIndex, rhsText, rhsValue) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText && lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .farmJobInfo(lhsIndex, lhsText):
+            if case let .farmJobInfo(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .removeFarmJob(lhsIndex, lhsText):
+            if case let .removeFarmJob(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
             }
@@ -1244,6 +1525,91 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateViewUnread2ReadEnabled(value)
                 }
             )
+        case let .farmBotUsername(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Bot Username"),
+                text: text,
+                placeholder: "botfather",
+                type: .username,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateFarmBotUsername(value)
+                },
+                action: {}
+            )
+        case let .farmCommand(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Command"),
+                text: text,
+                placeholder: "/farm",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateFarmCommand(value)
+                },
+                action: {}
+            )
+        case let .farmInterval(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Minutes"),
+                text: text,
+                placeholder: "240",
+                type: .number,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateFarmInterval(value)
+                },
+                action: {}
+            )
+        case .addFarmJob:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add Farm Bot",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addFarmJob()
+                }
+            )
+        case let .farmJobEnabled(index, title, value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: title,
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { updatedValue in
+                    arguments.updateFarmJobEnabled(index, updatedValue)
+                }
+            )
+        case let .farmJobInfo(_, text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .removeFarmJob(index, title):
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: title,
+                kind: .destructive,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.removeFarmJob(index)
+                }
+            )
         case let .voiceMod(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -1491,9 +1857,16 @@ private func eahatGramOtherMethods() -> [(title: String, info: String)] {
     ]
 }
 
+private func eahatGramFarmJobInfo(_ job: EahatGramFarmJob) -> String {
+    let lastTriggeredAt = job.lastTriggeredAt ?? 0
+    let lastResultText = job.lastResultText ?? "status=nil"
+    return "command=\(job.command) interval=\(job.intervalMinutes)m lastTriggeredAt=\(lastTriggeredAt) \(lastResultText)"
+}
+
 private func eahatGramEntries(
     state: EahatGramState,
     gifts: [ProfileGiftsContext.State.StarGift],
+    farmJobs: [EahatGramFarmJob],
     noGiftsText: String,
     hasStarsContext: Bool
 ) -> [EahatGramEntry] {
@@ -1566,6 +1939,21 @@ private func eahatGramEntries(
         }
         entries.append(.runChainScan)
         entries.append(.chainStatus(state.chainStatusText))
+    case .farm:
+        entries.append(.farmBotUsername(state.farmBotUsernameText))
+        entries.append(.farmCommand(state.farmCommandText))
+        entries.append(.farmInterval(state.farmIntervalText))
+        entries.append(.addFarmJob)
+        if farmJobs.isEmpty {
+            entries.append(.farmJobInfo(-1, "No farm jobs"))
+        } else {
+            for i in 0 ..< farmJobs.count {
+                let job = farmJobs[i]
+                entries.append(.farmJobEnabled(i, "@\(job.botUsername)", job.isEnabled))
+                entries.append(.farmJobInfo(i, eahatGramFarmJobInfo(job)))
+                entries.append(.removeFarmJob(i, "Delete @\(job.botUsername)"))
+            }
+        }
     }
 
     entries.sort()
@@ -1596,6 +1984,8 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
     let stateValue = Atomic(value: initialState)
     let giftsPromise = ValuePromise([ProfileGiftsContext.State.StarGift](), ignoreRepeated: true)
     let currentGifts = Atomic(value: [ProfileGiftsContext.State.StarGift]())
+    EahatGramFarmManager.shared.updatePrimaryContext(context)
+    let currentFarmJobs = Atomic(value: EahatGramFarmManager.shared.jobsSnapshot())
     let probeDisposable = MetaDisposable()
     let chainBuildDisposable = MetaDisposable()
     let chainBuildGeneration = Atomic(value: 0)
@@ -1717,6 +2107,12 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         updateNftUsernameTag: { value in
             let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
             EahatGramDebugSettings.setNftUsernameTag(normalized)
+            let currentPrice = EahatGramDebugSettings.nftUsernamePrice.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if normalized.isEmpty && currentPrice.isEmpty {
+                EahatGramDebugSettings.setNftUsernamePurchaseDate(nil)
+            } else {
+                EahatGramDebugSettings.setNftUsernamePurchaseDate(Int32(Date().timeIntervalSince1970))
+            }
             updateState { current in
                 var current = current
                 current.nftUsernameTagText = normalized
@@ -1727,6 +2123,12 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         updateNftUsernamePrice: { value in
             let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
             EahatGramDebugSettings.setNftUsernamePrice(normalized)
+            let currentTag = EahatGramDebugSettings.nftUsernameTag.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if normalized.isEmpty && currentTag.isEmpty {
+                EahatGramDebugSettings.setNftUsernamePurchaseDate(nil)
+            } else {
+                EahatGramDebugSettings.setNftUsernamePurchaseDate(Int32(Date().timeIntervalSince1970))
+            }
             updateState { current in
                 var current = current
                 current.nftUsernamePriceText = normalized
@@ -1895,6 +2297,72 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             }
             appendResponse("viewUnread2Read enabled=\(value)")
         },
+        updateFarmBotUsername: { value in
+            let normalized = eahatGramNormalizedFarmUsername(value)
+            updateState { current in
+                var current = current
+                current.farmBotUsernameText = normalized
+                return current
+            }
+        },
+        updateFarmCommand: { value in
+            updateState { current in
+                var current = current
+                current.farmCommandText = value
+                return current
+            }
+        },
+        updateFarmInterval: { value in
+            let normalized = eahatGramNormalizedNumericText(value, maxLength: 5)
+            updateState { current in
+                var current = current
+                current.farmIntervalText = normalized
+                return current
+            }
+        },
+        addFarmJob: {
+            let currentState = stateValue.with { $0 }
+            let botUsername = eahatGramNormalizedFarmUsername(currentState.farmBotUsernameText)
+            let command = currentState.farmCommandText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !botUsername.isEmpty else {
+                appendResponse("farm add failed reason=BOT_USERNAME_EMPTY")
+                return
+            }
+            guard !command.isEmpty else {
+                appendResponse("farm add failed reason=COMMAND_EMPTY")
+                return
+            }
+            let interval = eahatGramPositiveInt(currentState.farmIntervalText, defaultValue: 240, minValue: 1, maxValue: 10080)
+            EahatGramFarmManager.shared.addJob(botUsername: botUsername, command: command, intervalMinutes: Int32(interval))
+            updateState { current in
+                var current = current
+                current.farmBotUsernameText = ""
+                current.farmCommandText = ""
+                current.farmIntervalText = "\(interval)"
+                return current
+            }
+            appendResponse("farm add completed bot=@\(botUsername) interval=\(interval) command=\(command)")
+        },
+        updateFarmJobEnabled: { index, value in
+            let farmJobs = currentFarmJobs.with { $0 }
+            guard index >= 0 && index < farmJobs.count else {
+                appendResponse("farm toggle failed index=\(index) reason=OUT_OF_RANGE")
+                return
+            }
+            let job = farmJobs[index]
+            EahatGramFarmManager.shared.setJobEnabled(id: job.id, value: value)
+            appendResponse("farm toggle completed id=\(job.id) enabled=\(value)")
+        },
+        removeFarmJob: { index in
+            let farmJobs = currentFarmJobs.with { $0 }
+            guard index >= 0 && index < farmJobs.count else {
+                appendResponse("farm remove failed index=\(index) reason=OUT_OF_RANGE")
+                return
+            }
+            let job = farmJobs[index]
+            EahatGramFarmManager.shared.removeJob(id: job.id)
+            appendResponse("farm remove completed id=\(job.id)")
+        },
         updateVoiceModEnabled: { value in
             EahatGramDebugSettings.setVoiceModEnabled(value)
             updateState { current in
@@ -2061,15 +2529,17 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
     let signal = combineLatest(
         context.sharedContext.presentationData,
         statePromise.get(),
-        giftsPromise.get()
+        giftsPromise.get(),
+        EahatGramFarmManager.shared.jobsSignal()
     )
     |> deliverOnMainQueue
-    |> map { presentationData, state, gifts -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    |> map { presentationData, state, gifts, farmJobs -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let noGiftsText = "No gifts loaded"
+        _ = currentFarmJobs.swap(farmJobs)
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .textWithTabs("eahatGram", ["me", "test", "chain"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test", "chain", "farm"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
@@ -2077,7 +2547,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         )
         let listState = ItemListNodeState(
             presentationData: ItemListPresentationData(presentationData),
-            entries: eahatGramEntries(state: state, gifts: gifts, noGiftsText: noGiftsText, hasStarsContext: starsContext != nil),
+            entries: eahatGramEntries(state: state, gifts: gifts, farmJobs: farmJobs, noGiftsText: noGiftsText, hasStarsContext: starsContext != nil),
             style: .blocks,
             animateChanges: true
         )

@@ -787,6 +787,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 if hadUpdates {
                     self.activeAccountsValue!.accounts.sort(by: { $0.2 < $1.2 })
                     self.activeAccountsPromise.set(.single(self.activeAccountsValue!))
+                    EahatGramFarmManager.shared.updatePrimaryContext(self.activeAccountsValue!.primary)
                     
                     self.performAccountSettingsImportIfNecessary()
                 }

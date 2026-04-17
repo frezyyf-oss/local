@@ -9,6 +9,7 @@ import ChatControllerInteraction
 import ChatHistoryEntry
 import ChatMessageBubbleItemNode
 import TelegramPresentationData
+import MurMurHash32
 
 private struct EahatGramPreviousMessageEntryData {
     let message: Message
@@ -32,8 +33,52 @@ private struct EahatGramSavedChatState {
     }
 }
 
+private struct EahatGramPersistedRawObject: Codable {
+    let typeHash: Int32
+    let data: Data
+}
+
+private struct EahatGramPersistedPeer: Codable {
+    let peerId: Int64
+    let peer: EahatGramPersistedRawObject
+}
+
+private struct EahatGramPersistedDeletedEntry: Codable {
+    let stableId: UInt32
+    let stableVersion: UInt32
+    let messageId: MessageId
+    let globallyUniqueId: Int64?
+    let groupingKey: Int64?
+    let groupStableId: UInt32?
+    let threadId: Int64?
+    let timestamp: Int32
+    let flags: UInt32
+    let tags: UInt32
+    let globalTags: UInt32
+    let localTags: UInt32
+    let customTags: [Data]
+    let forwardAuthor: EahatGramPersistedRawObject?
+    let forwardSource: EahatGramPersistedRawObject?
+    let forwardSourceMessageId: MessageId?
+    let forwardDate: Int32?
+    let forwardAuthorSignature: String?
+    let forwardPsaType: String?
+    let forwardFlags: Int32?
+    let author: EahatGramPersistedRawObject?
+    let text: String
+    let attributes: [EahatGramPersistedRawObject]
+    let media: [EahatGramPersistedRawObject]
+    let peers: [EahatGramPersistedPeer]
+    let read: Bool
+    let isContact: Bool
+    let contentTypeHint: Int32
+    let isCentered: Bool
+    let displayContinueThreadFooter: Bool
+}
+
 private let eahatGramSavedChatStateCache = Atomic<[String: EahatGramSavedChatState]>(value: [:])
 private let eahatGramSavedEditedTextsDefaultsKey = "eahatGram.savedEditedTexts"
+private let eahatGramSavedDeletedEntriesDefaultsKey = "eahatGram.savedDeletedEntries"
 
 private func eahatGramSavedChatStateKey(chatLocation: ChatLocation) -> String {
     switch chatLocation {
@@ -98,6 +143,213 @@ private func eahatGramStorePersistedEditedTexts(cacheKey: String, editedTexts: [
     UserDefaults.standard.set(rawRoot, forKey: eahatGramSavedEditedTextsDefaultsKey)
 }
 
+private func eahatGramEncodePersistedRawObject(_ value: PostboxCoding) -> EahatGramPersistedRawObject {
+    let typeHash = murMurHashString32("\(type(of: value))")
+    let encoder = PostboxEncoder()
+    value.encode(encoder)
+    return EahatGramPersistedRawObject(typeHash: typeHash, data: encoder.makeData())
+}
+
+private func eahatGramDecodePersistedRawObject(_ value: EahatGramPersistedRawObject) -> PostboxCoding? {
+    return PostboxDecoder(buffer: MemoryBuffer(data: value.data)).decodeRootObjectWithHash(hash: value.typeHash)
+}
+
+private func eahatGramPersistedContentTypeHint(_ value: ChatMessageEntryContentType) -> Int32 {
+    switch value {
+    case .generic:
+        return 0
+    case .largeEmoji:
+        return 1
+    case .animatedEmoji:
+        return 2
+    }
+}
+
+private func eahatGramContentTypeHint(_ value: Int32) -> ChatMessageEntryContentType {
+    switch value {
+    case 1:
+        return .largeEmoji
+    case 2:
+        return .animatedEmoji
+    default:
+        return .generic
+    }
+}
+
+private func eahatGramPersistedDeletedEntry(_ entry: EahatGramPreviousMessageEntryData) -> EahatGramPersistedDeletedEntry {
+    let message = entry.message
+    let persistedPeers = message.peers.map { peerId, peer in
+        return EahatGramPersistedPeer(peerId: peerId.toInt64(), peer: eahatGramEncodePersistedRawObject(peer))
+    }
+    let persistedAttributes = message.attributes.map(eahatGramEncodePersistedRawObject)
+    let persistedMedia = message.media.map(eahatGramEncodePersistedRawObject)
+    let persistedForwardAuthor = message.forwardInfo?.author.flatMap(eahatGramEncodePersistedRawObject)
+    let persistedForwardSource = message.forwardInfo?.source.flatMap(eahatGramEncodePersistedRawObject)
+    let persistedAuthor = message.author.flatMap(eahatGramEncodePersistedRawObject)
+    return EahatGramPersistedDeletedEntry(
+        stableId: message.stableId,
+        stableVersion: message.stableVersion,
+        messageId: message.id,
+        globallyUniqueId: message.globallyUniqueId,
+        groupingKey: message.groupingKey,
+        groupStableId: message.groupInfo?.stableId,
+        threadId: message.threadId,
+        timestamp: message.timestamp,
+        flags: message.flags.rawValue,
+        tags: message.tags.rawValue,
+        globalTags: message.globalTags.rawValue,
+        localTags: message.localTags.rawValue,
+        customTags: message.customTags.map { $0.makeData() },
+        forwardAuthor: persistedForwardAuthor,
+        forwardSource: persistedForwardSource,
+        forwardSourceMessageId: message.forwardInfo?.sourceMessageId,
+        forwardDate: message.forwardInfo?.date,
+        forwardAuthorSignature: message.forwardInfo?.authorSignature,
+        forwardPsaType: message.forwardInfo?.psaType,
+        forwardFlags: message.forwardInfo?.flags.rawValue,
+        author: persistedAuthor,
+        text: message.text,
+        attributes: persistedAttributes,
+        media: persistedMedia,
+        peers: persistedPeers,
+        read: entry.read,
+        isContact: entry.attributes.isContact,
+        contentTypeHint: eahatGramPersistedContentTypeHint(entry.attributes.contentTypeHint),
+        isCentered: entry.attributes.isCentered,
+        displayContinueThreadFooter: entry.attributes.displayContinueThreadFooter
+    )
+}
+
+private func eahatGramRestoredDeletedEntry(_ entry: EahatGramPersistedDeletedEntry, presentationData: ChatPresentationData) -> EahatGramPreviousMessageEntryData? {
+    var peers = SimpleDictionary<PeerId, Peer>()
+    for persistedPeer in entry.peers {
+        guard let decodedPeer = eahatGramDecodePersistedRawObject(persistedPeer.peer) as? Peer else {
+            continue
+        }
+        peers[PeerId(persistedPeer.peerId)] = decodedPeer
+    }
+    let decodedAttributes = entry.attributes.compactMap { eahatGramDecodePersistedRawObject($0) as? MessageAttribute }
+    let decodedMedia = entry.media.compactMap { eahatGramDecodePersistedRawObject($0) as? Media }
+    let decodedForwardAuthor = entry.forwardAuthor.flatMap { eahatGramDecodePersistedRawObject($0) as? Peer }
+    let decodedForwardSource = entry.forwardSource.flatMap { eahatGramDecodePersistedRawObject($0) as? Peer }
+    let decodedAuthor = entry.author.flatMap { eahatGramDecodePersistedRawObject($0) as? Peer }
+    let forwardInfo: MessageForwardInfo?
+    if let forwardDate = entry.forwardDate, let forwardFlags = entry.forwardFlags {
+        forwardInfo = MessageForwardInfo(
+            author: decodedForwardAuthor,
+            source: decodedForwardSource,
+            sourceMessageId: entry.forwardSourceMessageId,
+            date: forwardDate,
+            authorSignature: entry.forwardAuthorSignature,
+            psaType: entry.forwardPsaType,
+            flags: MessageForwardInfo.Flags(rawValue: forwardFlags)
+        )
+    } else {
+        forwardInfo = nil
+    }
+    let groupInfo = entry.groupStableId.flatMap(MessageGroupInfo.init)
+    var restoredAttributes = ChatMessageEntryAttributes(
+        rank: nil,
+        isContact: entry.isContact,
+        contentTypeHint: eahatGramContentTypeHint(entry.contentTypeHint),
+        updatingMedia: nil,
+        isPlaying: false,
+        isCentered: entry.isCentered,
+        authorStoryStats: nil,
+        displayContinueThreadFooter: entry.displayContinueThreadFooter
+    )
+    restoredAttributes.isSavedDeleted = true
+    let message = Message(
+        stableId: entry.stableId,
+        stableVersion: entry.stableVersion,
+        id: entry.messageId,
+        globallyUniqueId: entry.globallyUniqueId,
+        groupingKey: entry.groupingKey,
+        groupInfo: groupInfo,
+        threadId: entry.threadId,
+        timestamp: entry.timestamp,
+        flags: MessageFlags(rawValue: entry.flags),
+        tags: MessageTags(rawValue: entry.tags),
+        globalTags: GlobalMessageTags(rawValue: entry.globalTags),
+        localTags: LocalMessageTags(rawValue: entry.localTags),
+        customTags: entry.customTags.map(MemoryBuffer.init(data:)),
+        forwardInfo: forwardInfo,
+        author: decodedAuthor,
+        text: entry.text,
+        attributes: decodedAttributes,
+        media: decodedMedia,
+        peers: peers,
+        associatedMessages: SimpleDictionary<MessageId, Message>(),
+        associatedMessageIds: [],
+        associatedMedia: [:],
+        associatedThreadInfo: nil,
+        associatedStories: [:]
+    )
+    return EahatGramPreviousMessageEntryData(
+        message: message,
+        presentationData: presentationData,
+        read: entry.read,
+        location: nil,
+        selection: .none,
+        attributes: restoredAttributes
+    )
+}
+
+private func eahatGramResolvedPresentationData(entries: [ChatHistoryEntry]) -> ChatPresentationData? {
+    for entry in entries {
+        switch entry {
+        case let .MessageEntry(_, presentationData, _, _, _, _):
+            return presentationData
+        case let .MessageGroupEntry(_, _, presentationData):
+            return presentationData
+        case let .UnreadEntry(_, presentationData):
+            return presentationData
+        case let .ReplyCountEntry(_, _, _, presentationData):
+            return presentationData
+        case let .ChatInfoEntry(_, presentationData):
+            return presentationData
+        }
+    }
+    return nil
+}
+
+private func eahatGramLoadPersistedDeletedEntries(cacheKey: String, presentationData: ChatPresentationData?) -> [MessageId: EahatGramPreviousMessageEntryData] {
+    guard let presentationData else {
+        return [:]
+    }
+    guard let rawRoot = UserDefaults.standard.dictionary(forKey: eahatGramSavedDeletedEntriesDefaultsKey),
+          let rawChatValue = rawRoot[cacheKey] as? Data,
+          let decoded = try? AdaptedPostboxDecoder().decode([EahatGramPersistedDeletedEntry].self, from: rawChatValue) else {
+        return [:]
+    }
+    var result: [MessageId: EahatGramPreviousMessageEntryData] = [:]
+    for entry in decoded {
+        if let restored = eahatGramRestoredDeletedEntry(entry, presentationData: presentationData) {
+            result[entry.messageId] = restored
+        }
+    }
+    return result
+}
+
+private func eahatGramStorePersistedDeletedEntries(cacheKey: String, deletedEntries: [MessageId: EahatGramPreviousMessageEntryData]) {
+    var rawRoot = UserDefaults.standard.dictionary(forKey: eahatGramSavedDeletedEntriesDefaultsKey) ?? [:]
+    if deletedEntries.isEmpty {
+        rawRoot.removeValue(forKey: cacheKey)
+    } else {
+        let encodedEntries = deletedEntries
+            .sorted(by: { lhs, rhs in lhs.key < rhs.key })
+            .map { _, entry in
+                eahatGramPersistedDeletedEntry(entry)
+            }
+        if let rawChatValue = try? AdaptedPostboxEncoder().encode(encodedEntries) {
+            rawRoot[cacheKey] = rawChatValue
+        } else {
+            rawRoot.removeValue(forKey: cacheKey)
+        }
+    }
+    UserDefaults.standard.set(rawRoot, forKey: eahatGramSavedDeletedEntriesDefaultsKey)
+}
+
 private func eahatGramPreviousMessageEntryDataMap(
     entries: [ChatHistoryEntry]
 ) -> [MessageId: EahatGramPreviousMessageEntryData] {
@@ -153,11 +405,18 @@ private func eahatGramCanPersistDeletedEntry(message: Message) -> Bool {
 func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toView: ChatHistoryView, reason: ChatHistoryViewTransitionReason, reverse: Bool, chatLocation: ChatLocation, source: ChatHistoryListSource, controllerInteraction: ChatControllerInteraction, scrollPosition: ChatHistoryViewScrollPosition?, scrollAnimationCurve: ListViewAnimationCurve?, initialData: InitialMessageHistoryData?, keyboardButtonsMessage: Message?, cachedData: CachedPeerData?, cachedDataMessages: [MessageId: Message]?, readStateData: [PeerId: ChatHistoryCombinedInitialReadStateData]?, flashIndicators: Bool, updatedMessageSelection: Bool, messageTransitionNode: ChatMessageTransitionNodeImpl?, allUpdated: Bool, saveDeletedMessages: Bool, saveEditedMessages: Bool) -> ChatHistoryViewTransition {
     let previousMessageEntries = eahatGramPreviousMessageEntryDataMap(entries: fromView?.filteredEntries ?? [])
     let cacheKey = eahatGramSavedChatStateKey(chatLocation: chatLocation)
+    let currentPresentationData = eahatGramResolvedPresentationData(entries: toView.filteredEntries) ?? eahatGramResolvedPresentationData(entries: fromView?.filteredEntries ?? [])
     var savedChatState = eahatGramSavedChatStateCache.with { $0[cacheKey] ?? EahatGramSavedChatState() }
     if saveEditedMessages {
         let persistedEditedTexts = eahatGramLoadPersistedEditedTexts(cacheKey: cacheKey)
         for (messageId, text) in persistedEditedTexts where savedChatState.editedTexts[messageId] == nil {
             savedChatState.editedTexts[messageId] = text
+        }
+    }
+    if saveDeletedMessages {
+        let persistedDeletedEntries = eahatGramLoadPersistedDeletedEntries(cacheKey: cacheKey, presentationData: currentPresentationData)
+        for (messageId, entry) in persistedDeletedEntries where savedChatState.deletedEntries[messageId] == nil {
+            savedChatState.deletedEntries[messageId] = entry
         }
     }
     if !saveDeletedMessages {
@@ -219,8 +478,8 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                     message: message,
                     presentationData: presentationData,
                     read: read,
-                    location: location,
-                    selection: selection,
+                    location: nil,
+                    selection: .none,
                     attributes: updatedAttributes
                 )
             case let .MessageGroupEntry(_, messages, presentationData):
@@ -237,8 +496,8 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                         message: message,
                         presentationData: presentationData,
                         read: read,
-                        location: location,
-                        selection: selection,
+                        location: nil,
+                        selection: .none,
                         attributes: updatedAttributes
                     )
                 }
@@ -261,7 +520,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
         if saveEditedMessages, let savedEditPreviousText = savedChatState.editedTexts[messageId], !savedEditPreviousText.isEmpty {
             updatedAttributes.savedEditPreviousText = savedEditPreviousText
         }
-        effectiveToEntries.append(.MessageEntry(previousEntryData.message, previousEntryData.presentationData, previousEntryData.read, previousEntryData.location, previousEntryData.selection, updatedAttributes))
+        effectiveToEntries.append(.MessageEntry(previousEntryData.message, previousEntryData.presentationData, previousEntryData.read, nil, .none, updatedAttributes))
     }
     for messageId in invalidDeletedMessageIds {
         savedChatState.deletedEntries.removeValue(forKey: messageId)
@@ -276,6 +535,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
         return current
     }
     eahatGramStorePersistedEditedTexts(cacheKey: cacheKey, editedTexts: saveEditedMessages ? savedChatState.editedTexts : [:])
+    eahatGramStorePersistedDeletedEntries(cacheKey: cacheKey, deletedEntries: saveDeletedMessages ? savedChatState.deletedEntries : [:])
     effectiveToEntries.sort()
     let effectiveToView = ChatHistoryView(
         originalView: toView.originalView,

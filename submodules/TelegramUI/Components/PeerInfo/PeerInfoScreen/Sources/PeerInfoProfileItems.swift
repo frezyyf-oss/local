@@ -21,6 +21,39 @@ import BoostLevelIconComponent
 private let enabledPublicBioEntities: EnabledEntityTypes = [.allUrl, .mention, .hashtag]
 private let enabledPrivateBioEntities: EnabledEntityTypes = [.internalUrl, .mention, .hashtag]
 
+private func eahatGramParsedVisualCollectibleTonAmount(_ value: String) -> Int64? {
+    let filtered = value.filter { $0.isNumber || $0 == "." || $0 == "," }
+    guard !filtered.isEmpty else {
+        return nil
+    }
+    let normalized = filtered.replacingOccurrences(of: ",", with: ".")
+    guard let tonValue = Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX")) else {
+        return nil
+    }
+    let nanosDecimal = tonValue * Decimal(1_000_000_000)
+    return NSDecimalNumber(decimal: nanosDecimal).int64Value
+}
+
+private func eahatGramVisualCollectibleInitialData(context: AccountContext, user: TelegramUser, mainUsername: String?, additionalActiveUsernames: [String], isMyProfile: Bool) -> CollectibleItemInfoScreenInitialData? {
+    guard let visualCollectible = eahatGramDisplayedVisualCollectibleUsername(mainUsername: mainUsername, additionalActiveUsernames: additionalActiveUsernames, isMyProfile: isMyProfile) else {
+        return nil
+    }
+    let purchaseDate = visualCollectible.purchaseDate ?? Int32(Date().timeIntervalSince1970)
+    let cryptoCurrencyAmount = eahatGramParsedVisualCollectibleTonAmount(visualCollectible.priceText) ?? 0
+    let tonUsdRate = StarsSubscriptionConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 }).tonUsdRate
+    let currencyAmount = Int64((Double(cryptoCurrencyAmount) / 1_000_000_000.0 * tonUsdRate * 100.0).rounded())
+    let info = TelegramCollectibleItemInfo(
+        subject: .username(visualCollectible.username),
+        purchaseDate: purchaseDate,
+        currency: "USD",
+        currencyAmount: currencyAmount,
+        cryptoCurrency: "TON",
+        cryptoCurrencyAmount: cryptoCurrencyAmount,
+        url: "https://fragment.com/username/\(visualCollectible.username)"
+    )
+    return CollectibleItemInfoScreen.visualInitialData(peer: EnginePeer(user), subject: .username(visualCollectible.username), info: info)
+}
+
 enum InfoSection: Int, CaseIterable {
     case unofficial
     case groupLocation
@@ -159,6 +192,8 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
             }))
         }
         let displayedUsername = eahatGramDisplayedUsername(mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: isMyProfile)
+        let visualCollectibleInitialData = eahatGramVisualCollectibleInitialData(context: context, user: user, mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: isMyProfile)
+        let visualCollectibleUsername = eahatGramDisplayedVisualCollectibleUsername(mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: isMyProfile)
         if let usernameText = displayedUsername.text {
             var additionalUsernames: String?
             if !activeAdditionalUsernames.isEmpty {
@@ -184,11 +219,20 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
                     action: { _, progress in
                         if let openValue = displayedUsername.openValue {
                             interaction.openUsername(openValue, true, progress)
+                        } else if let visualCollectibleInitialData, let controller = interaction.getController() {
+                            controller.view.endEditing(true)
+                            controller.push(context.sharedContext.makeCollectibleItemInfoScreen(context: context, initialData: visualCollectibleInitialData))
                         }
                     }, linkItemAction: { type, item, _, _, progress in
                         if case .tap = type {
                             if case let .mention(username) = item {
-                                interaction.openUsername(String(username[username.index(username.startIndex, offsetBy: 1)...]), false, progress)
+                                let mentionValue = String(username[username.index(username.startIndex, offsetBy: 1)...])
+                                if let visualCollectibleInitialData, let visualCollectibleUsername, eahatGramNormalizedCollectibleUsername(mentionValue) == eahatGramNormalizedCollectibleUsername(visualCollectibleUsername.username), let controller = interaction.getController() {
+                                    controller.view.endEditing(true)
+                                    controller.push(context.sharedContext.makeCollectibleItemInfoScreen(context: context, initialData: visualCollectibleInitialData))
+                                } else {
+                                    interaction.openUsername(mentionValue, false, progress)
+                                }
                             }
                         }
                     }, iconAction: {

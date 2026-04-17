@@ -710,6 +710,15 @@ public class CollectibleItemInfoScreen: ViewControllerComponentContainer {
     required public init(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    public static func visualInitialData(peer: EnginePeer?, subject: CollectibleItemInfoScreenSubject, info: TelegramCollectibleItemInfo) -> CollectibleItemInfoScreenInitialData {
+        switch subject {
+        case let .username(username):
+            return InitialData(peer: peer, subject: .username(ResolvedSubject.Username(username: username, info: info)))
+        case let .phoneNumber(phoneNumber):
+            return InitialData(peer: peer, subject: .phoneNumber(ResolvedSubject.PhoneNumber(phoneNumber: phoneNumber, info: info)))
+        }
+    }
     
     public static func initialData(context: AccountContext, peerId: EnginePeer.Id, subject: CollectibleItemInfoScreenSubject) -> Signal<CollectibleItemInfoScreenInitialData?, NoError> {
         switch subject {
