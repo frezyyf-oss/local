@@ -2502,7 +2502,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                 }
                 let dateText = eahatGramDecoratedStatusText(
                     stringForMessageTimestampStatus(accountPeerId: item.context.account.peerId, message: message, dateTimeFormat: item.presentationData.dateTimeFormat, nameDisplayOrder: item.presentationData.nameDisplayOrder, strings: item.presentationData.strings, format: dateFormat, associatedData: item.associatedData),
-                    attributes: attributes
+                    attributes: item.content.firstMessageAttributes
                 )
 
                 let statusType: ChatMessageDateAndStatusType
