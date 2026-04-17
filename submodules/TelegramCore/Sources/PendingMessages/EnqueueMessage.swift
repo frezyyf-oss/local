@@ -427,6 +427,8 @@ private let eahatGramStandaloneWordReplacements: [(String, String)] = [
     ("мнй", "мой")
 ]
 
+private let eahatGramStandaloneWordReplacementMap: [String: String] = Dictionary(uniqueKeysWithValues: eahatGramStandaloneWordReplacements.map { ($0.0.lowercased(), $0.1) })
+
 private func eahatGramCanApplyStandaloneWordReplacements(attributes: [MessageAttribute]) -> Bool {
     for attribute in attributes {
         if let attribute = attribute as? TextEntitiesMessageAttribute, !attribute.entities.isEmpty {
@@ -470,10 +472,10 @@ private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String 
     let updatedResult = NSMutableString(string: result)
     for match in matches.reversed() {
         let matchedWord = nsResult.substring(with: match.range)
-        guard let replacementEntry = eahatGramStandaloneWordReplacements.first(where: { $0.0.compare(matchedWord, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }) else {
+        guard let replacementTarget = eahatGramStandaloneWordReplacementMap[matchedWord.lowercased()] else {
             continue
         }
-        let replacement = eahatGramAdjustedStandaloneWordReplacement(target: replacementEntry.1, matchedText: matchedWord)
+        let replacement = eahatGramAdjustedStandaloneWordReplacement(target: replacementTarget, matchedText: matchedWord)
         updatedResult.replaceCharacters(in: match.range, with: replacement)
     }
     result = updatedResult as String

@@ -19,37 +19,7 @@ import PasswordSetupUI
 import InstantPageCache
 import ItemListUI
 import GlassBackgroundComponent
-import ObjectiveC.runtime
-
-private var eahatGramDismissGestureTargetKey: UInt8 = 0
 private let eahatGramPersistedChainVisualizationState = Atomic<EahatGramGiftChainVisualizationState?>(value: nil)
-
-private final class EahatGramDismissGestureTarget: NSObject {
-    weak var view: UIView?
-
-    init(view: UIView?) {
-        self.view = view
-    }
-
-    @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
-        guard let view = self.view, recognizer.state == .ended else {
-            return
-        }
-        let location = recognizer.location(in: view)
-        if let hitView = view.hitTest(location, with: nil), hitView is UITextField || hitView is UITextView {
-            return
-        }
-        view.endEditing(true)
-    }
-}
-
-private func eahatGramInstallDismissKeyboardGesture(controller: ViewController) {
-    let target = EahatGramDismissGestureTarget(view: controller.view)
-    let recognizer = UITapGestureRecognizer(target: target, action: #selector(EahatGramDismissGestureTarget.handleTap(_:)))
-    recognizer.cancelsTouchesInView = false
-    controller.view.addGestureRecognizer(recognizer)
-    objc_setAssociatedObject(controller, &eahatGramDismissGestureTargetKey, target, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-}
 
 private func eahatGramInputTitle(_ presentationData: ItemListPresentationData, _ text: String) -> NSAttributedString {
     return NSAttributedString(string: text, textColor: presentationData.theme.list.itemPrimaryTextColor)
@@ -1844,7 +1814,6 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
     }
 
     let controller = ItemListController(context: context, state: signal)
-    eahatGramInstallDismissKeyboardGesture(controller: controller)
     controller.titleControlValueChanged = { index in
         guard let selectedTab = EahatGramTab(rawValue: index) else {
             return

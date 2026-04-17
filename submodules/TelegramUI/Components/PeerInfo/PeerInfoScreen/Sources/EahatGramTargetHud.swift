@@ -195,7 +195,13 @@ final class EahatGramTargetHudStatsContext {
     private var currentUserRentState: Bool?
     private var currentUserRentLookupKey: String?
 
-    private let stateValue = ValuePromise<EahatGramTargetHudStats?>(nil, ignoreRepeated: true)
+    private let stateValue = ValuePromise<EahatGramTargetHudStats?>(EahatGramTargetHudStats(
+        giftsCount: 0,
+        giftsStarsCount: 0,
+        nftCount: 0,
+        nftUsdValue: 0,
+        rentState: .dontRent
+    ), ignoreRepeated: true)
     var state: Signal<EahatGramTargetHudStats?, NoError> {
         return self.stateValue.get()
     }
