@@ -183,9 +183,11 @@ public final class EahatGramFarmManager {
 
             let command = job.command
             let signal = (context.engine.peers.resolvePeerByName(name: job.botUsername, referrer: nil)
-            |> take(1)
             |> mapToSignal { result -> Signal<(EnginePeer.Id?, [MessageId?]), NoError> in
-                guard case let .result(peer) = result, let resolvedPeer = peer else {
+                guard case let .result(peer) = result else {
+                    return .complete()
+                }
+                guard let resolvedPeer = peer else {
                     return .single((nil, []))
                 }
                 let peerId = resolvedPeer.id
@@ -204,6 +206,7 @@ public final class EahatGramFarmManager {
                 return enqueueMessages(account: context.account, peerId: peerId, messages: [message])
                 |> map { (peerId, $0) }
             }
+            |> take(1)
             |> deliverOn(self.queue))
 
             let _ = signal.startStandalone(next: { [weak self] (peerId: EnginePeer.Id?, messageIds: [MessageId?]) in

@@ -176,41 +176,84 @@ private func eahatGramContentTypeHint(_ value: Int32) -> ChatMessageEntryContent
     }
 }
 
+private func eahatGramSanitizedDeletedMessage(_ message: Message) -> Message {
+    return Message(
+        stableId: message.stableId,
+        stableVersion: message.stableVersion,
+        id: message.id,
+        globallyUniqueId: message.globallyUniqueId,
+        groupingKey: nil,
+        groupInfo: nil,
+        threadId: message.threadId,
+        timestamp: message.timestamp,
+        flags: message.flags,
+        tags: MessageTags(rawValue: 0),
+        globalTags: GlobalMessageTags(rawValue: 0),
+        localTags: LocalMessageTags(rawValue: 0),
+        customTags: [],
+        forwardInfo: nil,
+        author: message.author,
+        text: message.text,
+        attributes: [],
+        media: [],
+        peers: message.peers,
+        associatedMessages: SimpleDictionary<MessageId, Message>(),
+        associatedMessageIds: [],
+        associatedMedia: [:],
+        associatedThreadInfo: nil,
+        associatedStories: [:]
+    )
+}
+
+private func eahatGramSanitizedDeletedEntryData(
+    message: Message,
+    presentationData: ChatPresentationData,
+    read: Bool,
+    attributes: ChatMessageEntryAttributes
+) -> EahatGramPreviousMessageEntryData {
+    var updatedAttributes = attributes
+    updatedAttributes.isSavedDeleted = true
+    return EahatGramPreviousMessageEntryData(
+        message: eahatGramSanitizedDeletedMessage(message),
+        presentationData: presentationData,
+        read: read,
+        location: nil,
+        selection: .none,
+        attributes: updatedAttributes
+    )
+}
+
 private func eahatGramPersistedDeletedEntry(_ entry: EahatGramPreviousMessageEntryData) -> EahatGramPersistedDeletedEntry {
-    let message = entry.message
+    let message = eahatGramSanitizedDeletedMessage(entry.message)
     let persistedPeers = message.peers.map { peerId, peer in
         return EahatGramPersistedPeer(peerId: peerId.toInt64(), peer: eahatGramEncodePersistedRawObject(peer))
     }
-    let persistedAttributes = message.attributes.map(eahatGramEncodePersistedRawObject)
-    let persistedMedia = message.media.map(eahatGramEncodePersistedRawObject)
-    let persistedForwardAuthor = message.forwardInfo?.author.flatMap(eahatGramEncodePersistedRawObject)
-    let persistedForwardSource = message.forwardInfo?.source.flatMap(eahatGramEncodePersistedRawObject)
     let persistedAuthor = message.author.flatMap(eahatGramEncodePersistedRawObject)
     return EahatGramPersistedDeletedEntry(
         stableId: message.stableId,
         stableVersion: message.stableVersion,
         messageId: message.id,
         globallyUniqueId: message.globallyUniqueId,
-        groupingKey: message.groupingKey,
-        groupStableId: message.groupInfo?.stableId,
+        groupingKey: nil,
+        groupStableId: nil,
         threadId: message.threadId,
         timestamp: message.timestamp,
         flags: message.flags.rawValue,
-        tags: message.tags.rawValue,
-        globalTags: message.globalTags.rawValue,
-        localTags: message.localTags.rawValue,
-        customTags: message.customTags.map { $0.makeData() },
-        forwardAuthor: persistedForwardAuthor,
-        forwardSource: persistedForwardSource,
-        forwardSourceMessageId: message.forwardInfo?.sourceMessageId,
-        forwardDate: message.forwardInfo?.date,
-        forwardAuthorSignature: message.forwardInfo?.authorSignature,
-        forwardPsaType: message.forwardInfo?.psaType,
-        forwardFlags: message.forwardInfo?.flags.rawValue,
+        tags: 0,
+        globalTags: 0,
+        localTags: 0,
+        customTags: [],
+        forwardAuthor: nil,
+        forwardSource: nil,
+        forwardSourceMessageId: nil,
+        forwardDate: nil,
+        forwardAuthorSignature: nil,
+        forwardPsaType: nil,
+        forwardFlags: nil,
         author: persistedAuthor,
         text: message.text,
-        attributes: persistedAttributes,
-        media: persistedMedia,
+        attributes: [],
+        media: [],
         peers: persistedPeers,
         read: entry.read,
         isContact: entry.attributes.isContact,
@@ -221,6 +264,9 @@ private func eahatGramPersistedDeletedEntry(_ entry: EahatGramPreviousMessageEnt
 }
 
 private func eahatGramRestoredDeletedEntry(_ entry: EahatGramPersistedDeletedEntry, presentationData: ChatPresentationData) -> EahatGramPreviousMessageEntryData? {
+    guard entry.media.isEmpty, !entry.text.isEmpty else {
+        return nil
+    }
     var peers = SimpleDictionary<PeerId, Peer>()
     for persistedPeer in entry.peers {
         guard let decodedPeer = eahatGramDecodePersistedRawObject(persistedPeer.peer) as? Peer else {
@@ -228,26 +274,7 @@ private func eahatGramRestoredDeletedEntry(_ entry: EahatGramPersistedDeletedEnt
         }
         peers[PeerId(persistedPeer.peerId)] = decodedPeer
     }
-    let decodedAttributes = entry.attributes.compactMap { eahatGramDecodePersistedRawObject($0) as? MessageAttribute }
-    let decodedMedia = entry.media.compactMap { eahatGramDecodePersistedRawObject($0) as? Media }
-    let decodedForwardAuthor = entry.forwardAuthor.flatMap { eahatGramDecodePersistedRawObject($0) as? Peer }
-    let decodedForwardSource = entry.forwardSource.flatMap { eahatGramDecodePersistedRawObject($0) as? Peer }
     let decodedAuthor = entry.author.flatMap { eahatGramDecodePersistedRawObject($0) as? Peer }
-    let forwardInfo: MessageForwardInfo?
-    if let forwardDate = entry.forwardDate, let forwardFlags = entry.forwardFlags {
-        forwardInfo = MessageForwardInfo(
-            author: decodedForwardAuthor,
-            source: decodedForwardSource,
-            sourceMessageId: entry.forwardSourceMessageId,
-            date: forwardDate,
-            authorSignature: entry.forwardAuthorSignature,
-            psaType: entry.forwardPsaType,
-            flags: MessageForwardInfo.Flags(rawValue: forwardFlags)
-        )
-    } else {
-        forwardInfo = nil
-    }
-    let groupInfo = entry.groupStableId.flatMap(MessageGroupInfo.init)
     var restoredAttributes = ChatMessageEntryAttributes(
         rank: nil,
         isContact: entry.isContact,
@@ -264,20 +291,20 @@ private func eahatGramRestoredDeletedEntry(_ entry: EahatGramPersistedDeletedEnt
         stableVersion: entry.stableVersion,
         id: entry.messageId,
         globallyUniqueId: entry.globallyUniqueId,
-        groupingKey: entry.groupingKey,
-        groupInfo: groupInfo,
+        groupingKey: nil,
+        groupInfo: nil,
         threadId: entry.threadId,
         timestamp: entry.timestamp,
         flags: MessageFlags(rawValue: entry.flags),
         tags: MessageTags(rawValue: entry.tags),
         globalTags: GlobalMessageTags(rawValue: entry.globalTags),
         localTags: LocalMessageTags(rawValue: entry.localTags),
-        customTags: entry.customTags.map(MemoryBuffer.init(data:)),
-        forwardInfo: forwardInfo,
+        customTags: [],
+        forwardInfo: nil,
         author: decodedAuthor,
         text: entry.text,
-        attributes: decodedAttributes,
-        media: decodedMedia,
+        attributes: [],
+        media: [],
         peers: peers,
         associatedMessages: SimpleDictionary<MessageId, Message>(),
         associatedMessageIds: [],
@@ -399,7 +426,10 @@ private func eahatGramCanPersistDeletedEntry(message: Message) -> Bool {
     if Namespaces.Message.allLocal.contains(message.id.namespace) || Namespaces.Message.allNonRegular.contains(message.id.namespace) {
         return false
     }
-    return !message.text.isEmpty || !message.media.isEmpty
+    if !message.media.isEmpty {
+        return false
+    }
+    return !message.text.isEmpty
 }
 
 func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toView: ChatHistoryView, reason: ChatHistoryViewTransitionReason, reverse: Bool, chatLocation: ChatLocation, source: ChatHistoryListSource, controllerInteraction: ChatControllerInteraction, scrollPosition: ChatHistoryViewScrollPosition?, scrollAnimationCurve: ListViewAnimationCurve?, initialData: InitialMessageHistoryData?, keyboardButtonsMessage: Message?, cachedData: CachedPeerData?, cachedDataMessages: [MessageId: Message]?, readStateData: [PeerId: ChatHistoryCombinedInitialReadStateData]?, flashIndicators: Bool, updatedMessageSelection: Bool, messageTransitionNode: ChatMessageTransitionNodeImpl?, allUpdated: Bool, saveDeletedMessages: Bool, saveEditedMessages: Bool) -> ChatHistoryViewTransition {
@@ -472,15 +502,11 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                 if !eahatGramCanPersistDeletedEntry(message: message) {
                     continue
                 }
-                var updatedAttributes = attributes
-                updatedAttributes.isSavedDeleted = true
-                savedChatState.deletedEntries[message.id] = EahatGramPreviousMessageEntryData(
+                savedChatState.deletedEntries[message.id] = eahatGramSanitizedDeletedEntryData(
                     message: message,
                     presentationData: presentationData,
                     read: read,
-                    location: nil,
-                    selection: .none,
-                    attributes: updatedAttributes
+                    attributes: attributes
                 )
             case let .MessageGroupEntry(_, messages, presentationData):
                 for (message, read, _, attributes, _) in messages {
@@ -490,15 +516,11 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                     if !eahatGramCanPersistDeletedEntry(message: message) {
                         continue
                     }
-                    var updatedAttributes = attributes
-                    updatedAttributes.isSavedDeleted = true
-                    savedChatState.deletedEntries[message.id] = EahatGramPreviousMessageEntryData(
+                    savedChatState.deletedEntries[message.id] = eahatGramSanitizedDeletedEntryData(
                         message: message,
                         presentationData: presentationData,
                         read: read,
-                        location: nil,
-                        selection: .none,
-                        attributes: updatedAttributes
+                        attributes: attributes
                     )
                 }
             default:
