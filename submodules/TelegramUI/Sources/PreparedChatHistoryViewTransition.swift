@@ -465,7 +465,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
     if saveDeletedMessages, let fromView {
         for previousEntry in fromView.filteredEntries {
             switch previousEntry {
-            case let .MessageEntry(message, presentationData, read, location, selection, attributes):
+            case let .MessageEntry(message, presentationData, read, _, _, attributes):
                 if currentMessageIds.contains(message.id) {
                     continue
                 }
