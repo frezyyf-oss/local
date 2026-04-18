@@ -288,12 +288,12 @@ private final class EahatGramSpeechSynthesisOperation: NSObject, AVSpeechSynthes
         self.bufferedPcm.append(UnsafeRawPointer(samples).assumingMemoryBound(to: UInt8.self), count: byteCount)
 
         while self.bufferedPcm.count >= eahatGramVoiceMessageFrameByteCount {
-            let frameData = self.bufferedPcm.prefix(eahatGramVoiceMessageFrameByteCount)
-            let wroteFrame = frameData.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) -> Bool in
+            var frameData = Data(self.bufferedPcm.prefix(eahatGramVoiceMessageFrameByteCount))
+            let wroteFrame = frameData.withUnsafeMutableBytes { (rawBuffer: UnsafeMutableRawBufferPointer) -> Bool in
                 guard let baseAddress = rawBuffer.baseAddress else {
                     return false
                 }
-                return self.writer.writeFrame(baseAddress.assumingMemoryBound(to: UInt8.self), frameByteCount: eahatGramVoiceMessageFrameByteCount)
+                return self.writer.writeFrame(baseAddress.assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(eahatGramVoiceMessageFrameByteCount))
             }
             guard wroteFrame else {
                 self.finish(result: nil)
@@ -347,11 +347,11 @@ private final class EahatGramSpeechSynthesisOperation: NSObject, AVSpeechSynthes
 
         if !self.bufferedPcm.isEmpty {
             let remainingCount = self.bufferedPcm.count
-            let wroteFrame = self.bufferedPcm.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) -> Bool in
+            let wroteFrame = self.bufferedPcm.withUnsafeMutableBytes { (rawBuffer: UnsafeMutableRawBufferPointer) -> Bool in
                 guard let baseAddress = rawBuffer.baseAddress else {
                     return false
                 }
-                return self.writer.writeFrame(baseAddress.assumingMemoryBound(to: UInt8.self), frameByteCount: remainingCount)
+                return self.writer.writeFrame(baseAddress.assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(remainingCount))
             }
             if !wroteFrame {
                 self.finish(result: nil)
