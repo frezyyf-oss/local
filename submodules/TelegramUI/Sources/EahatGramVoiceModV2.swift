@@ -335,6 +335,8 @@ private final class EahatGramSpeechSynthesisOperation: NSObject, AVSpeechSynthes
         switch status {
         case .haveData, .inputRanDry, .endOfStream:
             return convertedBuffer
+        case .error:
+            return nil
         @unknown default:
             return nil
         }
