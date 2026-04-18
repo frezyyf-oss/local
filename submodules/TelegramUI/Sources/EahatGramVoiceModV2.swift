@@ -427,7 +427,8 @@ func eahatGramTransformVoiceMessageForModeV2(sourcePath: String, trimRange: Rang
                 guard let result else {
                     return .single(nil)
                 }
-                return transcribeAudio(path: result, appLocale: appLocale)
+                let preset = eahatGramCurrentVoiceModV2Voice()
+                return transcribeAudio(path: result, appLocale: appLocale, preferredLocales: [preset.configuration.languageCode])
             }
             |> mapToSignal { result -> Signal<RecordedAudioData?, NoError> in
                 guard let result else {

@@ -78,7 +78,7 @@ private struct EahatGramPersistedDeletedEntry: Codable {
 
 private let eahatGramSavedChatStateCache = Atomic<[String: EahatGramSavedChatState]>(value: [:])
 private let eahatGramSavedEditedTextsDefaultsKey = "eahatGram.savedEditedTexts"
-private let eahatGramSavedDeletedEntriesDefaultsKey = "eahatGram.savedDeletedEntries"
+private let eahatGramSavedDeletedEntriesDefaultsKey = "eahatGram.savedDeletedEntries.v3"
 
 private func eahatGramSavedChatStateKey(chatLocation: ChatLocation) -> String {
     switch chatLocation {
@@ -177,6 +177,7 @@ private func eahatGramContentTypeHint(_ value: Int32) -> ChatMessageEntryContent
 }
 
 private func eahatGramSanitizedDeletedMessage(_ message: Message) -> Message {
+    let syntheticFlags = MessageFlags(rawValue: message.flags.rawValue & MessageFlags.IsIncomingMask.rawValue)
     return Message(
         stableId: message.stableId,
         stableVersion: message.stableVersion,
@@ -186,7 +187,7 @@ private func eahatGramSanitizedDeletedMessage(_ message: Message) -> Message {
         groupInfo: nil,
         threadId: message.threadId,
         timestamp: message.timestamp,
-        flags: message.flags,
+        flags: syntheticFlags,
         tags: MessageTags(rawValue: 0),
         globalTags: GlobalMessageTags(rawValue: 0),
         localTags: LocalMessageTags(rawValue: 0),

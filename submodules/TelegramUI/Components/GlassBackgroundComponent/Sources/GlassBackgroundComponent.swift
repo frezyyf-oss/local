@@ -367,10 +367,10 @@ public class GlassBackgroundView: UIView {
             case .clear:
                 return isDark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight
             case .default:
-                return isDark ? .systemChromeMaterialDark : .systemChromeMaterialLight
+                return isDark ? .systemThinMaterialDark : .systemThinMaterialLight
             }
         case .panel:
-            return isDark ? .systemChromeMaterialDark : .systemChromeMaterialLight
+            return isDark ? .systemThinMaterialDark : .systemThinMaterialLight
         }
     }
 
@@ -378,22 +378,22 @@ public class GlassBackgroundView: UIView {
         switch tintColor.kind {
         case .panel:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.08)
+                return UIColor(white: 1.0, alpha: 0.035)
             } else {
-                return UIColor(white: 1.0, alpha: 0.22)
+                return UIColor(white: 1.0, alpha: 0.09)
             }
         case .clear:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.03)
+                return UIColor(white: 1.0, alpha: 0.015)
             } else {
-                return UIColor(white: 1.0, alpha: 0.08)
+                return UIColor(white: 1.0, alpha: 0.035)
             }
         case let .custom(style, color):
             switch style {
             case .clear:
-                return color.withAlphaComponent(isDark ? 0.08 : 0.12)
+                return color.withAlphaComponent(isDark ? 0.04 : 0.07)
             case .default:
-                return color.withAlphaComponent(isDark ? 0.14 : 0.2)
+                return color.withAlphaComponent(isDark ? 0.08 : 0.13)
             }
         }
     }
@@ -402,18 +402,18 @@ public class GlassBackgroundView: UIView {
         switch tintColor.kind {
         case .panel:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.18)
+                return UIColor(white: 1.0, alpha: 0.14)
             } else {
-                return UIColor(white: 1.0, alpha: 0.32)
+                return UIColor(white: 1.0, alpha: 0.22)
             }
         case .clear:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.08)
+                return UIColor(white: 1.0, alpha: 0.06)
             } else {
-                return UIColor(white: 1.0, alpha: 0.16)
+                return UIColor(white: 1.0, alpha: 0.11)
             }
         case let .custom(_, color):
-            return color.withAlphaComponent(isDark ? 0.34 : 0.4)
+            return color.withAlphaComponent(isDark ? 0.24 : 0.3)
         }
     }
 
@@ -725,9 +725,9 @@ public class GlassBackgroundView: UIView {
                     nativeParamsView.layer.borderWidth = UIScreenPixel
                     nativeParamsView.layer.borderColor = GlassBackgroundView.customGlassBorderColor(isDark: isDark, tintColor: tintColor).cgColor
                     nativeParamsView.layer.shadowColor = UIColor(white: 0.0, alpha: 1.0).cgColor
-                    nativeParamsView.layer.shadowOpacity = usesClearTint ? (isDark ? 0.12 : 0.08) : (isDark ? 0.2 : 0.12)
-                    nativeParamsView.layer.shadowOffset = CGSize(width: 0.0, height: 10.0)
-                    nativeParamsView.layer.shadowRadius = usesClearTint ? 16.0 : 24.0
+                    nativeParamsView.layer.shadowOpacity = usesClearTint ? (isDark ? 0.08 : 0.05) : (isDark ? 0.12 : 0.08)
+                    nativeParamsView.layer.shadowOffset = CGSize(width: 0.0, height: 8.0)
+                    nativeParamsView.layer.shadowRadius = usesClearTint ? 12.0 : 18.0
                     nativeParamsView.layer.shadowPath = UIBezierPath(roundedRect: CGRect(origin: CGPoint(), size: size), cornerRadius: outerCornerRadius).cgPath
                     if #available(iOS 26.0, *) {
                         var glassEffect: UIGlassEffect?

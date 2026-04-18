@@ -34,7 +34,7 @@ private func eahatGramNormalizedSpeechLocale(_ value: String) -> String {
     }
 }
 
-private func eahatGramSpeechLocales(appLocale: String) -> [String] {
+private func eahatGramSpeechLocales(appLocale: String, preferredLocales: [String] = []) -> [String] {
     var result: [String] = []
     var seen = Set<String>()
 
@@ -48,6 +48,9 @@ private func eahatGramSpeechLocales(appLocale: String) -> [String] {
         }
     }
 
+    for preferredLocale in preferredLocales {
+        appendLocale(preferredLocale)
+    }
     appendLocale(appLocale)
     appendLocale(Locale.current.identifier)
     for preferredLanguage in Locale.preferredLanguages {
@@ -80,7 +83,7 @@ private func transcribeAudio(path: String, locale: String) -> Signal<Transcripti
                         if let sharedRecognizer = sharedRecognizers[locale] as? SFSpeechRecognizer {
                             speechRecognizer = sharedRecognizer
                         } else {
-                            guard let speechRecognizerValue = SFSpeechRecognizer(locale: Locale(identifier: locale)), speechRecognizerValue.isAvailable else {
+                            guard let speechRecognizerValue = SFSpeechRecognizer(locale: Locale(identifier: locale)) else {
                                 subscriber.putNext(nil)
                                 subscriber.putCompletion()
                                 
@@ -98,6 +101,7 @@ private func transcribeAudio(path: String, locale: String) -> Signal<Transcripti
                         if #available(iOS 16.0, *) {
                             request.addsPunctuation = true
                         }
+                        request.taskHint = .dictation
                         request.requiresOnDeviceRecognition = false
                         request.shouldReportPartialResults = false
                         
@@ -145,9 +149,9 @@ public struct LocallyTranscribedAudio {
     public var isFinal: Bool
 }
 
-public func transcribeAudio(path: String, appLocale: String) -> Signal<LocallyTranscribedAudio?, NoError> {
+public func transcribeAudio(path: String, appLocale: String, preferredLocales: [String] = []) -> Signal<LocallyTranscribedAudio?, NoError> {
     var signals: [Signal<TranscriptionResult?, NoError>] = []
-    let locales = eahatGramSpeechLocales(appLocale: appLocale)
+    let locales = eahatGramSpeechLocales(appLocale: appLocale, preferredLocales: preferredLocales)
     for locale in locales {
         signals.append(transcribeAudio(path: path, locale: locale))
     }
