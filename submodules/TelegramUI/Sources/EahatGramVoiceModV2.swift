@@ -289,7 +289,7 @@ private final class EahatGramSpeechSynthesisOperation: NSObject, AVSpeechSynthes
 
         while self.bufferedPcm.count >= eahatGramVoiceMessageFrameByteCount {
             let frameData = self.bufferedPcm.prefix(eahatGramVoiceMessageFrameByteCount)
-            let wroteFrame = frameData.withUnsafeBytes { rawBuffer -> Bool in
+            let wroteFrame = frameData.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) -> Bool in
                 guard let baseAddress = rawBuffer.baseAddress else {
                     return false
                 }
@@ -347,7 +347,7 @@ private final class EahatGramSpeechSynthesisOperation: NSObject, AVSpeechSynthes
 
         if !self.bufferedPcm.isEmpty {
             let remainingCount = self.bufferedPcm.count
-            let wroteFrame = self.bufferedPcm.withUnsafeBytes { rawBuffer -> Bool in
+            let wroteFrame = self.bufferedPcm.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) -> Bool in
                 guard let baseAddress = rawBuffer.baseAddress else {
                     return false
                 }
