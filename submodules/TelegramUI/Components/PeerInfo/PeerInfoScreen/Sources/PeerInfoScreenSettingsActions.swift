@@ -661,6 +661,7 @@ private final class EahatGramArguments {
     let updateChainWorkerCount: (String) -> Void
     let openCurrentChainVisualization: () -> Void
     let runChainScan: () -> Void
+    let runFunctestAction: (Int) -> Void
     let refreshResponses: () -> Void
     let runGiftProbe: (Int) -> Void
     let showOtherMethod: (Int) -> Void
@@ -700,6 +701,7 @@ private final class EahatGramArguments {
         updateChainWorkerCount: @escaping (String) -> Void,
         openCurrentChainVisualization: @escaping () -> Void,
         runChainScan: @escaping () -> Void,
+        runFunctestAction: @escaping (Int) -> Void,
         refreshResponses: @escaping () -> Void,
         runGiftProbe: @escaping (Int) -> Void,
         showOtherMethod: @escaping (Int) -> Void
@@ -738,6 +740,7 @@ private final class EahatGramArguments {
         self.updateChainWorkerCount = updateChainWorkerCount
         self.openCurrentChainVisualization = openCurrentChainVisualization
         self.runChainScan = runChainScan
+        self.runFunctestAction = runFunctestAction
         self.refreshResponses = refreshResponses
         self.runGiftProbe = runGiftProbe
         self.showOtherMethod = showOtherMethod
@@ -747,6 +750,7 @@ private final class EahatGramArguments {
 private enum EahatGramSection: Int32 {
     case controls
     case farm
+    case functest
     case custom
     case stars
     case chain
@@ -760,6 +764,7 @@ private enum EahatGramTab: Int, Equatable {
     case test
     case chain
     case farm
+    case functest
 }
 
 private struct EahatGramState: Equatable {
@@ -863,6 +868,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case openCurrentChainVisualization
     case runChainScan
     case chainStatus(String)
+    case functestInfo(String)
+    case functestAction(Int, String)
     case refreshResponses
     case noGifts(String)
     case giftsSummary(String)
@@ -881,6 +888,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
+        case .functestInfo, .functestAction:
+            return EahatGramSection.functest.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
         case .starsAmount, .addStars, .starsStatus:
@@ -970,6 +979,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 108
         case .chainStatus:
             return 109
+        case .functestInfo:
+            return 110
+        case let .functestAction(index, _):
+            return 6000000 + index
         case .refreshResponses:
             return 102
         case .noGifts:
@@ -1210,6 +1223,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case let .chainStatus(lhsText):
             if case let .chainStatus(rhsText) = rhs {
                 return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .functestInfo(lhsText):
+            if case let .functestInfo(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .functestAction(lhsIndex, lhsText):
+            if case let .functestAction(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
             }
@@ -1742,6 +1767,21 @@ private enum EahatGramEntry: ItemListNodeEntry {
             )
         case let .chainStatus(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .functestInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .functestAction(index, text):
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: text,
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.runFunctestAction(index)
+                }
+            )
         case .refreshResponses:
             return ItemListActionItem(
                 presentationData: presentationData,
@@ -1867,6 +1907,21 @@ private func eahatGramFarmJobInfo(_ job: EahatGramFarmJob) -> String {
     return "command=\(job.command) interval=\(job.intervalMinutes)m lastTriggeredAt=\(lastTriggeredAt) \(lastResultText)"
 }
 
+private func eahatGramFunctestActions() -> [String] {
+    return [
+        "Copy My PeerId",
+        "Copy My Username",
+        "Use Me As Chain Root",
+        "Generate Fake Number",
+        "Generate NFT Tag",
+        "Generate NFT Price",
+        "Apply No Lags Preset",
+        "Apply Visual Preset",
+        "Fill Demo Farm Fields",
+        "Disable All Farm Jobs"
+    ]
+}
+
 private func eahatGramEntries(
     state: EahatGramState,
     gifts: [ProfileGiftsContext.State.StarGift],
@@ -1957,6 +2012,12 @@ private func eahatGramEntries(
                 entries.append(.farmJobInfo(i, eahatGramFarmJobInfo(job)))
                 entries.append(.removeFarmJob(i, "Delete @\(job.botUsername)"))
             }
+        }
+    case .functest:
+        let actions = eahatGramFunctestActions()
+        entries.append(.functestInfo("10 local one-tap actions. Each action mutates only current eahatGram state, settings or clipboard."))
+        for i in 0 ..< actions.count {
+            entries.append(.functestAction(i, actions[i]))
         }
     }
 
@@ -2495,6 +2556,148 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 chainBuildDisposable.set(nil)
             }))
         },
+        runFunctestAction: { index in
+            switch index {
+            case 0:
+                let peerIdText = "\(context.account.peerId.toInt64())"
+                UIPasteboard.general.string = peerIdText
+                appendResponse("functest copiedPeerId=\(peerIdText)")
+            case 1:
+                let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
+                |> take(1)
+                |> deliverOnMainQueue).startStandalone(next: { peer in
+                    guard let peer else {
+                        appendResponse("functest copyUsername failed reason=PEER_NIL")
+                        return
+                    }
+                    guard let addressName = peer.addressName, !addressName.isEmpty else {
+                        appendResponse("functest copyUsername failed reason=USERNAME_EMPTY")
+                        return
+                    }
+                    let username = "@\(addressName)"
+                    UIPasteboard.general.string = username
+                    appendResponse("functest copiedUsername=\(username)")
+                })
+            case 2:
+                let peerIdText = "\(context.account.peerId.toInt64())"
+                updateState { current in
+                    var current = current
+                    current.chainPeerIdText = peerIdText
+                    return current
+                }
+                appendResponse("functest chainPeerId=\(peerIdText)")
+            case 3:
+                let suffix = abs(context.account.peerId.toInt64()) % 10000000
+                let fakeNumber = "7999" + String(format: "%07lld", suffix)
+                EahatGramDebugSettings.setFakePhoneNumber(fakeNumber)
+                updateState { current in
+                    var current = current
+                    current.fakePhoneNumberText = fakeNumber
+                    return current
+                }
+                appendResponse("functest fakePhone=\(fakeNumber)")
+            case 4:
+                let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
+                |> take(1)
+                |> deliverOnMainQueue).startStandalone(next: { peer in
+                    let tag: String
+                    if let addressName = peer?.addressName, !addressName.isEmpty {
+                        tag = eahatGramNormalizedUsernameTag(addressName)
+                    } else {
+                        tag = "fragment\(abs(context.account.peerId.toInt64()) % 100000)"
+                    }
+                    EahatGramDebugSettings.setNftUsernameTag(tag)
+                    let currentPrice = EahatGramDebugSettings.nftUsernamePrice.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    if tag.isEmpty && currentPrice.isEmpty {
+                        EahatGramDebugSettings.setNftUsernamePurchaseDate(nil)
+                    } else {
+                        EahatGramDebugSettings.setNftUsernamePurchaseDate(Int32(Date().timeIntervalSince1970))
+                    }
+                    updateState { current in
+                        var current = current
+                        current.nftUsernameTagText = tag
+                        return current
+                    }
+                    appendResponse("functest nftTag=\(tag)")
+                })
+            case 5:
+                let tonValue = 10 + Int(abs(context.account.peerId.toInt64()) % 91)
+                let usdValue = Double(tonValue) * 1.4
+                let priceText = String(format: "%d TON ($%.2f)", tonValue, usdValue)
+                EahatGramDebugSettings.setNftUsernamePrice(priceText)
+                let currentTag = EahatGramDebugSettings.nftUsernameTag.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                if priceText.isEmpty && currentTag.isEmpty {
+                    EahatGramDebugSettings.setNftUsernamePurchaseDate(nil)
+                } else {
+                    EahatGramDebugSettings.setNftUsernamePurchaseDate(Int32(Date().timeIntervalSince1970))
+                }
+                updateState { current in
+                    var current = current
+                    current.nftUsernamePriceText = priceText
+                    return current
+                }
+                appendResponse("functest nftPrice=\(priceText)")
+            case 6:
+                let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                    var settings = settings
+                    settings.noLagsEnabled = true
+                    settings.disableBackgroundAnimation = true
+                    settings.forceClearGlass = true
+                    settings.fakeGlass = false
+                    return settings
+                }).start()
+                let _ = updateMediaDownloadSettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                    var settings = settings
+                    settings.downloadInBackground = false
+                    settings.energyUsageSettings = EnergyUsageSettings.powerSavingDefault
+                    return settings
+                }).start()
+                GlassBackgroundView.useCustomGlassImpl = false
+                updateState { current in
+                    var current = current
+                    current.noLagsEnabled = true
+                    current.liquidGlassEnabled = false
+                    return current
+                }
+                appendResponse("functest preset=noLags")
+            case 7:
+                let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                    var settings = settings
+                    settings.noLagsEnabled = false
+                    settings.disableBackgroundAnimation = false
+                    settings.forceClearGlass = false
+                    settings.fakeGlass = true
+                    return settings
+                }).start()
+                GlassBackgroundView.useCustomGlassImpl = true
+                EahatGramDebugSettings.setTargetHudEnabled(true)
+                updateState { current in
+                    var current = current
+                    current.targetHudEnabled = true
+                    current.noLagsEnabled = false
+                    current.liquidGlassEnabled = true
+                    return current
+                }
+                appendResponse("functest preset=visual")
+            case 8:
+                updateState { current in
+                    var current = current
+                    current.farmBotUsernameText = "wallet"
+                    current.farmCommandText = "/farm"
+                    current.farmIntervalText = "240"
+                    return current
+                }
+                appendResponse("functest filledFarmFields bot=@wallet interval=240 command=/farm")
+            case 9:
+                let farmJobs = currentFarmJobs.with { $0 }
+                for job in farmJobs {
+                    EahatGramFarmManager.shared.setJobEnabled(id: job.id, value: false)
+                }
+                appendResponse("functest disabledFarmJobs count=\(farmJobs.count)")
+            default:
+                appendResponse("functest failed reason=UNKNOWN_ACTION index=\(index)")
+            }
+        },
         refreshResponses: refreshResponses,
         runGiftProbe: { index in
             let gifts = currentGifts.with { $0 }
@@ -2543,7 +2746,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .textWithTabs("eahatGram", ["me", "test", "chain", "farm"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test", "chain", "farm", "functest"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),

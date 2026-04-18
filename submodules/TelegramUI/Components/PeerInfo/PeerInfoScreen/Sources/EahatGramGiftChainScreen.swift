@@ -339,6 +339,358 @@ private func eahatGramGiftChainPathCopyText(
     return pathPeerIds.map { eahatGramGiftChainPathCopyComponent(graph: graph, peerId: $0) }.joined(separator: " -> ")
 }
 
+private func eahatGramGiftChainHTMLEscape(_ value: String) -> String {
+    return value
+        .replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+        .replacingOccurrences(of: "\"", with: "&quot;")
+        .replacingOccurrences(of: "'", with: "&#39;")
+}
+
+private func eahatGramGiftChainHTMLDocument(
+    visualizationState: EahatGramGiftChainVisualizationState
+) -> String {
+    let graph = eahatGramGiftChainDisplayGraph(visualizationState: visualizationState)
+    let generatedAt = ISO8601DateFormatter().string(from: Date())
+    let selectedPathText: String
+    if !visualizationState.selectedEdges.isEmpty {
+        selectedPathText = eahatGramGiftChainPathText(graph: visualizationState.graph, edges: visualizationState.selectedEdges)
+    } else if let focusedPeerId = visualizationState.focusedPeerId {
+        selectedPathText = eahatGramGiftChainPathCopyText(graph: visualizationState.graph, targetPeerId: focusedPeerId)
+    } else {
+        selectedPathText = "Path not selected"
+    }
+
+    let groupedNodes = Dictionary(grouping: graph.nodes, by: { $0.depth })
+    let depthSections = groupedNodes.keys.sorted().map { depth -> String in
+        let cards = (groupedNodes[depth] ?? []).sorted(by: { lhs, rhs in
+            if lhs.incomingGiftCount != rhs.incomingGiftCount {
+                return lhs.incomingGiftCount > rhs.incomingGiftCount
+            }
+            return eahatGramRawPeerId(lhs.peerId) < eahatGramRawPeerId(rhs.peerId)
+        }).map { node -> String in
+            let username = node.peer.addressName.flatMap { "@\($0)" } ?? "@-"
+            let searchText = "\(node.peer.compactDisplayTitle) \(username) \(eahatGramRawPeerId(node.peerId))".lowercased()
+            let parentText = node.parentPeerId.map { "\(eahatGramRawPeerId($0))" } ?? "root"
+            return """
+            <article class="node-card" data-search="\(eahatGramGiftChainHTMLEscape(searchText))">
+              <div class="node-title">\(eahatGramGiftChainHTMLEscape(node.peer.compactDisplayTitle))</div>
+              <div class="node-subtitle">\(eahatGramGiftChainHTMLEscape(username))</div>
+              <div class="node-meta">id \(eahatGramRawPeerId(node.peerId))</div>
+              <div class="node-stats">
+                <span>incoming \(node.incomingGiftCount)</span>
+                <span>mutual \(node.mutualGiftCount)</span>
+                <span>parent \(parentText)</span>
+              </div>
+            </article>
+            """
+        }.joined(separator: "\n")
+        return """
+        <section class="depth-column">
+          <div class="depth-title">Depth \(depth)</div>
+          <div class="depth-cards">
+            \(cards)
+          </div>
+        </section>
+        """
+    }.joined(separator: "\n")
+
+    let edgeRows = graph.edges.sorted(by: { lhs, rhs in
+        if lhs.giftCount != rhs.giftCount {
+            return lhs.giftCount > rhs.giftCount
+        }
+        if eahatGramRawPeerId(lhs.fromPeerId) != eahatGramRawPeerId(rhs.fromPeerId) {
+            return eahatGramRawPeerId(lhs.fromPeerId) < eahatGramRawPeerId(rhs.fromPeerId)
+        }
+        return eahatGramRawPeerId(lhs.toPeerId) < eahatGramRawPeerId(rhs.toPeerId)
+    }).map { edge -> String in
+        let fromNode = graph.nodes.first(where: { $0.peerId == edge.fromPeerId })
+        let toNode = graph.nodes.first(where: { $0.peerId == edge.toPeerId })
+        let fromText = fromNode?.peer.addressName.flatMap { "@\($0)" } ?? "\(eahatGramRawPeerId(edge.fromPeerId))"
+        let toText = toNode?.peer.addressName.flatMap { "@\($0)" } ?? "\(eahatGramRawPeerId(edge.toPeerId))"
+        let searchText = "\(fromText) \(toText) \(eahatGramRawPeerId(edge.fromPeerId)) \(eahatGramRawPeerId(edge.toPeerId))".lowercased()
+        return """
+        <tr data-search="\(eahatGramGiftChainHTMLEscape(searchText))">
+          <td>\(eahatGramGiftChainHTMLEscape(fromText))</td>
+          <td>\(eahatGramGiftChainHTMLEscape(toText))</td>
+          <td>\(edge.giftCount)</td>
+          <td>\(edge.isMutual ? "yes" : "no")</td>
+        </tr>
+        """
+    }.joined(separator: "\n")
+
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Gift Chain Export</title>
+      <style>
+        :root {
+          color-scheme: dark;
+          --bg: #0a0b10;
+          --panel: rgba(20, 22, 31, 0.92);
+          --panel-strong: rgba(30, 34, 48, 0.98);
+          --stroke: rgba(255, 255, 255, 0.08);
+          --accent: #6db4ff;
+          --accent-2: #9d6bff;
+          --text: #eef2ff;
+          --muted: #9aa4c7;
+          --good: #67d38f;
+        }
+        * { box-sizing: border-box; }
+        body {
+          margin: 0;
+          min-height: 100vh;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          background:
+            radial-gradient(circle at top left, rgba(109, 180, 255, 0.20), transparent 28%),
+            radial-gradient(circle at top right, rgba(157, 107, 255, 0.18), transparent 24%),
+            linear-gradient(180deg, #0d1018 0%, #08090d 100%);
+          color: var(--text);
+        }
+        .shell {
+          width: min(1440px, calc(100vw - 48px));
+          margin: 24px auto 48px;
+        }
+        .hero, .panel {
+          background: var(--panel);
+          border: 1px solid var(--stroke);
+          border-radius: 22px;
+          backdrop-filter: blur(18px);
+          box-shadow: 0 22px 60px rgba(0, 0, 0, 0.30);
+        }
+        .hero {
+          padding: 28px;
+          margin-bottom: 20px;
+        }
+        .title {
+          font-size: 34px;
+          font-weight: 750;
+          letter-spacing: -0.04em;
+          margin: 0 0 10px;
+        }
+        .subtitle {
+          color: var(--muted);
+          font-size: 14px;
+          line-height: 1.6;
+          margin: 0;
+        }
+        .badges {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 12px;
+          margin-top: 22px;
+        }
+        .badge {
+          padding: 16px 18px;
+          border-radius: 18px;
+          background: var(--panel-strong);
+          border: 1px solid var(--stroke);
+        }
+        .badge-label {
+          color: var(--muted);
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .badge-value {
+          margin-top: 8px;
+          font-size: 24px;
+          font-weight: 700;
+        }
+        .toolbar {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          margin: 20px 0;
+        }
+        .search {
+          width: min(420px, 100%);
+          border: 1px solid var(--stroke);
+          border-radius: 16px;
+          padding: 14px 16px;
+          background: rgba(12, 14, 20, 0.88);
+          color: var(--text);
+          font-size: 14px;
+          outline: none;
+        }
+        .panel {
+          padding: 24px;
+          margin-bottom: 20px;
+        }
+        .panel-title {
+          margin: 0 0 14px;
+          font-size: 22px;
+          letter-spacing: -0.03em;
+        }
+        .path-box {
+          white-space: pre-wrap;
+          line-height: 1.7;
+          color: #dbe4ff;
+          background: rgba(8, 11, 18, 0.9);
+          border: 1px solid var(--stroke);
+          border-radius: 18px;
+          padding: 18px;
+        }
+        .depth-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+          gap: 16px;
+        }
+        .depth-column {
+          border: 1px solid var(--stroke);
+          border-radius: 18px;
+          background: rgba(11, 13, 20, 0.85);
+          padding: 16px;
+        }
+        .depth-title {
+          font-size: 12px;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          margin-bottom: 14px;
+        }
+        .depth-cards {
+          display: grid;
+          gap: 12px;
+        }
+        .node-card {
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 16px;
+          padding: 14px;
+          background: linear-gradient(180deg, rgba(36, 41, 58, 0.95), rgba(17, 20, 31, 0.96));
+        }
+        .node-title {
+          font-size: 17px;
+          font-weight: 650;
+        }
+        .node-subtitle, .node-meta {
+          color: var(--muted);
+          font-size: 13px;
+          margin-top: 4px;
+        }
+        .node-stats {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 12px;
+        }
+        .node-stats span {
+          font-size: 12px;
+          padding: 6px 10px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.06);
+          color: #dfe7ff;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          overflow: hidden;
+          border-radius: 18px;
+          border: 1px solid var(--stroke);
+        }
+        th, td {
+          text-align: left;
+          padding: 14px 16px;
+          font-size: 14px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        th {
+          color: var(--muted);
+          font-weight: 600;
+          background: rgba(255, 255, 255, 0.03);
+        }
+        tr:last-child td {
+          border-bottom: none;
+        }
+        .status-good {
+          color: var(--good);
+          font-weight: 700;
+        }
+        @media (max-width: 768px) {
+          .shell {
+            width: calc(100vw - 20px);
+            margin: 10px auto 24px;
+          }
+          .hero, .panel {
+            padding: 18px;
+            border-radius: 18px;
+          }
+          .title {
+            font-size: 28px;
+          }
+          th, td {
+            padding: 12px;
+            font-size: 13px;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="shell">
+        <section class="hero">
+          <h1 class="title">Gift Chain Export</h1>
+          <p class="subtitle">Generated at \(eahatGramGiftChainHTMLEscape(generatedAt)) for root peer id \(eahatGramRawPeerId(graph.rootPeerId)). Current selection and visible graph are embedded below for desktop review.</p>
+          <div class="badges">
+            <div class="badge"><div class="badge-label">Root Peer</div><div class="badge-value">\(eahatGramRawPeerId(graph.rootPeerId))</div></div>
+            <div class="badge"><div class="badge-label">Visible Nodes</div><div class="badge-value">\(graph.nodes.count)</div></div>
+            <div class="badge"><div class="badge-label">Visible Edges</div><div class="badge-value">\(graph.edges.count)</div></div>
+            <div class="badge"><div class="badge-label">Highlighted Edges</div><div class="badge-value">\(graph.highlightEdges.count)</div></div>
+            <div class="badge"><div class="badge-label">Selected Lines</div><div class="badge-value">\(visualizationState.selectedEdges.count)</div></div>
+            <div class="badge"><div class="badge-label">Truncated</div><div class="badge-value \(graph.isTruncated ? "" : "status-good")">\(graph.isTruncated ? "YES" : "NO")</div></div>
+          </div>
+        </section>
+
+        <div class="toolbar">
+          <input id="query" class="search" type="search" placeholder="Filter by title, @username or peer id" oninput="filterGiftChain()">
+        </div>
+
+        <section class="panel">
+          <h2 class="panel-title">Current Path</h2>
+          <div class="path-box">\(eahatGramGiftChainHTMLEscape(selectedPathText))</div>
+        </section>
+
+        <section class="panel">
+          <h2 class="panel-title">Nodes By Depth</h2>
+          <div class="depth-grid">
+            \(depthSections)
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2 class="panel-title">Edges</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>From</th>
+                <th>To</th>
+                <th>Gift Count</th>
+                <th>Mutual</th>
+              </tr>
+            </thead>
+            <tbody>
+              \(edgeRows)
+            </tbody>
+          </table>
+        </section>
+      </div>
+      <script>
+        function filterGiftChain() {
+          const query = (document.getElementById('query').value || '').toLowerCase().trim();
+          document.querySelectorAll('[data-search]').forEach(function(node) {
+            const haystack = node.getAttribute('data-search') || '';
+            node.style.display = !query || haystack.indexOf(query) !== -1 ? '' : 'none';
+          });
+        }
+      </script>
+    </body>
+    </html>
+    """
+}
+
 private func eahatGramGiftChainSelectedEdgeKeys(
     edges: [EahatGramGiftChainEdge]
 ) -> Set<String> {
@@ -1438,12 +1790,20 @@ final class EahatGramGiftChainScreen: ViewController {
 
         self.title = "Gift Chain"
         self.statusBar.statusBarStyle = self.presentationData.theme.rootController.statusBarStyle.style
-        self.navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Search by user",
-            style: .plain,
-            target: self,
-            action: #selector(self.searchPressed)
-        )
+        self.navigationItem.rightBarButtonItems = [
+            UIBarButtonItem(
+                title: "Export2HTML",
+                style: .plain,
+                target: self,
+                action: #selector(self.exportHTMLPressed)
+            ),
+            UIBarButtonItem(
+                title: "Search by user",
+                style: .plain,
+                target: self,
+                action: #selector(self.searchPressed)
+            )
+        ]
     }
 
     required init(coder aDecoder: NSCoder) {
@@ -1500,6 +1860,25 @@ final class EahatGramGiftChainScreen: ViewController {
             safeInsets: layout.safeInsets,
             navigationHeight: self.navigationLayout(layout: layout).navigationFrame.maxY
         )
+    }
+
+    @objc private func exportHTMLPressed() {
+        let html = eahatGramGiftChainHTMLDocument(visualizationState: self.visualizationState)
+        let fileName = "gift-chain-\(eahatGramRawPeerId(self.visualizationState.graph.rootPeerId))-\(Int(Date().timeIntervalSince1970))"
+        let exportUrl = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(fileName).appendingPathExtension("html")
+
+        do {
+            try html.write(to: exportUrl, atomically: true, encoding: .utf8)
+        } catch {
+            let alertController = UIAlertController(title: "Export failed", message: error.localizedDescription, preferredStyle: .alert)
+            alertController.addAction(UIAlertAction(title: "OK", style: .default))
+            self.present(alertController, animated: true)
+            return
+        }
+
+        let activityController = UIActivityViewController(activityItems: [exportUrl], applicationActivities: nil)
+        activityController.popoverPresentationController?.barButtonItem = self.navigationItem.rightBarButtonItems?.first
+        self.present(activityController, animated: true)
     }
 
     @objc private func searchPressed() {

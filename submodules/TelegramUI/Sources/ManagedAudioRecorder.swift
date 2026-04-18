@@ -123,6 +123,39 @@ private func eahatGramHighPassAudioPacket(_ input: [Int16], gain: Double) -> [In
     return output
 }
 
+private func eahatGramAmplifiedAudioPacket(_ input: [Int16], gain: Double) -> [Int16] {
+    guard !input.isEmpty else {
+        return input
+    }
+    return input.map { sample in
+        eahatGramClampedAudioSample(Int32((Double(sample) * gain).rounded()))
+    }
+}
+
+private func eahatGramSmoothedAudioPacket(_ input: [Int16], radius: Int) -> [Int16] {
+    guard !input.isEmpty, radius > 0 else {
+        return input
+    }
+    var output = [Int16](repeating: 0, count: input.count)
+    for index in 0 ..< input.count {
+        let lowerBound = max(0, index - radius)
+        let upperBound = min(input.count - 1, index + radius)
+        var sum: Int64 = 0
+        for currentIndex in lowerBound ... upperBound {
+            sum += Int64(input[currentIndex])
+        }
+        let count = Int64(upperBound - lowerBound + 1)
+        output[index] = eahatGramClampedAudioSample(Int32(sum / count))
+    }
+    return output
+}
+
+private func eahatGramPolishedPitchAudioPacket(_ input: [Int16], rate: Double, gain: Double, smoothingRadius: Int) -> [Int16] {
+    let shifted = eahatGramResampledAudioPacket(input, rate: rate)
+    let smoothed = eahatGramSmoothedAudioPacket(shifted, radius: smoothingRadius)
+    return eahatGramAmplifiedAudioPacket(smoothed, gain: gain)
+}
+
 private func eahatGramEchoAudioPacket(_ input: [Int16], delay: Int, decay: Double) -> [Int16] {
     guard delay > 0, input.count > delay else {
         return input
@@ -142,15 +175,10 @@ private func eahatGramAlienAudioPacket(_ input: [Int16]) -> [Int16] {
 }
 
 private func eahatGramMegaphoneAudioPacket(_ input: [Int16]) -> [Int16] {
-    let filtered = eahatGramHighPassAudioPacket(input, gain: 2.15)
-    return eahatGramBitcrushedAudioPacket(filtered, step: 384, gain: 1.22)
-}
-
-private func eahatGramMaskedPitchAudioPacket(_ input: [Int16], rate: Double, highPassGain: Double, crushStep: Int32, crushGain: Double, tremoloDepth: Double, tremoloPeriod: Double) -> [Int16] {
-    let shifted = eahatGramResampledAudioPacket(input, rate: rate)
-    let filtered = eahatGramHighPassAudioPacket(shifted, gain: highPassGain)
-    let crushed = eahatGramBitcrushedAudioPacket(filtered, step: crushStep, gain: crushGain)
-    return eahatGramTremoloAudioPacket(crushed, depth: tremoloDepth, period: tremoloPeriod)
+    let filtered = eahatGramHighPassAudioPacket(input, gain: 1.35)
+    let crushed = eahatGramBitcrushedAudioPacket(filtered, step: 192, gain: 1.08)
+    let smoothed = eahatGramSmoothedAudioPacket(crushed, radius: 1)
+    return eahatGramAmplifiedAudioPacket(smoothed, gain: 1.06)
 }
 
 private enum EahatGramManagedAudioVoiceModPreset: String {
@@ -187,25 +215,44 @@ private func eahatGramApplyVoiceMod(samples: UnsafeMutablePointer<Int16>, count:
     let output: [Int16]
     switch eahatGramManagedAudioVoiceModPreset() {
     case .chipmunk:
-        output = eahatGramMaskedPitchAudioPacket(input, rate: 1.34, highPassGain: 1.7, crushStep: 160, crushGain: 1.06, tremoloDepth: 0.18, tremoloPeriod: 31.0)
+        output = eahatGramPolishedPitchAudioPacket(input, rate: 1.28, gain: 1.06, smoothingRadius: 1)
     case .deep:
-        output = eahatGramMaskedPitchAudioPacket(input, rate: 0.72, highPassGain: 1.2, crushStep: 320, crushGain: 1.14, tremoloDepth: 0.12, tremoloPeriod: 43.0)
+        output = eahatGramPolishedPitchAudioPacket(input, rate: 0.78, gain: 1.08, smoothingRadius: 2)
     case .robot:
         output = eahatGramRobotizedAudioPacket(input)
     case .helium:
-        output = eahatGramMaskedPitchAudioPacket(input, rate: 1.5, highPassGain: 2.0, crushStep: 224, crushGain: 1.08, tremoloDepth: 0.22, tremoloPeriod: 27.0)
+        output = eahatGramPolishedPitchAudioPacket(input, rate: 1.42, gain: 1.04, smoothingRadius: 1)
     case .giant:
-        output = eahatGramMaskedPitchAudioPacket(input, rate: 0.58, highPassGain: 0.95, crushStep: 448, crushGain: 1.2, tremoloDepth: 0.16, tremoloPeriod: 47.0)
+        output = eahatGramPolishedPitchAudioPacket(input, rate: 0.64, gain: 1.12, smoothingRadius: 2)
     case .alien:
         output = eahatGramAlienAudioPacket(input)
     case .monster:
-        output = eahatGramBitcrushedAudioPacket(eahatGramResampledAudioPacket(input, rate: 0.68), step: 1024, gain: 1.35)
+        output = eahatGramAmplifiedAudioPacket(
+            eahatGramSmoothedAudioPacket(
+                eahatGramBitcrushedAudioPacket(eahatGramResampledAudioPacket(input, rate: 0.72), step: 640, gain: 1.12),
+                radius: 1
+            ),
+            gain: 1.08
+        )
     case .radio:
-        output = eahatGramBitcrushedAudioPacket(input, step: 768, gain: 1.08)
+        output = eahatGramSmoothedAudioPacket(
+            eahatGramBitcrushedAudioPacket(
+                eahatGramHighPassAudioPacket(input, gain: 1.1),
+                step: 320,
+                gain: 1.02
+            ),
+            radius: 1
+        )
     case .megaphone:
         output = eahatGramMegaphoneAudioPacket(input)
     case .whisper:
-        output = eahatGramHighPassAudioPacket(input, gain: 2.6)
+        output = eahatGramAmplifiedAudioPacket(
+            eahatGramSmoothedAudioPacket(
+                eahatGramHighPassAudioPacket(input, gain: 1.2),
+                radius: 1
+            ),
+            gain: 0.92
+        )
     case .tremolo:
         output = eahatGramTremoloAudioPacket(input, depth: 0.72, period: 22.0)
     case .echo:
