@@ -10,6 +10,54 @@ private struct TranscriptionResult {
     var isFinal: Bool
 }
 
+private func eahatGramNormalizedSpeechLocale(_ value: String) -> String {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "_", with: "-")
+    switch normalized.lowercased() {
+    case "ru":
+        return "ru-RU"
+    case "en":
+        return "en-US"
+    case "de":
+        return "de-DE"
+    case "fr":
+        return "fr-FR"
+    case "es":
+        return "es-ES"
+    case "it":
+        return "it-IT"
+    case "ja":
+        return "ja-JP"
+    case "ko":
+        return "ko-KR"
+    default:
+        return normalized
+    }
+}
+
+private func eahatGramSpeechLocales(appLocale: String) -> [String] {
+    var result: [String] = []
+    var seen = Set<String>()
+
+    func appendLocale(_ value: String) {
+        let normalized = eahatGramNormalizedSpeechLocale(value)
+        guard !normalized.isEmpty else {
+            return
+        }
+        if seen.insert(normalized).inserted {
+            result.append(normalized)
+        }
+    }
+
+    appendLocale(appLocale)
+    appendLocale(Locale.current.identifier)
+    for preferredLanguage in Locale.preferredLanguages {
+        appendLocale(preferredLanguage)
+    }
+    appendLocale("en-US")
+
+    return result
+}
+
 private func transcribeAudio(path: String, locale: String) -> Signal<TranscriptionResult?, NoError> {
     return Signal { subscriber in
         let disposable = MetaDisposable()
@@ -41,13 +89,6 @@ private func transcribeAudio(path: String, locale: String) -> Signal<Transcripti
                             speechRecognizerValue.defaultTaskHint = .dictation
                             sharedRecognizers[locale] = speechRecognizerValue
                             speechRecognizer = speechRecognizerValue
-                            
-                            if locale == "en-US" {
-                                speechRecognizer.supportsOnDeviceRecognition = true
-                            } else {
-                                speechRecognizer.supportsOnDeviceRecognition = false
-                            }
-                            speechRecognizer.supportsOnDeviceRecognition = true
                         }
                         
                         let tempFilePath = NSTemporaryDirectory() + "/\(UInt64.random(in: 0 ... UInt64.max)).m4a"
@@ -57,7 +98,7 @@ private func transcribeAudio(path: String, locale: String) -> Signal<Transcripti
                         if #available(iOS 16.0, *) {
                             request.addsPunctuation = true
                         }
-                        request.requiresOnDeviceRecognition = speechRecognizer.supportsOnDeviceRecognition
+                        request.requiresOnDeviceRecognition = false
                         request.shouldReportPartialResults = false
                         
                         let task = speechRecognizer.recognitionTask(with: request, resultHandler: { result, error in
@@ -106,13 +147,7 @@ public struct LocallyTranscribedAudio {
 
 public func transcribeAudio(path: String, appLocale: String) -> Signal<LocallyTranscribedAudio?, NoError> {
     var signals: [Signal<TranscriptionResult?, NoError>] = []
-    var locales: [String] = []
-    if !locales.contains(Locale.current.identifier) {
-        locales.append(Locale.current.identifier)
-    }
-    if locales.isEmpty {
-        locales.append("en-US")
-    }
+    let locales = eahatGramSpeechLocales(appLocale: appLocale)
     for locale in locales {
         signals.append(transcribeAudio(path: path, locale: locale))
     }

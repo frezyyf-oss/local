@@ -212,6 +212,14 @@ private func eahatGramSanitizedDeletedEntryData(
     attributes: ChatMessageEntryAttributes
 ) -> EahatGramPreviousMessageEntryData {
     var updatedAttributes = attributes
+    updatedAttributes.rank = nil
+    updatedAttributes.contentTypeHint = .generic
+    updatedAttributes.updatingMedia = nil
+    updatedAttributes.isPlaying = false
+    updatedAttributes.isCentered = false
+    updatedAttributes.authorStoryStats = nil
+    updatedAttributes.displayContinueThreadFooter = false
+    updatedAttributes.savedEditPreviousText = nil
     updatedAttributes.isSavedDeleted = true
     return EahatGramPreviousMessageEntryData(
         message: eahatGramSanitizedDeletedMessage(message),
@@ -257,9 +265,9 @@ private func eahatGramPersistedDeletedEntry(_ entry: EahatGramPreviousMessageEnt
         peers: persistedPeers,
         read: entry.read,
         isContact: entry.attributes.isContact,
-        contentTypeHint: eahatGramPersistedContentTypeHint(entry.attributes.contentTypeHint),
-        isCentered: entry.attributes.isCentered,
-        displayContinueThreadFooter: entry.attributes.displayContinueThreadFooter
+        contentTypeHint: eahatGramPersistedContentTypeHint(.generic),
+        isCentered: false,
+        displayContinueThreadFooter: false
     )
 }
 
@@ -278,12 +286,12 @@ private func eahatGramRestoredDeletedEntry(_ entry: EahatGramPersistedDeletedEnt
     var restoredAttributes = ChatMessageEntryAttributes(
         rank: nil,
         isContact: entry.isContact,
-        contentTypeHint: eahatGramContentTypeHint(entry.contentTypeHint),
+        contentTypeHint: .generic,
         updatingMedia: nil,
         isPlaying: false,
-        isCentered: entry.isCentered,
+        isCentered: false,
         authorStoryStats: nil,
-        displayContinueThreadFooter: entry.displayContinueThreadFooter
+        displayContinueThreadFooter: false
     )
     restoredAttributes.isSavedDeleted = true
     let message = Message(
