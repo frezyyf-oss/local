@@ -483,7 +483,7 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
                     attributes: updatedAttributes
                 )
             case let .MessageGroupEntry(_, messages, presentationData):
-                for (message, read, selection, attributes, location) in messages {
+                for (message, read, _, attributes, _) in messages {
                     if currentMessageIds.contains(message.id) {
                         continue
                     }
