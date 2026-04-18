@@ -180,7 +180,7 @@ private final class EahatGramWaveformBuilder {
     }
 }
 
-private final class EahatGramSpeechSynthesisOperation: NSObject, AVSpeechSynthesizerDelegate {
+private final class EahatGramSpeechSynthesisOperation: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
     private let queue: Queue
     private let text: String
     private let preset: EahatGramVoiceModV2Voice
