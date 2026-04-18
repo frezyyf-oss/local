@@ -144,6 +144,8 @@ final class EahatGramDebugSettings {
     private static let fakePhoneNumberKey = "eahatGram.fakePhoneNumber"
     private static let voiceModEnabledKey = "eahatGram.voiceModEnabled"
     private static let voiceModPresetKey = "eahatGram.voiceModPreset"
+    private static let voiceModV2EnabledKey = "eahatGram.voiceModV2Enabled"
+    private static let voiceModV2VoiceKey = "eahatGram.voiceModV2Voice"
 
     static let targetHudEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: targetHudEnabledKey) as? Bool ?? false)
     static let nftUsernameTag = Atomic<String>(value: UserDefaults.standard.string(forKey: nftUsernameTagKey) ?? "")
@@ -152,6 +154,8 @@ final class EahatGramDebugSettings {
     static let fakePhoneNumber = Atomic<String>(value: UserDefaults.standard.string(forKey: fakePhoneNumberKey) ?? "")
     static let voiceModEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: voiceModEnabledKey) as? Bool ?? false)
     static let voiceModPreset = Atomic<String>(value: UserDefaults.standard.string(forKey: voiceModPresetKey) ?? EahatGramVoiceModPreset.chipmunk.rawValue)
+    static let voiceModV2Enabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: voiceModV2EnabledKey) as? Bool ?? false)
+    static let voiceModV2Voice = Atomic<String>(value: UserDefaults.standard.string(forKey: voiceModV2VoiceKey) ?? EahatGramVoiceModV2Voice.ruNeutral.rawValue)
     static let targetHudOrigin = Atomic<CGPoint?>(value: nil)
 
     static func setTargetHudEnabled(_ value: Bool) {
@@ -207,8 +211,26 @@ final class EahatGramDebugSettings {
         UserDefaults.standard.set(value.rawValue, forKey: self.voiceModPresetKey)
     }
 
+    static func setVoiceModV2Enabled(_ value: Bool) {
+        _ = self.voiceModV2Enabled.modify { _ in
+            value
+        }
+        UserDefaults.standard.set(value, forKey: self.voiceModV2EnabledKey)
+    }
+
+    static func setVoiceModV2Voice(_ value: EahatGramVoiceModV2Voice) {
+        _ = self.voiceModV2Voice.modify { _ in
+            value.rawValue
+        }
+        UserDefaults.standard.set(value.rawValue, forKey: self.voiceModV2VoiceKey)
+    }
+
     static func resolvedVoiceModPreset() -> EahatGramVoiceModPreset {
         return EahatGramVoiceModPreset(rawValue: self.voiceModPreset.with { $0 }) ?? .chipmunk
+    }
+
+    static func resolvedVoiceModV2Voice() -> EahatGramVoiceModV2Voice {
+        return EahatGramVoiceModV2Voice(rawValue: self.voiceModV2Voice.with { $0 }) ?? .ruNeutral
     }
 }
 
@@ -252,6 +274,56 @@ enum EahatGramVoiceModPreset: String, CaseIterable {
             return "Tremolo"
         case .echo:
             return "Echo"
+        }
+    }
+}
+
+public enum EahatGramVoiceModV2Voice: String, CaseIterable {
+    case ruNeutral
+    case ruSoft
+    case ruFast
+    case ruLow
+    case enNeutral
+    case enSoft
+    case enFast
+    case enLow
+    case deNeutral
+    case frNeutral
+    case esNeutral
+    case itNeutral
+    case jaNeutral
+    case koNeutral
+
+    public var title: String {
+        switch self {
+        case .ruNeutral:
+            return "RU Neutral"
+        case .ruSoft:
+            return "RU Soft"
+        case .ruFast:
+            return "RU Fast"
+        case .ruLow:
+            return "RU Low"
+        case .enNeutral:
+            return "EN Neutral"
+        case .enSoft:
+            return "EN Soft"
+        case .enFast:
+            return "EN Fast"
+        case .enLow:
+            return "EN Low"
+        case .deNeutral:
+            return "DE Neutral"
+        case .frNeutral:
+            return "FR Neutral"
+        case .esNeutral:
+            return "ES Neutral"
+        case .itNeutral:
+            return "IT Neutral"
+        case .jaNeutral:
+            return "JA Neutral"
+        case .koNeutral:
+            return "KO Neutral"
         }
     }
 }

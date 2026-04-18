@@ -198,9 +198,14 @@ private enum EahatGramManagedAudioVoiceModPreset: String {
 
 private let eahatGramVoiceModEnabledDefaultsKey = "eahatGram.voiceModEnabled"
 private let eahatGramVoiceModPresetDefaultsKey = "eahatGram.voiceModPreset"
+private let eahatGramVoiceModV2EnabledDefaultsKey = "eahatGram.voiceModV2Enabled"
 
 private func eahatGramManagedAudioVoiceModEnabled() -> Bool {
     return UserDefaults.standard.object(forKey: eahatGramVoiceModEnabledDefaultsKey) as? Bool ?? false
+}
+
+private func eahatGramManagedAudioVoiceModV2Enabled() -> Bool {
+    return UserDefaults.standard.object(forKey: eahatGramVoiceModV2EnabledDefaultsKey) as? Bool ?? false
 }
 
 private func eahatGramManagedAudioVoiceModPreset() -> EahatGramManagedAudioVoiceModPreset {
@@ -208,7 +213,7 @@ private func eahatGramManagedAudioVoiceModPreset() -> EahatGramManagedAudioVoice
 }
 
 private func eahatGramApplyVoiceMod(samples: UnsafeMutablePointer<Int16>, count: Int) {
-    guard count > 1, eahatGramManagedAudioVoiceModEnabled() else {
+    guard count > 1, eahatGramManagedAudioVoiceModEnabled(), !eahatGramManagedAudioVoiceModV2Enabled() else {
         return
     }
     let input = Array(UnsafeBufferPointer(start: samples, count: count))

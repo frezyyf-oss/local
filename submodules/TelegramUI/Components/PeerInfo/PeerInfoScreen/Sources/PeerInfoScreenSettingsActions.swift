@@ -654,6 +654,8 @@ private final class EahatGramArguments {
     let removeFarmJob: (Int) -> Void
     let updateVoiceModEnabled: (Bool) -> Void
     let selectVoiceModPreset: () -> Void
+    let updateVoiceModV2Enabled: (Bool) -> Void
+    let selectVoiceModV2Voice: () -> Void
     let updateUseDirectRpc: (Bool) -> Void
     let updateChainPeerId: (String) -> Void
     let updateChainDepth: (String) -> Void
@@ -661,7 +663,7 @@ private final class EahatGramArguments {
     let updateChainWorkerCount: (String) -> Void
     let openCurrentChainVisualization: () -> Void
     let runChainScan: () -> Void
-    let runFunctestAction: (Int) -> Void
+    let updateFunctestToggle: (Int, Bool) -> Void
     let refreshResponses: () -> Void
     let runGiftProbe: (Int) -> Void
     let showOtherMethod: (Int) -> Void
@@ -694,6 +696,8 @@ private final class EahatGramArguments {
         removeFarmJob: @escaping (Int) -> Void,
         updateVoiceModEnabled: @escaping (Bool) -> Void,
         selectVoiceModPreset: @escaping () -> Void,
+        updateVoiceModV2Enabled: @escaping (Bool) -> Void,
+        selectVoiceModV2Voice: @escaping () -> Void,
         updateUseDirectRpc: @escaping (Bool) -> Void,
         updateChainPeerId: @escaping (String) -> Void,
         updateChainDepth: @escaping (String) -> Void,
@@ -701,7 +705,7 @@ private final class EahatGramArguments {
         updateChainWorkerCount: @escaping (String) -> Void,
         openCurrentChainVisualization: @escaping () -> Void,
         runChainScan: @escaping () -> Void,
-        runFunctestAction: @escaping (Int) -> Void,
+        updateFunctestToggle: @escaping (Int, Bool) -> Void,
         refreshResponses: @escaping () -> Void,
         runGiftProbe: @escaping (Int) -> Void,
         showOtherMethod: @escaping (Int) -> Void
@@ -733,6 +737,8 @@ private final class EahatGramArguments {
         self.removeFarmJob = removeFarmJob
         self.updateVoiceModEnabled = updateVoiceModEnabled
         self.selectVoiceModPreset = selectVoiceModPreset
+        self.updateVoiceModV2Enabled = updateVoiceModV2Enabled
+        self.selectVoiceModV2Voice = selectVoiceModV2Voice
         self.updateUseDirectRpc = updateUseDirectRpc
         self.updateChainPeerId = updateChainPeerId
         self.updateChainDepth = updateChainDepth
@@ -740,7 +746,7 @@ private final class EahatGramArguments {
         self.updateChainWorkerCount = updateChainWorkerCount
         self.openCurrentChainVisualization = openCurrentChainVisualization
         self.runChainScan = runChainScan
-        self.runFunctestAction = runFunctestAction
+        self.updateFunctestToggle = updateFunctestToggle
         self.refreshResponses = refreshResponses
         self.runGiftProbe = runGiftProbe
         self.showOtherMethod = showOtherMethod
@@ -785,6 +791,8 @@ private struct EahatGramState: Equatable {
     var farmIntervalText: String
     var voiceModEnabled: Bool
     var voiceModPreset: String
+    var voiceModV2Enabled: Bool
+    var voiceModV2Voice: String
     var nftUsernameTagText: String
     var nftUsernamePriceText: String
     var fakePhoneNumberText: String
@@ -796,9 +804,19 @@ private struct EahatGramState: Equatable {
     var chainWorkerCountText: String
     var chainStatusText: String
     var hasCurrentChainVisualization: Bool
+    var functestSkipReadHistoryEnabled: Bool
+    var functestAlwaysDisplayTypingEnabled: Bool
+    var functestEnablePWAEnabled: Bool
+    var functestDisableImageContentAnalysisEnabled: Bool
+    var functestStoriesJpegExperimentEnabled: Bool
+    var functestDisableCallV2Enabled: Bool
+    var functestEnableVoipTcpEnabled: Bool
+    var functestPlayerV2Enabled: Bool
+    var functestDisableLanguageRecognitionEnabled: Bool
+    var functestDisableReloginTokensEnabled: Bool
     var responses: [String]
 
-    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, ghostModeEnabled: Bool, fakeOnlineEnabled: Bool, saveDeletedMessagesEnabled: Bool, saveEditedMessagesEnabled: Bool, noLagsEnabled: Bool, viewUnread2ReadEnabled: Bool, hasCurrentChainVisualization: Bool) {
+    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, ghostModeEnabled: Bool, fakeOnlineEnabled: Bool, saveDeletedMessagesEnabled: Bool, saveEditedMessagesEnabled: Bool, noLagsEnabled: Bool, viewUnread2ReadEnabled: Bool, hasCurrentChainVisualization: Bool, experimentalSettings: ExperimentalUISettings) {
         self.selectedTab = .me
         self.selectedPeerId = nil
         self.selectedPeerTitle = ""
@@ -816,6 +834,8 @@ private struct EahatGramState: Equatable {
         self.farmIntervalText = "240"
         self.voiceModEnabled = EahatGramDebugSettings.voiceModEnabled.with { $0 }
         self.voiceModPreset = EahatGramDebugSettings.resolvedVoiceModPreset().title
+        self.voiceModV2Enabled = EahatGramDebugSettings.voiceModV2Enabled.with { $0 }
+        self.voiceModV2Voice = EahatGramDebugSettings.resolvedVoiceModV2Voice().title
         self.nftUsernameTagText = EahatGramDebugSettings.nftUsernameTag.with { $0 }
         self.nftUsernamePriceText = EahatGramDebugSettings.nftUsernamePrice.with { $0 }
         self.fakePhoneNumberText = EahatGramDebugSettings.fakePhoneNumber.with { $0 }
@@ -827,6 +847,16 @@ private struct EahatGramState: Equatable {
         self.chainWorkerCountText = "\(eahatGramGiftChainDefaultConcurrentPeers)"
         self.chainStatusText = "No chain scan started"
         self.hasCurrentChainVisualization = hasCurrentChainVisualization
+        self.functestSkipReadHistoryEnabled = experimentalSettings.skipReadHistory
+        self.functestAlwaysDisplayTypingEnabled = experimentalSettings.alwaysDisplayTyping
+        self.functestEnablePWAEnabled = experimentalSettings.enablePWA
+        self.functestDisableImageContentAnalysisEnabled = experimentalSettings.disableImageContentAnalysis
+        self.functestStoriesJpegExperimentEnabled = experimentalSettings.storiesJpegExperiment
+        self.functestDisableCallV2Enabled = experimentalSettings.disableCallV2
+        self.functestEnableVoipTcpEnabled = experimentalSettings.enableVoipTcp
+        self.functestPlayerV2Enabled = experimentalSettings.playerV2
+        self.functestDisableLanguageRecognitionEnabled = experimentalSettings.disableLanguageRecognition
+        self.functestDisableReloginTokensEnabled = experimentalSettings.disableReloginTokens
         self.responses = []
     }
 }
@@ -860,6 +890,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case removeFarmJob(Int, String)
     case voiceMod(Bool)
     case voiceModPreset(String)
+    case voiceModV2(Bool)
+    case voiceModV2Voice(String)
     case useDirectRpc(Bool)
     case chainPeerId(String)
     case chainDepth(String)
@@ -869,7 +901,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case runChainScan
     case chainStatus(String)
     case functestInfo(String)
-    case functestAction(Int, String)
+    case functestToggle(Int, String, Bool)
     case refreshResponses
     case noGifts(String)
     case giftsSummary(String)
@@ -884,11 +916,11 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .viewUnread2Read, .voiceMod, .voiceModPreset, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
-        case .functestInfo, .functestAction:
+        case .functestInfo, .functestToggle:
             return EahatGramSection.functest.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
@@ -963,6 +995,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 12
         case .voiceModPreset:
             return 13
+        case .voiceModV2:
+            return 21
+        case .voiceModV2Voice:
+            return 22
         case .useDirectRpc:
             return 101
         case .chainPeerId:
@@ -981,7 +1017,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 109
         case .functestInfo:
             return 110
-        case let .functestAction(index, _):
+        case let .functestToggle(index, _, _):
             return 6000000 + index
         case .refreshResponses:
             return 102
@@ -1178,6 +1214,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
+        case let .voiceModV2(lhsValue):
+            if case let .voiceModV2(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .voiceModV2Voice(lhsText):
+            if case let .voiceModV2Voice(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
         case let .useDirectRpc(lhsValue):
             if case let .useDirectRpc(rhsValue) = rhs {
                 return lhsValue == rhsValue
@@ -1232,9 +1280,9 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
-        case let .functestAction(lhsIndex, lhsText):
-            if case let .functestAction(rhsIndex, rhsText) = rhs {
-                return lhsIndex == rhsIndex && lhsText == rhsText
+        case let .functestToggle(lhsIndex, lhsText, lhsValue):
+            if case let .functestToggle(rhsIndex, rhsText, rhsValue) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText && lhsValue == rhsValue
             } else {
                 return false
             }
@@ -1663,6 +1711,30 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.selectVoiceModPreset()
                 }
             )
+        case let .voiceModV2(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Mode V2",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateVoiceModV2Enabled(value)
+                }
+            )
+        case let .voiceModV2Voice(text):
+            return ItemListDisclosureItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Synthetic Voice",
+                label: text,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.selectVoiceModV2Voice()
+                }
+            )
         case let .useDirectRpc(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -1769,17 +1841,16 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .functestInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
-        case let .functestAction(index, text):
-            return ItemListActionItem(
+        case let .functestToggle(index, text, value):
+            return ItemListSwitchItem(
                 presentationData: presentationData,
                 systemStyle: .glass,
                 title: text,
-                kind: .generic,
-                alignment: .natural,
+                value: value,
                 sectionId: self.section,
                 style: .blocks,
-                action: {
-                    arguments.runFunctestAction(index)
+                updated: { updatedValue in
+                    arguments.updateFunctestToggle(index, updatedValue)
                 }
             )
         case .refreshResponses:
@@ -1907,19 +1978,142 @@ private func eahatGramFarmJobInfo(_ job: EahatGramFarmJob) -> String {
     return "command=\(job.command) interval=\(job.intervalMinutes)m lastTriggeredAt=\(lastTriggeredAt) \(lastResultText)"
 }
 
-private func eahatGramFunctestActions() -> [String] {
-    return [
-        "Copy My PeerId",
-        "Copy My Username",
-        "Use Me As Chain Root",
-        "Generate Fake Number",
-        "Generate NFT Tag",
-        "Generate NFT Price",
-        "Apply No Lags Preset",
-        "Apply Visual Preset",
-        "Fill Demo Farm Fields",
-        "Disable All Farm Jobs"
-    ]
+private enum EahatGramFunctestToggle: Int, CaseIterable {
+    case skipReadHistory
+    case alwaysDisplayTyping
+    case enablePWA
+    case disableImageContentAnalysis
+    case storiesJpegExperiment
+    case disableCallV2
+    case enableVoipTcp
+    case playerV2
+    case disableLanguageRecognition
+    case disableReloginTokens
+
+    var title: String {
+        switch self {
+        case .skipReadHistory:
+            return "Skip Read History"
+        case .alwaysDisplayTyping:
+            return "Always Display Typing"
+        case .enablePWA:
+            return "Enable PWA Browser"
+        case .disableImageContentAnalysis:
+            return "Disable Image Content Analysis"
+        case .storiesJpegExperiment:
+            return "Stories JPEG Experiment"
+        case .disableCallV2:
+            return "Disable Call V2"
+        case .enableVoipTcp:
+            return "Enable VoIP TCP"
+        case .playerV2:
+            return "Use Player V2"
+        case .disableLanguageRecognition:
+            return "Disable Language Recognition"
+        case .disableReloginTokens:
+            return "Disable Relogin Tokens"
+        }
+    }
+
+    var responseKey: String {
+        switch self {
+        case .skipReadHistory:
+            return "skipReadHistory"
+        case .alwaysDisplayTyping:
+            return "alwaysDisplayTyping"
+        case .enablePWA:
+            return "enablePWA"
+        case .disableImageContentAnalysis:
+            return "disableImageContentAnalysis"
+        case .storiesJpegExperiment:
+            return "storiesJpegExperiment"
+        case .disableCallV2:
+            return "disableCallV2"
+        case .enableVoipTcp:
+            return "enableVoipTcp"
+        case .playerV2:
+            return "playerV2"
+        case .disableLanguageRecognition:
+            return "disableLanguageRecognition"
+        case .disableReloginTokens:
+            return "disableReloginTokens"
+        }
+    }
+
+    func value(state: EahatGramState) -> Bool {
+        switch self {
+        case .skipReadHistory:
+            return state.functestSkipReadHistoryEnabled
+        case .alwaysDisplayTyping:
+            return state.functestAlwaysDisplayTypingEnabled
+        case .enablePWA:
+            return state.functestEnablePWAEnabled
+        case .disableImageContentAnalysis:
+            return state.functestDisableImageContentAnalysisEnabled
+        case .storiesJpegExperiment:
+            return state.functestStoriesJpegExperimentEnabled
+        case .disableCallV2:
+            return state.functestDisableCallV2Enabled
+        case .enableVoipTcp:
+            return state.functestEnableVoipTcpEnabled
+        case .playerV2:
+            return state.functestPlayerV2Enabled
+        case .disableLanguageRecognition:
+            return state.functestDisableLanguageRecognitionEnabled
+        case .disableReloginTokens:
+            return state.functestDisableReloginTokensEnabled
+        }
+    }
+
+    func update(state: inout EahatGramState, value: Bool) {
+        switch self {
+        case .skipReadHistory:
+            state.functestSkipReadHistoryEnabled = value
+        case .alwaysDisplayTyping:
+            state.functestAlwaysDisplayTypingEnabled = value
+        case .enablePWA:
+            state.functestEnablePWAEnabled = value
+        case .disableImageContentAnalysis:
+            state.functestDisableImageContentAnalysisEnabled = value
+        case .storiesJpegExperiment:
+            state.functestStoriesJpegExperimentEnabled = value
+        case .disableCallV2:
+            state.functestDisableCallV2Enabled = value
+        case .enableVoipTcp:
+            state.functestEnableVoipTcpEnabled = value
+        case .playerV2:
+            state.functestPlayerV2Enabled = value
+        case .disableLanguageRecognition:
+            state.functestDisableLanguageRecognitionEnabled = value
+        case .disableReloginTokens:
+            state.functestDisableReloginTokensEnabled = value
+        }
+    }
+
+    func update(settings: inout ExperimentalUISettings, value: Bool) {
+        switch self {
+        case .skipReadHistory:
+            settings.skipReadHistory = value
+        case .alwaysDisplayTyping:
+            settings.alwaysDisplayTyping = value
+        case .enablePWA:
+            settings.enablePWA = value
+        case .disableImageContentAnalysis:
+            settings.disableImageContentAnalysis = value
+        case .storiesJpegExperiment:
+            settings.storiesJpegExperiment = value
+        case .disableCallV2:
+            settings.disableCallV2 = value
+        case .enableVoipTcp:
+            settings.enableVoipTcp = value
+        case .playerV2:
+            settings.playerV2 = value
+        case .disableLanguageRecognition:
+            settings.disableLanguageRecognition = value
+        case .disableReloginTokens:
+            settings.disableReloginTokens = value
+        }
+    }
 }
 
 private func eahatGramEntries(
@@ -1957,7 +2151,12 @@ private func eahatGramEntries(
             entries.append(.viewUnread2Read(state.viewUnread2ReadEnabled))
             entries.append(.voiceMod(state.voiceModEnabled))
             if state.voiceModEnabled {
-                entries.append(.voiceModPreset(state.voiceModPreset))
+                entries.append(.voiceModV2(state.voiceModV2Enabled))
+                if state.voiceModV2Enabled {
+                    entries.append(.voiceModV2Voice(state.voiceModV2Voice))
+                } else {
+                    entries.append(.voiceModPreset(state.voiceModPreset))
+                }
             }
             if gifts.isEmpty {
             entries.append(.noGifts(noGiftsText))
@@ -2014,10 +2213,9 @@ private func eahatGramEntries(
             }
         }
     case .functest:
-        let actions = eahatGramFunctestActions()
-        entries.append(.functestInfo("10 local one-tap actions. Each action mutates only current eahatGram state, settings or clipboard."))
-        for i in 0 ..< actions.count {
-            entries.append(.functestAction(i, actions[i]))
+        entries.append(.functestInfo("10 runtime-backed ExperimentalUISettings switches. Each toggle writes a real boolean flag that is already read by existing code paths."))
+        for toggle in EahatGramFunctestToggle.allCases {
+            entries.append(.functestToggle(toggle.rawValue, toggle.title, toggle.value(state: state)))
         }
     }
 
@@ -2043,7 +2241,8 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         saveEditedMessagesEnabled: context.sharedContext.immediateExperimentalUISettings.saveEditedMessages,
         noLagsEnabled: context.sharedContext.immediateExperimentalUISettings.noLagsEnabled,
         viewUnread2ReadEnabled: context.sharedContext.immediateExperimentalUISettings.viewUnread2Read,
-        hasCurrentChainVisualization: eahatGramPersistedChainVisualizationState.with { $0 != nil }
+        hasCurrentChainVisualization: eahatGramPersistedChainVisualizationState.with { $0 != nil },
+        experimentalSettings: context.sharedContext.immediateExperimentalUISettings
     )
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -2462,6 +2661,40 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             ])
             presentControllerImpl?(actionSheet)
         },
+        updateVoiceModV2Enabled: { value in
+            EahatGramDebugSettings.setVoiceModV2Enabled(value)
+            updateState { current in
+                var current = current
+                current.voiceModV2Enabled = value
+                return current
+            }
+            appendResponse("voiceModV2 enabled=\(value)")
+        },
+        selectVoiceModV2Voice: {
+            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+            let actionSheet = ActionSheetController(presentationData: presentationData)
+            let items: [ActionSheetItem] = EahatGramVoiceModV2Voice.allCases.map { preset in
+                ActionSheetButtonItem(title: preset.title, color: .accent, action: { [weak actionSheet] in
+                    actionSheet?.dismissAnimated()
+                    EahatGramDebugSettings.setVoiceModV2Voice(preset)
+                    updateState { current in
+                        var current = current
+                        current.voiceModV2Voice = preset.title
+                        return current
+                    }
+                    appendResponse("voiceModV2 voice=\(preset.rawValue)")
+                })
+            }
+            actionSheet.setItemGroups([
+                ActionSheetItemGroup(items: items),
+                ActionSheetItemGroup(items: [
+                    ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
+                        actionSheet?.dismissAnimated()
+                    })
+                ])
+            ])
+            presentControllerImpl?(actionSheet)
+        },
         updateUseDirectRpc: { value in
             updateState { current in
                 var current = current
@@ -2556,147 +2789,22 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 chainBuildDisposable.set(nil)
             }))
         },
-        runFunctestAction: { index in
-            switch index {
-            case 0:
-                let peerIdText = "\(context.account.peerId.toInt64())"
-                UIPasteboard.general.string = peerIdText
-                appendResponse("functest copiedPeerId=\(peerIdText)")
-            case 1:
-                let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
-                |> take(1)
-                |> deliverOnMainQueue).startStandalone(next: { peer in
-                    guard let peer else {
-                        appendResponse("functest copyUsername failed reason=PEER_NIL")
-                        return
-                    }
-                    guard let addressName = peer.addressName, !addressName.isEmpty else {
-                        appendResponse("functest copyUsername failed reason=USERNAME_EMPTY")
-                        return
-                    }
-                    let username = "@\(addressName)"
-                    UIPasteboard.general.string = username
-                    appendResponse("functest copiedUsername=\(username)")
-                })
-            case 2:
-                let peerIdText = "\(context.account.peerId.toInt64())"
-                updateState { current in
-                    var current = current
-                    current.chainPeerIdText = peerIdText
-                    return current
-                }
-                appendResponse("functest chainPeerId=\(peerIdText)")
-            case 3:
-                let suffix = abs(context.account.peerId.toInt64()) % 10000000
-                let fakeNumber = "7999" + String(format: "%07lld", suffix)
-                EahatGramDebugSettings.setFakePhoneNumber(fakeNumber)
-                updateState { current in
-                    var current = current
-                    current.fakePhoneNumberText = fakeNumber
-                    return current
-                }
-                appendResponse("functest fakePhone=\(fakeNumber)")
-            case 4:
-                let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
-                |> take(1)
-                |> deliverOnMainQueue).startStandalone(next: { peer in
-                    let tag: String
-                    if let addressName = peer?.addressName, !addressName.isEmpty {
-                        tag = eahatGramNormalizedUsernameTag(addressName)
-                    } else {
-                        tag = "fragment\(abs(context.account.peerId.toInt64()) % 100000)"
-                    }
-                    EahatGramDebugSettings.setNftUsernameTag(tag)
-                    let currentPrice = EahatGramDebugSettings.nftUsernamePrice.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    if tag.isEmpty && currentPrice.isEmpty {
-                        EahatGramDebugSettings.setNftUsernamePurchaseDate(nil)
-                    } else {
-                        EahatGramDebugSettings.setNftUsernamePurchaseDate(Int32(Date().timeIntervalSince1970))
-                    }
-                    updateState { current in
-                        var current = current
-                        current.nftUsernameTagText = tag
-                        return current
-                    }
-                    appendResponse("functest nftTag=\(tag)")
-                })
-            case 5:
-                let tonValue = 10 + Int(abs(context.account.peerId.toInt64()) % 91)
-                let usdValue = Double(tonValue) * 1.4
-                let priceText = String(format: "%d TON ($%.2f)", tonValue, usdValue)
-                EahatGramDebugSettings.setNftUsernamePrice(priceText)
-                let currentTag = EahatGramDebugSettings.nftUsernameTag.with { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                if priceText.isEmpty && currentTag.isEmpty {
-                    EahatGramDebugSettings.setNftUsernamePurchaseDate(nil)
-                } else {
-                    EahatGramDebugSettings.setNftUsernamePurchaseDate(Int32(Date().timeIntervalSince1970))
-                }
-                updateState { current in
-                    var current = current
-                    current.nftUsernamePriceText = priceText
-                    return current
-                }
-                appendResponse("functest nftPrice=\(priceText)")
-            case 6:
-                let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
-                    var settings = settings
-                    settings.noLagsEnabled = true
-                    settings.disableBackgroundAnimation = true
-                    settings.forceClearGlass = true
-                    settings.fakeGlass = false
-                    return settings
-                }).start()
-                let _ = updateMediaDownloadSettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
-                    var settings = settings
-                    settings.downloadInBackground = false
-                    settings.energyUsageSettings = EnergyUsageSettings.powerSavingDefault
-                    return settings
-                }).start()
-                GlassBackgroundView.useCustomGlassImpl = false
-                updateState { current in
-                    var current = current
-                    current.noLagsEnabled = true
-                    current.liquidGlassEnabled = false
-                    return current
-                }
-                appendResponse("functest preset=noLags")
-            case 7:
-                let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
-                    var settings = settings
-                    settings.noLagsEnabled = false
-                    settings.disableBackgroundAnimation = false
-                    settings.forceClearGlass = false
-                    settings.fakeGlass = true
-                    return settings
-                }).start()
-                GlassBackgroundView.useCustomGlassImpl = true
-                EahatGramDebugSettings.setTargetHudEnabled(true)
-                updateState { current in
-                    var current = current
-                    current.targetHudEnabled = true
-                    current.noLagsEnabled = false
-                    current.liquidGlassEnabled = true
-                    return current
-                }
-                appendResponse("functest preset=visual")
-            case 8:
-                updateState { current in
-                    var current = current
-                    current.farmBotUsernameText = "wallet"
-                    current.farmCommandText = "/farm"
-                    current.farmIntervalText = "240"
-                    return current
-                }
-                appendResponse("functest filledFarmFields bot=@wallet interval=240 command=/farm")
-            case 9:
-                let farmJobs = currentFarmJobs.with { $0 }
-                for job in farmJobs {
-                    EahatGramFarmManager.shared.setJobEnabled(id: job.id, value: false)
-                }
-                appendResponse("functest disabledFarmJobs count=\(farmJobs.count)")
-            default:
-                appendResponse("functest failed reason=UNKNOWN_ACTION index=\(index)")
+        updateFunctestToggle: { index, value in
+            guard let toggle = EahatGramFunctestToggle(rawValue: index) else {
+                appendResponse("functestToggle failed reason=UNKNOWN_TOGGLE index=\(index)")
+                return
             }
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                toggle.update(settings: &settings, value: value)
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                toggle.update(state: &current, value: value)
+                return current
+            }
+            appendResponse("functestToggle key=\(toggle.responseKey) value=\(value ? 1 : 0)")
         },
         refreshResponses: refreshResponses,
         runGiftProbe: { index in
