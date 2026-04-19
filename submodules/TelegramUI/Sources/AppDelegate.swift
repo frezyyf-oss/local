@@ -1564,6 +1564,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         
         if #available(iOS 13.0, *) {
             let cleanupTaskId = "\(baseAppBundleId).cleanup"
+            let eahatGramFarmTaskId = "\(baseAppBundleId).eahatgram-farm"
             
             BGTaskScheduler.shared.register(forTaskWithIdentifier: cleanupTaskId, using: DispatchQueue.main) { task in
                 Logger.shared.log("App \(self.episodeId)", "Executing cleanup task")
@@ -1594,6 +1595,21 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 } catch let e {
                     Logger.shared.log("App \(self.episodeId)", "Error submitting background task request: \(e)")
                 }
+            })
+
+            BGTaskScheduler.shared.register(forTaskWithIdentifier: eahatGramFarmTaskId, using: DispatchQueue.main) { task in
+                guard let refreshTask = task as? BGAppRefreshTask else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                self.eahatGramHandleFarmBackgroundTask(refreshTask)
+            }
+
+            EahatGramFarmManager.shared.updateBackgroundRefreshUpdater({ [weak self] in
+                guard let self else {
+                    return
+                }
+                self.eahatGramUpdateFarmBackgroundTaskRequest()
             })
         }
         
@@ -1938,6 +1954,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
+        if #available(iOS 13.0, *) {
+            self.eahatGramUpdateFarmBackgroundTaskRequest()
+        }
         let _ = (self.sharedContextPromise.get()
         |> take(1)
         |> deliverOnMainQueue).start(next: { sharedApplicationContext in
@@ -2012,6 +2031,70 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 for (_, context, _) in activeAccounts.accounts {
                     (context.downloadedMediaStoreManager as? DownloadedMediaStoreManagerImpl)?.runTasks()
                 }
+            })
+        })
+    }
+
+    @available(iOS 13.0, *)
+    private func eahatGramFarmTaskIdentifier() -> String {
+        return "\(Bundle.main.bundleIdentifier!).eahatgram-farm"
+    }
+
+    @available(iOS 13.0, *)
+    private func eahatGramUpdateFarmBackgroundTaskRequest() {
+        let taskId = self.eahatGramFarmTaskIdentifier()
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskId)
+        guard let nextRefreshDate = EahatGramFarmManager.shared.nextBackgroundRefreshDate() else {
+            Logger.shared.log("App \(self.episodeId)", "No enabled eahatGram farm jobs, cleared background refresh request")
+            return
+        }
+        let request = BGAppRefreshTaskRequest(identifier: taskId)
+        request.earliestBeginDate = nextRefreshDate
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            Logger.shared.log("App \(self.episodeId)", "Scheduled eahatGram farm refresh task at \(nextRefreshDate.timeIntervalSince1970)")
+        } catch let error {
+            Logger.shared.log("App \(self.episodeId)", "Error submitting eahatGram farm refresh task: \(error)")
+        }
+    }
+
+    @available(iOS 13.0, *)
+    private func eahatGramHandleFarmBackgroundTask(_ task: BGAppRefreshTask) {
+        Logger.shared.log("App \(self.episodeId)", "Executing eahatGram farm refresh task")
+        var sharedContextDisposable: Disposable?
+        var activeAccountsDisposable: Disposable?
+        var didComplete = false
+        let completeTask: (Bool) -> Void = { [weak self] success in
+            guard let self, !didComplete else {
+                return
+            }
+            didComplete = true
+            sharedContextDisposable?.dispose()
+            activeAccountsDisposable?.dispose()
+            task.setTaskCompleted(success: success)
+            self.eahatGramUpdateFarmBackgroundTaskRequest()
+        }
+        task.expirationHandler = {
+            completeTask(false)
+        }
+        sharedContextDisposable = (self.sharedContextPromise.get()
+        |> take(1)
+        |> deliverOnMainQueue).start(next: { [weak self] sharedApplicationContext in
+            guard let self else {
+                completeTask(false)
+                return
+            }
+            activeAccountsDisposable = (sharedApplicationContext.sharedContext.activeAccountContexts
+            |> take(1)
+            |> deliverOnMainQueue).start(next: { activeAccounts in
+                guard let context = activeAccounts.primary ?? activeAccounts.accounts.first?.1 else {
+                    completeTask(false)
+                    return
+                }
+                EahatGramFarmManager.shared.updatePrimaryContext(context)
+                EahatGramFarmManager.shared.processDueJobsNow(context: context, completion: {
+                    completeTask(true)
+                })
             })
         })
     }

@@ -78,7 +78,7 @@ private struct EahatGramPersistedDeletedEntry: Codable {
 
 private let eahatGramSavedChatStateCache = Atomic<[String: EahatGramSavedChatState]>(value: [:])
 private let eahatGramSavedEditedTextsDefaultsKey = "eahatGram.savedEditedTexts"
-private let eahatGramSavedDeletedEntriesDefaultsKey = "eahatGram.savedDeletedEntries.v3"
+private let eahatGramSavedDeletedEntriesDefaultsKey = "eahatGram.savedDeletedEntries.v4"
 
 private func eahatGramSavedChatStateKey(chatLocation: ChatLocation) -> String {
     switch chatLocation {
@@ -104,6 +104,29 @@ private func eahatGramParsedSavedEditedTextKey(_ key: String) -> MessageId? {
         return nil
     }
     return MessageId(peerId: PeerId(peerIdValue), namespace: namespaceValue, id: idValue)
+}
+
+private func eahatGramSyntheticDeletedSeed(sourceMessageId: MessageId) -> UInt32 {
+    let peerIdValue = UInt64(bitPattern: sourceMessageId.peerId.toInt64())
+    var result = UInt32(bitPattern: sourceMessageId.namespace)
+    result = (result &* 16777619) ^ UInt32(bitPattern: sourceMessageId.id)
+    result = (result &* 16777619) ^ UInt32(truncatingIfNeeded: peerIdValue)
+    result = (result &* 16777619) ^ UInt32(truncatingIfNeeded: peerIdValue >> 32)
+    return result ^ 0xea4d0001
+}
+
+private func eahatGramSyntheticDeletedStableId(sourceMessageId: MessageId) -> UInt32 {
+    let stableId = eahatGramSyntheticDeletedSeed(sourceMessageId: sourceMessageId) | 0x80000000
+    if stableId == 0 {
+        return 0x80000001
+    } else {
+        return stableId
+    }
+}
+
+private func eahatGramSyntheticDeletedMessageId(sourceMessageId: MessageId) -> MessageId {
+    let positiveLocalId = Int32(bitPattern: (eahatGramSyntheticDeletedSeed(sourceMessageId: sourceMessageId) & 0x3fffffff) | 1)
+    return MessageId(peerId: sourceMessageId.peerId, namespace: Namespaces.Message.Local, id: -positiveLocalId)
 }
 
 private func eahatGramLoadPersistedEditedTexts(cacheKey: String) -> [MessageId: String] {
@@ -178,11 +201,13 @@ private func eahatGramContentTypeHint(_ value: Int32) -> ChatMessageEntryContent
 
 private func eahatGramSanitizedDeletedMessage(_ message: Message) -> Message {
     let syntheticFlags = MessageFlags(rawValue: message.flags.rawValue & MessageFlags.IsIncomingMask.rawValue)
+    let syntheticMessageId = eahatGramSyntheticDeletedMessageId(sourceMessageId: message.id)
+    let syntheticStableId = eahatGramSyntheticDeletedStableId(sourceMessageId: message.id)
     return Message(
-        stableId: message.stableId,
-        stableVersion: message.stableVersion,
-        id: message.id,
-        globallyUniqueId: message.globallyUniqueId,
+        stableId: syntheticStableId,
+        stableVersion: 0,
+        id: syntheticMessageId,
+        globallyUniqueId: nil,
         groupingKey: nil,
         groupInfo: nil,
         threadId: message.threadId,
@@ -232,17 +257,17 @@ private func eahatGramSanitizedDeletedEntryData(
     )
 }
 
-private func eahatGramPersistedDeletedEntry(_ entry: EahatGramPreviousMessageEntryData) -> EahatGramPersistedDeletedEntry {
+private func eahatGramPersistedDeletedEntry(sourceMessageId: MessageId, entry: EahatGramPreviousMessageEntryData) -> EahatGramPersistedDeletedEntry {
     let message = eahatGramSanitizedDeletedMessage(entry.message)
     let persistedPeers = message.peers.map { peerId, peer in
         return EahatGramPersistedPeer(peerId: peerId.toInt64(), peer: eahatGramEncodePersistedRawObject(peer))
     }
     let persistedAuthor = message.author.flatMap(eahatGramEncodePersistedRawObject)
     return EahatGramPersistedDeletedEntry(
-        stableId: message.stableId,
-        stableVersion: message.stableVersion,
-        messageId: message.id,
-        globallyUniqueId: message.globallyUniqueId,
+        stableId: entry.message.stableId,
+        stableVersion: entry.message.stableVersion,
+        messageId: sourceMessageId,
+        globallyUniqueId: nil,
         groupingKey: nil,
         groupStableId: nil,
         threadId: message.threadId,
@@ -295,11 +320,13 @@ private func eahatGramRestoredDeletedEntry(_ entry: EahatGramPersistedDeletedEnt
         displayContinueThreadFooter: false
     )
     restoredAttributes.isSavedDeleted = true
+    let syntheticMessageId = eahatGramSyntheticDeletedMessageId(sourceMessageId: entry.messageId)
+    let syntheticStableId = eahatGramSyntheticDeletedStableId(sourceMessageId: entry.messageId)
     let message = Message(
-        stableId: entry.stableId,
-        stableVersion: entry.stableVersion,
-        id: entry.messageId,
-        globallyUniqueId: entry.globallyUniqueId,
+        stableId: syntheticStableId,
+        stableVersion: 0,
+        id: syntheticMessageId,
+        globallyUniqueId: nil,
         groupingKey: nil,
         groupInfo: nil,
         threadId: entry.threadId,
@@ -374,8 +401,8 @@ private func eahatGramStorePersistedDeletedEntries(cacheKey: String, deletedEntr
     } else {
         let encodedEntries = deletedEntries
             .sorted(by: { lhs, rhs in lhs.key < rhs.key })
-            .map { _, entry in
-                eahatGramPersistedDeletedEntry(entry)
+            .map { sourceMessageId, entry in
+                eahatGramPersistedDeletedEntry(sourceMessageId: sourceMessageId, entry: entry)
             }
         if let rawChatValue = try? AdaptedPostboxEncoder().encode(encodedEntries) {
             rawRoot[cacheKey] = rawChatValue

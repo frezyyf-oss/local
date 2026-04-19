@@ -74,6 +74,7 @@ public final class EahatGramFarmManager {
     private var jobsValue: [EahatGramFarmJob]
     private var timer: SwiftSignalKit.Timer?
     private weak var primaryContext: AccountContext?
+    private var backgroundRefreshUpdater: (() -> Void)?
 
     private init() {
         let jobsValue = EahatGramFarmManager.loadPersistedJobs()
@@ -88,12 +89,33 @@ public final class EahatGramFarmManager {
         }
     }
 
+    public func updateBackgroundRefreshUpdater(_ updater: (() -> Void)?) {
+        self.queue.async {
+            self.backgroundRefreshUpdater = updater
+            updater?()
+        }
+    }
+
     func jobsSignal() -> Signal<[EahatGramFarmJob], NoError> {
         return self.jobsPromise.get()
     }
 
     func jobsSnapshot() -> [EahatGramFarmJob] {
         return self.jobsValue
+    }
+
+    func nextBackgroundRefreshDate() -> Date? {
+        let now = Int32(Date().timeIntervalSince1970)
+        guard let nextDueTimestamp = self.nextDueTimestamp(referenceTimestamp: now) else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: TimeInterval(max(now + 1, nextDueTimestamp)))
+    }
+
+    func processDueJobsNow(context: AccountContext, completion: (() -> Void)? = nil) {
+        self.queue.async {
+            self.processDueJobs(context: context, completion: completion)
+        }
     }
 
     func addJob(botUsername: String, command: String, intervalMinutes: Int32) {
@@ -143,6 +165,7 @@ public final class EahatGramFarmManager {
         EahatGramFarmManager.storePersistedJobs(self.jobsValue)
         self.jobsPromise.set(self.jobsValue)
         self.updateTimer()
+        self.backgroundRefreshUpdater?()
     }
 
     private func updateTimer() {
@@ -162,11 +185,34 @@ public final class EahatGramFarmManager {
         }
     }
 
+    private func nextDueTimestamp(referenceTimestamp: Int32) -> Int32? {
+        var result: Int32?
+        for job in self.jobsValue {
+            guard job.isEnabled else {
+                continue
+            }
+            let interval = max(1, job.intervalMinutes) * 60
+            let lastTriggeredAt = job.lastTriggeredAt ?? referenceTimestamp
+            let dueTimestamp = lastTriggeredAt + interval
+            if let current = result {
+                result = min(current, dueTimestamp)
+            } else {
+                result = dueTimestamp
+            }
+        }
+        return result
+    }
+
     private func processDueJobs() {
         guard let context = self.primaryContext else {
             return
         }
+        self.processDueJobs(context: context, completion: nil)
+    }
+
+    private func processDueJobs(context: AccountContext, completion: (() -> Void)?) {
         let now = Int32(Date().timeIntervalSince1970)
+        var dueJobs: [EahatGramFarmJob] = []
         for index in self.jobsValue.indices {
             guard self.jobsValue[index].isEnabled else {
                 continue
@@ -179,13 +225,34 @@ public final class EahatGramFarmManager {
             let job = self.jobsValue[index]
             self.jobsValue[index].lastTriggeredAt = now
             self.jobsValue[index].lastResultText = "sending"
-            self.commitJobs()
-
+            dueJobs.append(job)
+        }
+        if dueJobs.isEmpty {
+            completion?()
+            return
+        }
+        self.commitJobs()
+        var remainingJobCount = dueJobs.count
+        let completeJob: () -> Void = {
+            remainingJobCount -= 1
+            if remainingJobCount == 0 {
+                completion?()
+            }
+        }
+        for job in dueJobs {
             let command = job.command
             let signal = (context.engine.peers.resolvePeerByName(name: job.botUsername, referrer: nil)
+            |> filter { result in
+                if case .result = result {
+                    return true
+                } else {
+                    return false
+                }
+            }
+            |> take(1)
             |> mapToSignal { result -> Signal<(EnginePeer.Id?, [MessageId?]), NoError> in
                 guard case let .result(peer) = result else {
-                    return .complete()
+                    return .single((nil, []))
                 }
                 guard let resolvedPeer = peer else {
                     return .single((nil, []))
@@ -206,14 +273,27 @@ public final class EahatGramFarmManager {
                 return enqueueMessages(account: context.account, peerId: peerId, messages: [message])
                 |> map { (peerId, $0) }
             }
-            |> take(1)
             |> deliverOn(self.queue))
+
+            var didComplete = false
+            let completeJobIfNeeded: (_ fallbackResultText: String?) -> Void = { [weak self] fallbackResultText in
+                guard let self, !didComplete else {
+                    return
+                }
+                didComplete = true
+                if let fallbackResultText, let resultIndex = self.jobsValue.firstIndex(where: { $0.id == job.id }), self.jobsValue[resultIndex].lastResultText == "sending" {
+                    self.jobsValue[resultIndex].lastResultText = fallbackResultText
+                    self.commitJobs()
+                }
+                completeJob()
+            }
 
             let _ = signal.startStandalone(next: { [weak self] (peerId: EnginePeer.Id?, messageIds: [MessageId?]) in
                 guard let self else {
                     return
                 }
                 guard let resultIndex = self.jobsValue.firstIndex(where: { $0.id == job.id }) else {
+                    completeJobIfNeeded(nil)
                     return
                 }
                 if let peerId {
@@ -223,6 +303,9 @@ public final class EahatGramFarmManager {
                     self.jobsValue[resultIndex].lastResultText = "resolve_failed"
                 }
                 self.commitJobs()
+                completeJobIfNeeded(nil)
+            }, completed: {
+                completeJobIfNeeded("resolve_failed")
             })
         }
     }
