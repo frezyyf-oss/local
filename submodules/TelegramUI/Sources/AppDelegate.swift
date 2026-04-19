@@ -2080,11 +2080,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }
         sharedContextDisposable = (self.sharedContextPromise.get()
         |> take(1)
-        |> deliverOnMainQueue).start(next: { [weak self] sharedApplicationContext in
-            guard let self else {
-                completeTask(false)
-                return
-            }
+        |> deliverOnMainQueue).start(next: { sharedApplicationContext in
             activeAccountsDisposable = (sharedApplicationContext.sharedContext.activeAccountContexts
             |> take(1)
             |> deliverOnMainQueue).start(next: { activeAccounts in
