@@ -38,6 +38,7 @@ import AuthorizationUI
 import ManagedFile
 import DeviceProximity
 import MediaEditor
+import PeerInfoScreen
 import TelegramUIDeclareEncodables
 import ContextMenuScreen
 import MetalEngine

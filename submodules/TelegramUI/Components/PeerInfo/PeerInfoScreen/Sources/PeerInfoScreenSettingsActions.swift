@@ -104,7 +104,7 @@ public final class EahatGramFarmManager {
         return self.jobsValue
     }
 
-    func nextBackgroundRefreshDate() -> Date? {
+    public func nextBackgroundRefreshDate() -> Date? {
         let now = Int32(Date().timeIntervalSince1970)
         guard let nextDueTimestamp = self.nextDueTimestamp(referenceTimestamp: now) else {
             return nil
@@ -112,7 +112,7 @@ public final class EahatGramFarmManager {
         return Date(timeIntervalSince1970: TimeInterval(max(now + 1, nextDueTimestamp)))
     }
 
-    func processDueJobsNow(context: AccountContext, completion: (() -> Void)? = nil) {
+    public func processDueJobsNow(context: AccountContext, completion: (() -> Void)? = nil) {
         self.queue.async {
             self.processDueJobs(context: context, completion: completion)
         }
