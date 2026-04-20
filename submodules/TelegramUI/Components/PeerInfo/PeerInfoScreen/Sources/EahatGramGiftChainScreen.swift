@@ -366,8 +366,19 @@ private struct EahatGramGiftChainExportEdgeGeometry {
     let controlPoint2: CGPoint
 }
 
+private let eahatGramGiftChainSVGNumberFormatter: NumberFormatter = {
+    let formatter = NumberFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.numberStyle = .decimal
+    formatter.usesGroupingSeparator = false
+    formatter.minimumFractionDigits = 2
+    formatter.maximumFractionDigits = 2
+    formatter.decimalSeparator = "."
+    return formatter
+}()
+
 private func eahatGramGiftChainSVGNumber(_ value: CGFloat) -> String {
-    return String(format: Locale(identifier: "en_US_POSIX"), "%.2f", Double(value))
+    return eahatGramGiftChainSVGNumberFormatter.string(from: NSNumber(value: Double(value))) ?? "0.00"
 }
 
 private func eahatGramGiftChainSVGLabel(_ value: String, maxLength: Int) -> String {
