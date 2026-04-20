@@ -6,6 +6,7 @@
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).refresh</string>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).eahatgram-farm</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).eahatgram-farm-processing</string>
 	</array>
 	<key>CFBundleAllowMixedLocalizations</key>
 	<true/>
@@ -142,6 +143,7 @@
 		<string>audio</string>
 		<string>fetch</string>
 		<string>location</string>
+		<string>processing</string>
 		<string>remote-notification</string>
 		<string>voip</string>
 	</array>

@@ -1545,6 +1545,7 @@ plist_fragment(
         <string>{telegram_bundle_id}.refresh</string>
         <string>{telegram_bundle_id}.cleanup</string>
         <string>{telegram_bundle_id}.eahatgram-farm</string>
+        <string>{telegram_bundle_id}.eahatgram-farm-processing</string>
         <string>{telegram_bundle_id}.upload.*</string>
     </array>
     <key>CFBundleAllowMixedLocalizations</key>

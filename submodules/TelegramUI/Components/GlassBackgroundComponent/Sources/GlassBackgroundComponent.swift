@@ -324,6 +324,8 @@ public class GlassBackgroundView: UIView {
     private let nativeView: UIVisualEffectView?
     private let nativeViewClippingContext: ClippingShapeContext?
     private let nativeParamsView: EffectSettingsContainerView?
+    private let nativeHighlightLayer: CAGradientLayer?
+    private let nativeShadeLayer: CAGradientLayer?
 
     private let foregroundView: UIImageView?
     private let shadowView: UIImageView?
@@ -367,10 +369,10 @@ public class GlassBackgroundView: UIView {
             case .clear:
                 return isDark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight
             case .default:
-                return isDark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight
+                return isDark ? .systemThinMaterialDark : .systemThinMaterialLight
             }
         case .panel:
-            return isDark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight
+            return isDark ? .systemThinMaterialDark : .systemThinMaterialLight
         }
     }
 
@@ -378,22 +380,22 @@ public class GlassBackgroundView: UIView {
         switch tintColor.kind {
         case .panel:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.018)
+                return UIColor(white: 1.0, alpha: 0.012)
             } else {
-                return UIColor(white: 1.0, alpha: 0.045)
+                return UIColor(white: 1.0, alpha: 0.024)
             }
         case .clear:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.008)
+                return UIColor(white: 1.0, alpha: 0.004)
             } else {
-                return UIColor(white: 1.0, alpha: 0.018)
+                return UIColor(white: 1.0, alpha: 0.01)
             }
         case let .custom(style, color):
             switch style {
             case .clear:
-                return color.withAlphaComponent(isDark ? 0.025 : 0.04)
+                return color.withAlphaComponent(isDark ? 0.018 : 0.03)
             case .default:
-                return color.withAlphaComponent(isDark ? 0.045 : 0.08)
+                return color.withAlphaComponent(isDark ? 0.032 : 0.05)
             }
         }
     }
@@ -402,18 +404,18 @@ public class GlassBackgroundView: UIView {
         switch tintColor.kind {
         case .panel:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.09)
+                return UIColor(white: 1.0, alpha: 0.12)
             } else {
-                return UIColor(white: 1.0, alpha: 0.14)
+                return UIColor(white: 1.0, alpha: 0.18)
             }
         case .clear:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.035)
+                return UIColor(white: 1.0, alpha: 0.05)
             } else {
-                return UIColor(white: 1.0, alpha: 0.06)
+                return UIColor(white: 1.0, alpha: 0.075)
             }
         case let .custom(_, color):
-            return color.withAlphaComponent(isDark ? 0.15 : 0.2)
+            return color.withAlphaComponent(isDark ? 0.12 : 0.18)
         }
     }
 
@@ -434,6 +436,20 @@ public class GlassBackgroundView: UIView {
             nativeParamsView.isOpaque = false
             self.nativeParamsView = nativeParamsView
 
+            let nativeShadeLayer = CAGradientLayer()
+            nativeShadeLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
+            nativeShadeLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
+            nativeShadeLayer.locations = [0.0, 0.58, 1.0]
+            self.nativeShadeLayer = nativeShadeLayer
+            nativeView.contentView.layer.addSublayer(nativeShadeLayer)
+
+            let nativeHighlightLayer = CAGradientLayer()
+            nativeHighlightLayer.startPoint = CGPoint(x: 0.0, y: 0.0)
+            nativeHighlightLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
+            nativeHighlightLayer.locations = [0.0, 0.18, 0.62, 1.0]
+            self.nativeHighlightLayer = nativeHighlightLayer
+            nativeView.contentView.layer.addSublayer(nativeHighlightLayer)
+
             nativeParamsView.addSubview(nativeView)
 
             self.foregroundView = nil
@@ -451,6 +467,21 @@ public class GlassBackgroundView: UIView {
             nativeParamsView.backgroundColor = .clear
             nativeParamsView.isOpaque = false
             self.nativeParamsView = nativeParamsView
+
+            let nativeShadeLayer = CAGradientLayer()
+            nativeShadeLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
+            nativeShadeLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
+            nativeShadeLayer.locations = [0.0, 0.58, 1.0]
+            self.nativeShadeLayer = nativeShadeLayer
+            nativeView.contentView.layer.addSublayer(nativeShadeLayer)
+
+            let nativeHighlightLayer = CAGradientLayer()
+            nativeHighlightLayer.startPoint = CGPoint(x: 0.0, y: 0.0)
+            nativeHighlightLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
+            nativeHighlightLayer.locations = [0.0, 0.18, 0.62, 1.0]
+            self.nativeHighlightLayer = nativeHighlightLayer
+            nativeView.contentView.layer.addSublayer(nativeHighlightLayer)
+
             nativeParamsView.addSubview(nativeView)
 
             self.foregroundView = nil
@@ -464,6 +495,8 @@ public class GlassBackgroundView: UIView {
             self.nativeView = nil
             self.nativeViewClippingContext = nil
             self.nativeParamsView = nil
+            self.nativeHighlightLayer = nil
+            self.nativeShadeLayer = nil
             self.foregroundView = UIImageView()
 
             self.shadowView = UIImageView()
@@ -639,25 +672,25 @@ public class GlassBackgroundView: UIView {
             innerBackgroundView.removeFromSuperview()
         }
 
+        let usesClearTint: Bool
+        switch tintColor.kind {
+        case .clear:
+            usesClearTint = true
+        case let .custom(style, _):
+            usesClearTint = style == .clear
+        case .panel:
+            usesClearTint = false
+        }
+
+        let outerCornerRadius: CGFloat
+        switch shape {
+        case let .roundedRect(cornerRadius):
+            outerCornerRadius = cornerRadius
+        }
+
         let params = Params(shape: shape, isDark: isDark, tintColor: tintColor, isInteractive: isInteractive, isVisible: isVisible)
         if self.params != params {
             self.params = params
-
-            let usesClearTint: Bool
-            switch tintColor.kind {
-            case .clear:
-                usesClearTint = true
-            case let .custom(style, _):
-                usesClearTint = style == .clear
-            case .panel:
-                usesClearTint = false
-            }
-
-            let outerCornerRadius: CGFloat
-            switch shape {
-            case let .roundedRect(cornerRadius):
-                outerCornerRadius = cornerRadius
-            }
 
             if let shadowView = self.shadowView {
                 if usesClearTint {
@@ -713,103 +746,123 @@ public class GlassBackgroundView: UIView {
                     #endif
                     transition.setAlpha(view: foregroundView, alpha: isVisible ? 1.0 : 0.0)
                 }
-            } else {
-                if let nativeParamsView = self.nativeParamsView, let nativeView = self.nativeView {
-                    nativeView.contentView.backgroundColor = GlassBackgroundView.customGlassOverlayColor(isDark: isDark, tintColor: tintColor)
-                    nativeView.layer.cornerRadius = outerCornerRadius
-                    nativeView.contentView.layer.cornerRadius = outerCornerRadius
-                    nativeView.contentView.layer.masksToBounds = true
-                    nativeParamsView.layer.cornerRadius = outerCornerRadius
-                    nativeParamsView.layer.masksToBounds = false
-                    if #available(iOS 13.0, *) {
-                        nativeView.contentView.layer.cornerCurve = .continuous
-                        nativeParamsView.layer.cornerCurve = .continuous
-                    }
-                    nativeParamsView.layer.borderWidth = UIScreenPixel
-                    nativeParamsView.layer.borderColor = GlassBackgroundView.customGlassBorderColor(isDark: isDark, tintColor: tintColor).cgColor
-                    nativeParamsView.layer.shadowColor = UIColor(white: 0.0, alpha: 1.0).cgColor
-                    nativeParamsView.layer.shadowOpacity = usesClearTint ? (isDark ? 0.035 : 0.025) : (isDark ? 0.06 : 0.04)
-                    nativeParamsView.layer.shadowOffset = CGSize(width: 0.0, height: 6.0)
-                    nativeParamsView.layer.shadowRadius = usesClearTint ? 8.0 : 12.0
-                    nativeParamsView.layer.shadowPath = UIBezierPath(roundedRect: CGRect(origin: CGPoint(), size: size), cornerRadius: outerCornerRadius).cgPath
-                    if #available(iOS 26.0, *) {
-                        var glassEffect: UIGlassEffect?
+            } else if let nativeParamsView = self.nativeParamsView, let nativeView = self.nativeView {
+                if #available(iOS 26.0, *) {
+                    var glassEffect: UIGlassEffect?
 
-                        if isVisible {
-                            let glassEffectValue: UIGlassEffect
-                            switch tintColor.kind {
-                            case .panel:
-                                if isDark {
-                                    glassEffectValue = UIGlassEffect(style: .regular)
-                                    glassEffectValue.tintColor = UIColor(white: 1.0, alpha: 0.025)
-                                } else {
-                                    glassEffectValue = UIGlassEffect(style: .regular)
-                                    glassEffectValue.tintColor = UIColor(white: 1.0, alpha: 0.045)
-                                }
-                            case let .custom(style, color):
-                                switch style {
-                                case .default:
-                                    glassEffectValue = UIGlassEffect(style: .regular)
-                                    glassEffectValue.tintColor = color
-                                case .clear:
-                                    glassEffectValue = UIGlassEffect(style: .clear)
-                                    glassEffectValue.tintColor = color
-                                }
+                    if isVisible {
+                        let glassEffectValue: UIGlassEffect
+                        switch tintColor.kind {
+                        case .panel:
+                            if isDark {
+                                glassEffectValue = UIGlassEffect(style: .regular)
+                                glassEffectValue.tintColor = UIColor(white: 1.0, alpha: 0.025)
+                            } else {
+                                glassEffectValue = UIGlassEffect(style: .regular)
+                                glassEffectValue.tintColor = UIColor(white: 1.0, alpha: 0.045)
+                            }
+                        case let .custom(style, color):
+                            switch style {
+                            case .default:
+                                glassEffectValue = UIGlassEffect(style: .regular)
+                                glassEffectValue.tintColor = color
                             case .clear:
                                 glassEffectValue = UIGlassEffect(style: .clear)
-                                if isDark {
-                                    glassEffectValue.tintColor = UIColor(white: 0.0, alpha: 0.08)
-                                } else {
-                                    glassEffectValue.tintColor = nil
-                                }
+                                glassEffectValue.tintColor = color
                             }
-                            glassEffectValue.isInteractive = params.isInteractive
-                            glassEffect = glassEffectValue
-                        }
-
-                        if glassEffect == nil {
-                            if nativeView.effect is UIGlassEffect {
-                                if #available(iOS 26.1, *) {
-                                    if transition.animation.isImmediate {
-                                        nativeView.effect = nil
-                                    } else {
-                                        transition.animateView {
-                                            nativeView.effect = nil
-                                        }
-                                    }
-                                } else {
-                                    if transition.animation.isImmediate {
-                                        nativeView.effect = UIVisualEffect()
-                                    } else {
-                                        transition.animateView {
-                                            nativeView.effect = UIVisualEffect()
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            if transition.animation.isImmediate {
-                                nativeView.effect = glassEffect
+                        case .clear:
+                            glassEffectValue = UIGlassEffect(style: .clear)
+                            if isDark {
+                                glassEffectValue.tintColor = UIColor(white: 0.0, alpha: 0.08)
                             } else {
-                                if let glassEffect, let currentEffect = nativeView.effect as? UIGlassEffect, currentEffect.tintColor == glassEffect.tintColor, currentEffect.isInteractive == glassEffect.isInteractive {
+                                glassEffectValue.tintColor = nil
+                            }
+                        }
+                        glassEffectValue.isInteractive = params.isInteractive
+                        glassEffect = glassEffectValue
+                    }
+
+                    if glassEffect == nil {
+                        if nativeView.effect is UIGlassEffect {
+                            if #available(iOS 26.1, *) {
+                                if transition.animation.isImmediate {
+                                    nativeView.effect = nil
                                 } else {
                                     transition.animateView {
-                                        nativeView.effect = glassEffect
+                                        nativeView.effect = nil
+                                    }
+                                }
+                            } else {
+                                if transition.animation.isImmediate {
+                                    nativeView.effect = UIVisualEffect()
+                                } else {
+                                    transition.animateView {
+                                        nativeView.effect = UIVisualEffect()
                                     }
                                 }
                             }
                         }
-
-                        if isDark {
-                            nativeParamsView.lumaMin = 0.0
-                            nativeParamsView.lumaMax = 0.15
+                    } else {
+                        if transition.animation.isImmediate {
+                            nativeView.effect = glassEffect
                         } else {
-                            nativeParamsView.lumaMin = 0.8
-                            nativeParamsView.lumaMax = 0.801
+                            if let glassEffect, let currentEffect = nativeView.effect as? UIGlassEffect, currentEffect.tintColor == glassEffect.tintColor, currentEffect.isInteractive == glassEffect.isInteractive {
+                            } else {
+                                transition.animateView {
+                                    nativeView.effect = glassEffect
+                                }
+                            }
                         }
+                    }
+
+                    if isDark {
+                        nativeParamsView.lumaMin = 0.0
+                        nativeParamsView.lumaMax = 0.15
+                    } else {
+                        nativeParamsView.lumaMin = 0.8
+                        nativeParamsView.lumaMax = 0.801
                     }
                 }
             }
+        }
+
+        if let nativeParamsView = self.nativeParamsView, let nativeView = self.nativeView {
+            nativeView.contentView.backgroundColor = GlassBackgroundView.customGlassOverlayColor(isDark: isDark, tintColor: tintColor)
+            nativeView.layer.cornerRadius = outerCornerRadius
+            nativeView.contentView.layer.cornerRadius = outerCornerRadius
+            nativeView.contentView.layer.masksToBounds = true
+            if let nativeHighlightLayer = self.nativeHighlightLayer {
+                nativeHighlightLayer.frame = CGRect(origin: CGPoint(), size: size)
+                nativeHighlightLayer.cornerRadius = outerCornerRadius
+                nativeHighlightLayer.colors = [
+                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.18 : 0.26) : (isDark ? 0.14 : 0.2)).cgColor,
+                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.07 : 0.12) : (isDark ? 0.05 : 0.1)).cgColor,
+                    UIColor(white: 1.0, alpha: 0.018).cgColor,
+                    UIColor(white: 1.0, alpha: 0.0).cgColor
+                ]
+            }
+            if let nativeShadeLayer = self.nativeShadeLayer {
+                nativeShadeLayer.frame = CGRect(origin: CGPoint(), size: size)
+                nativeShadeLayer.cornerRadius = outerCornerRadius
+                nativeShadeLayer.colors = [
+                    UIColor(white: 1.0, alpha: 0.0).cgColor,
+                    UIColor(white: 1.0, alpha: 0.0).cgColor,
+                    UIColor(white: 0.0, alpha: usesClearTint ? (isDark ? 0.08 : 0.035) : (isDark ? 0.11 : 0.05)).cgColor
+                ]
+            }
+            nativeParamsView.layer.cornerRadius = outerCornerRadius
+            nativeParamsView.layer.masksToBounds = false
+            if #available(iOS 13.0, *) {
+                nativeView.contentView.layer.cornerCurve = .continuous
+                nativeParamsView.layer.cornerCurve = .continuous
+            }
+            nativeParamsView.layer.borderWidth = UIScreenPixel
+            nativeParamsView.layer.borderColor = GlassBackgroundView.customGlassBorderColor(isDark: isDark, tintColor: tintColor).cgColor
+            nativeParamsView.layer.shadowColor = UIColor(white: 0.0, alpha: 1.0).cgColor
+            nativeParamsView.layer.shadowOpacity = usesClearTint ? (isDark ? 0.028 : 0.018) : (isDark ? 0.05 : 0.03)
+            nativeParamsView.layer.shadowOffset = CGSize(width: 0.0, height: usesClearTint ? 8.0 : 10.0)
+            nativeParamsView.layer.shadowRadius = usesClearTint ? 14.0 : 18.0
+            nativeParamsView.layer.shadowPath = UIBezierPath(roundedRect: CGRect(origin: CGPoint(), size: size), cornerRadius: outerCornerRadius).cgPath
         }
 
         if let nativeParamsView = self.nativeParamsView {

@@ -112,6 +112,17 @@ public final class EahatGramFarmManager {
         return Date(timeIntervalSince1970: TimeInterval(max(now + 1, nextDueTimestamp)))
     }
 
+    public func hasEnabledJobs() -> Bool {
+        return self.jobsValue.contains(where: { $0.isEnabled })
+    }
+
+    public func hasDueJobs(referenceTimestamp: Int32 = Int32(Date().timeIntervalSince1970), leewaySeconds: Int32 = 0) -> Bool {
+        guard let nextDueTimestamp = self.nextDueTimestamp(referenceTimestamp: referenceTimestamp) else {
+            return false
+        }
+        return nextDueTimestamp <= referenceTimestamp + max(0, leewaySeconds)
+    }
+
     public func processDueJobsNow(context: AccountContext, completion: (() -> Void)? = nil) {
         self.queue.async {
             self.processDueJobs(context: context, completion: completion)
@@ -172,7 +183,7 @@ public final class EahatGramFarmManager {
         let shouldRun = self.primaryContext != nil && self.jobsValue.contains(where: { $0.isEnabled })
         if shouldRun {
             if self.timer == nil {
-                let timer = SwiftSignalKit.Timer(timeout: 30.0, repeat: true, completion: { [weak self] in
+                let timer = SwiftSignalKit.Timer(timeout: 10.0, repeat: true, completion: { [weak self] in
                     self?.processDueJobs()
                 }, queue: self.queue)
                 self.timer = timer

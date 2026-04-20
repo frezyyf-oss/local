@@ -1566,6 +1566,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         if #available(iOS 13.0, *) {
             let cleanupTaskId = "\(baseAppBundleId).cleanup"
             let eahatGramFarmTaskId = "\(baseAppBundleId).eahatgram-farm"
+            let eahatGramFarmProcessingTaskId = "\(baseAppBundleId).eahatgram-farm-processing"
             
             BGTaskScheduler.shared.register(forTaskWithIdentifier: cleanupTaskId, using: DispatchQueue.main) { task in
                 Logger.shared.log("App \(self.episodeId)", "Executing cleanup task")
@@ -1604,6 +1605,14 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                     return
                 }
                 self.eahatGramHandleFarmBackgroundTask(refreshTask)
+            }
+
+            BGTaskScheduler.shared.register(forTaskWithIdentifier: eahatGramFarmProcessingTaskId, using: DispatchQueue.main) { task in
+                guard let processingTask = task as? BGProcessingTask else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                self.eahatGramHandleFarmBackgroundTask(processingTask)
             }
 
             EahatGramFarmManager.shared.updateBackgroundRefreshUpdater({ [weak self] in
@@ -1961,6 +1970,8 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         let _ = (self.sharedContextPromise.get()
         |> take(1)
         |> deliverOnMainQueue).start(next: { sharedApplicationContext in
+            let farmHasEnabledJobs = EahatGramFarmManager.shared.hasEnabledJobs()
+            let farmHasDueJobsSoon = EahatGramFarmManager.shared.hasDueJobs(leewaySeconds: 30)
             var extendNow = false
             if #available(iOS 9.0, *) {
                 if !ProcessInfo.processInfo.isLowPowerModeEnabled {
@@ -1970,11 +1981,18 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             if !sharedApplicationContext.sharedContext.energyUsageSettings.extendBackgroundWork {
                 extendNow = false
             }
-            sharedApplicationContext.wakeupManager.allowBackgroundTimeExtension(timeout: 2.0, extendNow: extendNow)
+            if farmHasDueJobsSoon {
+                extendNow = true
+            }
+            sharedApplicationContext.wakeupManager.allowBackgroundTimeExtension(timeout: farmHasEnabledJobs ? 30.0 : 2.0, extendNow: extendNow)
             
             let _ = (sharedApplicationContext.sharedContext.activeAccountContexts
              |> take(1)
              |> deliverOnMainQueue).start(next: { activeAccounts in
+                if farmHasEnabledJobs, let farmContext = activeAccounts.primary ?? activeAccounts.accounts.first?.1 {
+                    EahatGramFarmManager.shared.updatePrimaryContext(farmContext)
+                    EahatGramFarmManager.shared.processDueJobsNow(context: farmContext)
+                }
                 for (_, context, _) in activeAccounts.accounts {
                     context.account.postbox.clearCaches()
                 }
@@ -2042,26 +2060,43 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     }
 
     @available(iOS 13.0, *)
+    private func eahatGramFarmProcessingTaskIdentifier() -> String {
+        return "\(Bundle.main.bundleIdentifier!).eahatgram-farm-processing"
+    }
+
+    @available(iOS 13.0, *)
     private func eahatGramUpdateFarmBackgroundTaskRequest() {
-        let taskId = self.eahatGramFarmTaskIdentifier()
-        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskId)
+        let refreshTaskId = self.eahatGramFarmTaskIdentifier()
+        let processingTaskId = self.eahatGramFarmProcessingTaskIdentifier()
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: refreshTaskId)
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: processingTaskId)
         guard let nextRefreshDate = EahatGramFarmManager.shared.nextBackgroundRefreshDate() else {
             Logger.shared.log("App \(self.episodeId)", "No enabled eahatGram farm jobs, cleared background refresh request")
             return
         }
-        let request = BGAppRefreshTaskRequest(identifier: taskId)
-        request.earliestBeginDate = nextRefreshDate
         do {
-            try BGTaskScheduler.shared.submit(request)
+            let refreshRequest = BGAppRefreshTaskRequest(identifier: refreshTaskId)
+            refreshRequest.earliestBeginDate = nextRefreshDate
+            try BGTaskScheduler.shared.submit(refreshRequest)
             Logger.shared.log("App \(self.episodeId)", "Scheduled eahatGram farm refresh task at \(nextRefreshDate.timeIntervalSince1970)")
         } catch let error {
             Logger.shared.log("App \(self.episodeId)", "Error submitting eahatGram farm refresh task: \(error)")
         }
+        do {
+            let processingRequest = BGProcessingTaskRequest(identifier: processingTaskId)
+            processingRequest.earliestBeginDate = nextRefreshDate
+            processingRequest.requiresNetworkConnectivity = true
+            processingRequest.requiresExternalPower = false
+            try BGTaskScheduler.shared.submit(processingRequest)
+            Logger.shared.log("App \(self.episodeId)", "Scheduled eahatGram farm processing task at \(nextRefreshDate.timeIntervalSince1970)")
+        } catch let error {
+            Logger.shared.log("App \(self.episodeId)", "Error submitting eahatGram farm processing task: \(error)")
+        }
     }
 
     @available(iOS 13.0, *)
-    private func eahatGramHandleFarmBackgroundTask(_ task: BGAppRefreshTask) {
-        Logger.shared.log("App \(self.episodeId)", "Executing eahatGram farm refresh task")
+    private func eahatGramHandleFarmBackgroundTask(_ task: BGTask) {
+        Logger.shared.log("App \(self.episodeId)", "Executing eahatGram farm task \(task.identifier)")
         var sharedContextDisposable: Disposable?
         var activeAccountsDisposable: Disposable?
         var didComplete = false

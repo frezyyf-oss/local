@@ -348,10 +348,216 @@ private func eahatGramGiftChainHTMLEscape(_ value: String) -> String {
         .replacingOccurrences(of: "'", with: "&#39;")
 }
 
+private let eahatGramGiftChainExportCardSize = CGSize(width: 220.0, height: 96.0)
+private let eahatGramGiftChainExportContentInset: CGFloat = 72.0
+private let eahatGramGiftChainExportHorizontalSpacing: CGFloat = 180.0
+private let eahatGramGiftChainExportVerticalSpacing: CGFloat = 240.0
+
+private struct EahatGramGiftChainExportLayout {
+    let graph: EahatGramGiftChainGraph
+    let frames: [EnginePeer.Id: CGRect]
+    let contentSize: CGSize
+}
+
+private struct EahatGramGiftChainExportEdgeGeometry {
+    let startPoint: CGPoint
+    let endPoint: CGPoint
+    let controlPoint1: CGPoint
+    let controlPoint2: CGPoint
+}
+
+private func eahatGramGiftChainSVGNumber(_ value: CGFloat) -> String {
+    return String(format: Locale(identifier: "en_US_POSIX"), "%.2f", Double(value))
+}
+
+private func eahatGramGiftChainSVGLabel(_ value: String, maxLength: Int) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.count > maxLength else {
+        return trimmed
+    }
+    return String(trimmed.prefix(max(0, maxLength - 3))) + "..."
+}
+
+private func eahatGramGiftChainSVGInitials(_ value: String) -> String {
+    let parts = value
+        .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+        .prefix(2)
+    let initials = parts.compactMap { part -> String? in
+        guard let scalar = part.first else {
+            return nil
+        }
+        return String(scalar).uppercased()
+    }.joined()
+    if !initials.isEmpty {
+        return initials
+    }
+    if let scalar = value.trimmingCharacters(in: .whitespacesAndNewlines).first {
+        return String(scalar).uppercased()
+    }
+    return "?"
+}
+
+private func eahatGramGiftChainExportLayout(
+    visualizationState: EahatGramGiftChainVisualizationState
+) -> EahatGramGiftChainExportLayout {
+    let graph = eahatGramGiftChainDisplayGraph(visualizationState: visualizationState)
+    let nodesByPeerId = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.peerId, $0) })
+    let cardSize = eahatGramGiftChainExportCardSize
+
+    var childrenByParentPeerId: [EnginePeer.Id: [EnginePeer.Id]] = [:]
+    for node in graph.nodes {
+        if let parentPeerId = node.parentPeerId, nodesByPeerId[parentPeerId] != nil {
+            childrenByParentPeerId[parentPeerId, default: []].append(node.peerId)
+        }
+    }
+    for (parentPeerId, childPeerIds) in childrenByParentPeerId {
+        childrenByParentPeerId[parentPeerId] = childPeerIds.sorted(by: { lhs, rhs in
+            let lhsNode = nodesByPeerId[lhs]
+            let rhsNode = nodesByPeerId[rhs]
+            if lhsNode?.incomingGiftCount != rhsNode?.incomingGiftCount {
+                return (lhsNode?.incomingGiftCount ?? 0) > (rhsNode?.incomingGiftCount ?? 0)
+            }
+            return eahatGramRawPeerId(lhs) < eahatGramRawPeerId(rhs)
+        })
+    }
+
+    var subtreeWidths: [EnginePeer.Id: CGFloat] = [:]
+    func subtreeWidth(peerId: EnginePeer.Id) -> CGFloat {
+        if let current = subtreeWidths[peerId] {
+            return current
+        }
+        let childPeerIds = childrenByParentPeerId[peerId] ?? []
+        if childPeerIds.isEmpty {
+            subtreeWidths[peerId] = cardSize.width
+            return cardSize.width
+        }
+        let childWidths = childPeerIds.map { subtreeWidth(peerId: $0) }
+        let totalChildWidth = childWidths.reduce(0.0, +) + CGFloat(max(0, childPeerIds.count - 1)) * eahatGramGiftChainExportHorizontalSpacing
+        let result = max(cardSize.width, totalChildWidth)
+        subtreeWidths[peerId] = result
+        return result
+    }
+
+    var baseFrames: [EnginePeer.Id: CGRect] = [:]
+    func place(peerId: EnginePeer.Id, leftX: CGFloat) -> CGFloat {
+        guard let currentNode = nodesByPeerId[peerId] else {
+            return leftX + cardSize.width / 2.0
+        }
+        let childPeerIds = childrenByParentPeerId[peerId] ?? []
+        let currentSubtreeWidth = subtreeWidth(peerId: peerId)
+        let originY = eahatGramGiftChainExportContentInset + CGFloat(currentNode.depth) * (cardSize.height + eahatGramGiftChainExportVerticalSpacing)
+
+        let centerX: CGFloat
+        if childPeerIds.isEmpty {
+            centerX = leftX + cardSize.width / 2.0
+        } else {
+            let childWidths = childPeerIds.map { subtreeWidth(peerId: $0) }
+            let totalChildWidth = childWidths.reduce(0.0, +) + CGFloat(max(0, childPeerIds.count - 1)) * eahatGramGiftChainExportHorizontalSpacing
+            var nextChildLeftX = leftX + (currentSubtreeWidth - totalChildWidth) / 2.0
+            var firstChildCenterX: CGFloat?
+            var lastChildCenterX: CGFloat = leftX
+            for childPeerId in childPeerIds {
+                let childCenterX = place(peerId: childPeerId, leftX: nextChildLeftX)
+                if firstChildCenterX == nil {
+                    firstChildCenterX = childCenterX
+                }
+                lastChildCenterX = childCenterX
+                nextChildLeftX += subtreeWidth(peerId: childPeerId) + eahatGramGiftChainExportHorizontalSpacing
+            }
+            centerX = ((firstChildCenterX ?? leftX) + lastChildCenterX) / 2.0
+        }
+
+        baseFrames[peerId] = CGRect(
+            x: centerX - cardSize.width / 2.0,
+            y: originY,
+            width: cardSize.width,
+            height: cardSize.height
+        )
+        return centerX
+    }
+
+    _ = place(peerId: graph.rootPeerId, leftX: eahatGramGiftChainExportContentInset)
+
+    var frames: [EnginePeer.Id: CGRect] = [:]
+    for node in graph.nodes {
+        let baseFrame = baseFrames[node.peerId] ?? CGRect(origin: CGPoint(x: eahatGramGiftChainExportContentInset, y: eahatGramGiftChainExportContentInset), size: cardSize)
+        if let manualOrigin = visualizationState.manualOrigins[node.peerId] {
+            frames[node.peerId] = CGRect(
+                origin: CGPoint(
+                    x: max(eahatGramGiftChainExportContentInset, manualOrigin.x),
+                    y: max(eahatGramGiftChainExportContentInset, manualOrigin.y)
+                ),
+                size: cardSize
+            )
+        } else {
+            frames[node.peerId] = baseFrame
+        }
+    }
+
+    let maxX = frames.values.map(\.maxX).max() ?? eahatGramGiftChainExportContentInset
+    let maxY = frames.values.map(\.maxY).max() ?? eahatGramGiftChainExportContentInset
+    let contentSize = CGSize(
+        width: maxX + eahatGramGiftChainExportContentInset,
+        height: maxY + eahatGramGiftChainExportContentInset
+    )
+
+    return EahatGramGiftChainExportLayout(
+        graph: graph,
+        frames: frames,
+        contentSize: contentSize
+    )
+}
+
+private func eahatGramGiftChainExportEdgeGeometry(
+    edge: EahatGramGiftChainEdge,
+    frames: [EnginePeer.Id: CGRect]
+) -> EahatGramGiftChainExportEdgeGeometry? {
+    guard let fromFrame = frames[edge.fromPeerId], let toFrame = frames[edge.toPeerId] else {
+        return nil
+    }
+    let startPoint = CGPoint(x: fromFrame.midX, y: fromFrame.minY)
+    let endPoint = CGPoint(x: toFrame.midX, y: toFrame.maxY)
+    let controlOffset = max(120.0, abs(startPoint.y - endPoint.y) * 0.62)
+    return EahatGramGiftChainExportEdgeGeometry(
+        startPoint: startPoint,
+        endPoint: endPoint,
+        controlPoint1: CGPoint(x: startPoint.x, y: startPoint.y - controlOffset),
+        controlPoint2: CGPoint(x: endPoint.x, y: endPoint.y + controlOffset)
+    )
+}
+
+private func eahatGramGiftChainSVGPath(
+    geometry: EahatGramGiftChainExportEdgeGeometry
+) -> String {
+    return "M \(eahatGramGiftChainSVGNumber(geometry.startPoint.x)) \(eahatGramGiftChainSVGNumber(geometry.startPoint.y)) C \(eahatGramGiftChainSVGNumber(geometry.controlPoint1.x)) \(eahatGramGiftChainSVGNumber(geometry.controlPoint1.y)), \(eahatGramGiftChainSVGNumber(geometry.controlPoint2.x)) \(eahatGramGiftChainSVGNumber(geometry.controlPoint2.y)), \(eahatGramGiftChainSVGNumber(geometry.endPoint.x)) \(eahatGramGiftChainSVGNumber(geometry.endPoint.y))"
+}
+
+private func eahatGramGiftChainSVGArrowPolygon(
+    tip: CGPoint,
+    referencePoint: CGPoint
+) -> String {
+    let dx = tip.x - referencePoint.x
+    let dy = tip.y - referencePoint.y
+    let length = max(1.0, sqrt(dx * dx + dy * dy))
+    let unitX = dx / length
+    let unitY = dy / length
+    let perpendicularX = -unitY
+    let perpendicularY = unitX
+    let arrowLength: CGFloat = 11.0
+    let arrowWidth: CGFloat = 5.5
+    let basePoint = CGPoint(x: tip.x - unitX * arrowLength, y: tip.y - unitY * arrowLength)
+    let point1 = CGPoint(x: basePoint.x + perpendicularX * arrowWidth, y: basePoint.y + perpendicularY * arrowWidth)
+    let point2 = CGPoint(x: basePoint.x - perpendicularX * arrowWidth, y: basePoint.y - perpendicularY * arrowWidth)
+    return "\(eahatGramGiftChainSVGNumber(point1.x)),\(eahatGramGiftChainSVGNumber(point1.y)) \(eahatGramGiftChainSVGNumber(tip.x)),\(eahatGramGiftChainSVGNumber(tip.y)) \(eahatGramGiftChainSVGNumber(point2.x)),\(eahatGramGiftChainSVGNumber(point2.y))"
+}
+
 private func eahatGramGiftChainHTMLDocument(
     visualizationState: EahatGramGiftChainVisualizationState
 ) -> String {
-    let graph = eahatGramGiftChainDisplayGraph(visualizationState: visualizationState)
+    let exportLayout = eahatGramGiftChainExportLayout(visualizationState: visualizationState)
+    let graph = exportLayout.graph
+    let frames = exportLayout.frames
+    let contentSize = exportLayout.contentSize
     let generatedAt = ISO8601DateFormatter().string(from: Date())
     let selectedPathText: String
     if !visualizationState.selectedEdges.isEmpty {
@@ -362,37 +568,118 @@ private func eahatGramGiftChainHTMLDocument(
         selectedPathText = "Path not selected"
     }
 
-    let groupedNodes = Dictionary(grouping: graph.nodes, by: { $0.depth })
-    let depthSections = groupedNodes.keys.sorted().map { depth -> String in
-        let cards = (groupedNodes[depth] ?? []).sorted(by: { lhs, rhs in
-            if lhs.incomingGiftCount != rhs.incomingGiftCount {
-                return lhs.incomingGiftCount > rhs.incomingGiftCount
-            }
-            return eahatGramRawPeerId(lhs.peerId) < eahatGramRawPeerId(rhs.peerId)
-        }).map { node -> String in
-            let username = node.peer.addressName.flatMap { "@\($0)" } ?? "@-"
-            let searchText = "\(node.peer.compactDisplayTitle) \(username) \(eahatGramRawPeerId(node.peerId))".lowercased()
-            let parentText = node.parentPeerId.map { "\(eahatGramRawPeerId($0))" } ?? "root"
-            return """
-            <article class="node-card" data-search="\(eahatGramGiftChainHTMLEscape(searchText))">
-              <div class="node-title">\(eahatGramGiftChainHTMLEscape(node.peer.compactDisplayTitle))</div>
-              <div class="node-subtitle">\(eahatGramGiftChainHTMLEscape(username))</div>
-              <div class="node-meta">id \(eahatGramRawPeerId(node.peerId))</div>
-              <div class="node-stats">
-                <span>incoming \(node.incomingGiftCount)</span>
-                <span>mutual \(node.mutualGiftCount)</span>
-                <span>parent \(parentText)</span>
-              </div>
-            </article>
-            """
-        }.joined(separator: "\n")
+    let selectedPathPeerIds: Set<EnginePeer.Id>
+    if !visualizationState.selectedEdges.isEmpty {
+        selectedPathPeerIds = eahatGramGiftChainPathPeerIds(graph: visualizationState.graph, edges: visualizationState.selectedEdges)
+    } else {
+        selectedPathPeerIds = Set(eahatGramGiftChainPathPeerIds(
+            graph: visualizationState.graph,
+            targetPeerId: visualizationState.focusedPeerId ?? visualizationState.graph.rootPeerId
+        ))
+    }
+
+    let baseEdgesSVG = (!visualizationState.isVisualLineMode ? graph.edges : []).compactMap { edge -> String? in
+        guard let geometry = eahatGramGiftChainExportEdgeGeometry(edge: edge, frames: frames) else {
+            return nil
+        }
+        let path = eahatGramGiftChainSVGPath(geometry: geometry)
+        let arrow = eahatGramGiftChainSVGArrowPolygon(tip: geometry.endPoint, referencePoint: geometry.controlPoint2)
         return """
-        <section class="depth-column">
-          <div class="depth-title">Depth \(depth)</div>
-          <div class="depth-cards">
-            \(cards)
-          </div>
-        </section>
+        <path class="edge edge-base" d="\(path)" />
+        <polygon class="edge-arrow" points="\(arrow)" />
+        """
+    }.joined(separator: "\n")
+
+    let highlightEdgesSVG = (!visualizationState.isVisualLineMode ? graph.highlightEdges : []).compactMap { edge -> String? in
+        guard let geometry = eahatGramGiftChainExportEdgeGeometry(edge: edge, frames: frames) else {
+            return nil
+        }
+        let path = eahatGramGiftChainSVGPath(geometry: geometry)
+        var arrowPolygons: [String] = [
+            """
+            <polygon class="edge-arrow" points="\(eahatGramGiftChainSVGArrowPolygon(tip: geometry.endPoint, referencePoint: geometry.controlPoint2))" />
+            """
+        ]
+        if edge.isMutual {
+            arrowPolygons.append(
+                """
+                <polygon class="edge-arrow" points="\(eahatGramGiftChainSVGArrowPolygon(tip: geometry.startPoint, referencePoint: geometry.controlPoint1))" />
+                """
+            )
+        }
+        return """
+        <path class="edge \(edge.isMutual ? "edge-mutual" : "edge-outgoing")" d="\(path)" />
+        \(arrowPolygons.joined(separator: "\n"))
+        """
+    }.joined(separator: "\n")
+
+    let focusedEdges: [EahatGramGiftChainEdge]
+    if !visualizationState.selectedEdges.isEmpty {
+        focusedEdges = eahatGramGiftChainPathEdges(graph: visualizationState.graph, edges: visualizationState.selectedEdges)
+    } else if let focusedPeerId = visualizationState.focusedPeerId {
+        focusedEdges = eahatGramGiftChainPathEdges(graph: visualizationState.graph, targetPeerId: focusedPeerId)
+    } else {
+        focusedEdges = []
+    }
+    let focusedEdgesSVG = focusedEdges.compactMap { edge -> String? in
+        guard let geometry = eahatGramGiftChainExportEdgeGeometry(edge: edge, frames: frames) else {
+            return nil
+        }
+        let path = eahatGramGiftChainSVGPath(geometry: geometry)
+        var arrowPolygons: [String] = [
+            """
+            <polygon class="edge-arrow" points="\(eahatGramGiftChainSVGArrowPolygon(tip: geometry.endPoint, referencePoint: geometry.controlPoint2))" />
+            """
+        ]
+        if edge.isMutual {
+            arrowPolygons.append(
+                """
+                <polygon class="edge-arrow" points="\(eahatGramGiftChainSVGArrowPolygon(tip: geometry.startPoint, referencePoint: geometry.controlPoint1))" />
+                """
+            )
+        }
+        return """
+        <path class="edge edge-focused" d="\(path)" />
+        \(arrowPolygons.joined(separator: "\n"))
+        """
+    }.joined(separator: "\n")
+
+    let nodeCardsSVG = graph.nodes.sorted(by: { lhs, rhs in
+        if lhs.depth != rhs.depth {
+            return lhs.depth < rhs.depth
+        }
+        return eahatGramRawPeerId(lhs.peerId) < eahatGramRawPeerId(rhs.peerId)
+    }).compactMap { node -> String? in
+        guard let frame = frames[node.peerId] else {
+            return nil
+        }
+        let username = node.peer.addressName.flatMap { "@\($0)" } ?? "@-"
+        let searchText = "\(node.peer.compactDisplayTitle) \(username) \(eahatGramRawPeerId(node.peerId))".lowercased()
+        let cardClass: String
+        if node.peerId == visualizationState.focusedPeerId {
+            cardClass = "node-card node-card-target"
+        } else if selectedPathPeerIds.contains(node.peerId) {
+            cardClass = "node-card node-card-path"
+        } else {
+            cardClass = "node-card"
+        }
+        let isRoot = node.peerId == graph.rootPeerId
+        let mainClass = isRoot ? "node-main node-main-root" : "node-main"
+        let glossClass = isRoot ? "node-gloss node-gloss-root" : "node-gloss"
+        return """
+        <g class="\(cardClass)" data-search="\(eahatGramGiftChainHTMLEscape(searchText))" transform="translate(\(eahatGramGiftChainSVGNumber(frame.minX)) \(eahatGramGiftChainSVGNumber(frame.minY)))">
+          <rect class="node-shadow" x="0" y="6" width="220" height="96" rx="16" ry="16" />
+          <rect class="\(mainClass)" x="0" y="0" width="220" height="96" rx="16" ry="16" />
+          <rect class="\(glossClass)" x="1" y="1" width="218" height="94" rx="15" ry="15" />
+          <circle class="node-avatar" cx="33" cy="48" r="21" />
+          <text class="node-avatar-text" x="33" y="53">\(eahatGramGiftChainHTMLEscape(eahatGramGiftChainSVGInitials(node.peer.compactDisplayTitle)))</text>
+          <text class="node-title" x="66" y="27">\(eahatGramGiftChainHTMLEscape(eahatGramGiftChainSVGLabel(node.peer.compactDisplayTitle, maxLength: 20)))</text>
+          <text class="node-subtitle" x="66" y="44">\(eahatGramGiftChainHTMLEscape(eahatGramGiftChainSVGLabel(username, maxLength: 22)))</text>
+          <text class="node-meta" x="66" y="61">id \(eahatGramRawPeerId(node.peerId))</text>
+          <text class="node-meta" x="66" y="78">mutual \(node.mutualGiftCount)</text>
+          <text class="node-depth" x="208" y="28">chain \(node.depth)</text>
+          <text class="node-meta node-meta-right" x="208" y="78">gifts \(node.incomingGiftCount)</text>
+        </g>
         """
     }.joined(separator: "\n")
 
@@ -427,7 +714,7 @@ private func eahatGramGiftChainHTMLDocument(
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>Gift Chain Export</title>
-      <style>
+        <style>
         :root {
           color-scheme: dark;
           --bg: #0a0b10;
@@ -436,6 +723,7 @@ private func eahatGramGiftChainHTMLDocument(
           --stroke: rgba(255, 255, 255, 0.08);
           --accent: #6db4ff;
           --accent-2: #9d6bff;
+          --danger: rgba(242, 66, 77, 0.95);
           --text: #eef2ff;
           --muted: #9aa4c7;
           --good: #67d38f;
@@ -525,6 +813,103 @@ private func eahatGramGiftChainHTMLDocument(
           margin: 0 0 14px;
           font-size: 22px;
           letter-spacing: -0.03em;
+        }
+        .graph-shell {
+          overflow: auto;
+          border-radius: 22px;
+          border: 1px solid var(--stroke);
+          background:
+            radial-gradient(circle at top left, rgba(109, 180, 255, 0.18), transparent 24%),
+            radial-gradient(circle at top right, rgba(242, 66, 77, 0.14), transparent 20%),
+            linear-gradient(180deg, rgba(11, 14, 22, 0.98), rgba(7, 9, 14, 0.98));
+          padding: 18px;
+        }
+        .graph-stage {
+          display: block;
+        }
+        .edge {
+          fill: none;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        .edge-base {
+          stroke: rgba(145, 156, 179, 0.55);
+          stroke-width: 2;
+        }
+        .edge-outgoing {
+          stroke: rgba(82, 143, 250, 0.95);
+          stroke-width: 2.4;
+        }
+        .edge-mutual {
+          stroke: rgba(242, 66, 77, 0.95);
+          stroke-width: 2.6;
+        }
+        .edge-focused {
+          stroke: rgba(245, 212, 92, 0.98);
+          stroke-width: 3;
+        }
+        .edge-arrow {
+          fill: var(--danger);
+          opacity: 0.98;
+        }
+        .node-shadow {
+          fill: rgba(0, 0, 0, 0.28);
+          filter: blur(6px);
+        }
+        .node-main {
+          fill: rgba(23, 26, 36, 0.96);
+          stroke: rgba(64, 71, 87, 1.0);
+          stroke-width: 1;
+        }
+        .node-main-root {
+          fill: rgba(41, 46, 61, 0.98);
+          stroke: rgba(112, 176, 250, 1.0);
+        }
+        .node-gloss {
+          fill: rgba(255, 255, 255, 0.015);
+          stroke: rgba(255, 255, 255, 0.03);
+          stroke-width: 0.8;
+        }
+        .node-gloss-root {
+          fill: rgba(255, 255, 255, 0.028);
+        }
+        .node-card-path .node-main {
+          stroke: rgba(227, 189, 69, 1.0);
+          stroke-width: 1.8;
+        }
+        .node-card-target .node-main {
+          stroke: rgba(245, 212, 92, 0.98);
+          stroke-width: 2.2;
+        }
+        .node-avatar {
+          fill: rgba(255, 255, 255, 0.08);
+          stroke: rgba(255, 255, 255, 0.07);
+          stroke-width: 1;
+        }
+        .node-avatar-text {
+          font-size: 14px;
+          font-weight: 700;
+          fill: #f4f7ff;
+          text-anchor: middle;
+        }
+        .node-title {
+          font-size: 14px;
+          font-weight: 600;
+          fill: #f2f5ff;
+        }
+        .node-subtitle,
+        .node-meta {
+          font-size: 11px;
+          fill: rgba(204, 209, 224, 1.0);
+        }
+        .node-depth {
+          font-size: 11px;
+          font-weight: 600;
+          text-anchor: end;
+          fill: rgba(179, 189, 219, 1.0);
+        }
+        .node-meta-right {
+          text-anchor: end;
         }
         .path-box {
           white-space: pre-wrap;
@@ -649,15 +1034,24 @@ private func eahatGramGiftChainHTMLDocument(
         </div>
 
         <section class="panel">
-          <h2 class="panel-title">Current Path</h2>
-          <div class="path-box">\(eahatGramGiftChainHTMLEscape(selectedPathText))</div>
+          <h2 class="panel-title">Visualization</h2>
+          <div class="graph-shell">
+            <svg class="graph-stage" width="\(eahatGramGiftChainSVGNumber(contentSize.width))" height="\(eahatGramGiftChainSVGNumber(contentSize.height))" viewBox="0 0 \(eahatGramGiftChainSVGNumber(contentSize.width)) \(eahatGramGiftChainSVGNumber(contentSize.height))" xmlns="http://www.w3.org/2000/svg">
+              <g class="edge-layer">
+                \(baseEdgesSVG)
+                \(highlightEdgesSVG)
+                \(focusedEdgesSVG)
+              </g>
+              <g class="node-layer">
+                \(nodeCardsSVG)
+              </g>
+            </svg>
+          </div>
         </section>
 
         <section class="panel">
-          <h2 class="panel-title">Nodes By Depth</h2>
-          <div class="depth-grid">
-            \(depthSections)
-          </div>
+          <h2 class="panel-title">Current Path</h2>
+          <div class="path-box">\(eahatGramGiftChainHTMLEscape(selectedPathText))</div>
         </section>
 
         <section class="panel">
