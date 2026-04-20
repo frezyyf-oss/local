@@ -395,7 +395,7 @@ public class GlassBackgroundView: UIView {
                     let value = CGFloat(arc4random_uniform(1000)) / 1000.0
                     let alpha = (0.008 + value * 0.05) * GlassBackgroundView.overShiftedNoiseWeight
                     context.cgContext.setFillColor(UIColor(white: 1.0, alpha: alpha).cgColor)
-                    context.cgContext.fill(CGRect(x: x, y: y, width: 2.0, height: 2.0))
+                    context.cgContext.fill(CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(2.0), height: CGFloat(2.0)))
                 }
             }
         }
