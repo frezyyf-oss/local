@@ -1221,17 +1221,18 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         }
         
         // Get address set for datacenter
-        guard let addressSet = context.account.network.context.addressSetForDatacenter(withId: dcId) else {
-            print("❌ Telethon: No address set for DC \(dcId)")
-            return
-        }
+        let addressSet = context.account.network.context.addressSetForDatacenter(withId: dcId)
         
         guard let firstAddress = addressSet.firstAddress() else {
             print("❌ Telethon: No addresses in set")
             return
         }
         
-        let ip = firstAddress.ip
+        guard let ip = firstAddress.ip else {
+            print("❌ Telethon: No IP address")
+            return
+        }
+        
         let port = UInt16(firstAddress.port)
         
         // Pack IP address as bytes (IPv4 or IPv6)
