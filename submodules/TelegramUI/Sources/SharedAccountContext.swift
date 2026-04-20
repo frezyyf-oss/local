@@ -1240,12 +1240,12 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         if ip.contains(":") {
             // IPv6
             var addr = in6_addr()
-            ip.withCString { inet_pton(AF_INET6, $0, &addr) }
+            _ = ip.withCString { inet_pton(AF_INET6, $0, &addr) }
             ipData = Data(bytes: &addr, count: MemoryLayout<in6_addr>.size)
         } else {
             // IPv4
             var addr = in_addr()
-            ip.withCString { inet_pton(AF_INET, $0, &addr) }
+            _ = ip.withCString { inet_pton(AF_INET, $0, &addr) }
             ipData = Data(bytes: &addr, count: MemoryLayout<in_addr>.size)
         }
         
