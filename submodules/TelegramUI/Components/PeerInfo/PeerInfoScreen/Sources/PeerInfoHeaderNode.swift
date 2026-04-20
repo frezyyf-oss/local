@@ -483,6 +483,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         case none
         case premium
         case verified
+        case fakeVerified
         case fake
         case scam
         case emojiStatus(PeerEmojiStatus)
@@ -615,6 +616,8 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             }
             if let verificationIconFileId = peer.verificationIconFileId {
                 verifiedIcon = .emojiStatus(PeerEmojiStatus(content: .emoji(fileId: verificationIconFileId), expirationDate: nil))
+            } else if eahatGramFakeVerifyEnabled(isMyProfile: self.isMyProfile) {
+                verifiedIcon = .fakeVerified
             }
         }
 
@@ -909,6 +912,9 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             case .verified:
                 emojiRegularStatusContent = .verified(fillColor: presentationData.theme.list.itemCheckColors.fillColor, foregroundColor: presentationData.theme.list.itemCheckColors.foregroundColor, sizeType: .large)
                 emojiExpandedStatusContent = .verified(fillColor: navigationContentsAccentColor, foregroundColor: .clear, sizeType: .large)
+            case .fakeVerified:
+                emojiRegularStatusContent = .verified(fillColor: UIColor(white: 1.0, alpha: 0.96), foregroundColor: presentationData.theme.list.itemPrimaryTextColor.withAlphaComponent(0.62), sizeType: .large)
+                emojiExpandedStatusContent = .verified(fillColor: UIColor(white: 1.0, alpha: 0.96), foregroundColor: presentationData.theme.list.itemPrimaryTextColor.withAlphaComponent(0.62), sizeType: .large)
             case .fake:
                 emojiRegularStatusContent = .text(color: presentationData.theme.chat.message.incoming.scamColor, string: presentationData.strings.Message_FakeAccount.uppercased())
                 emojiExpandedStatusContent = emojiRegularStatusContent
@@ -1092,6 +1098,9 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             case .verified:
                 emojiRegularStatusContent = .verified(fillColor: presentationData.theme.list.itemCheckColors.fillColor, foregroundColor: presentationData.theme.list.itemCheckColors.foregroundColor, sizeType: .large)
                 emojiExpandedStatusContent = .verified(fillColor: navigationContentsAccentColor, foregroundColor: .clear, sizeType: .large)
+            case .fakeVerified:
+                emojiRegularStatusContent = .verified(fillColor: UIColor(white: 1.0, alpha: 0.96), foregroundColor: presentationData.theme.list.itemPrimaryTextColor.withAlphaComponent(0.62), sizeType: .large)
+                emojiExpandedStatusContent = .verified(fillColor: UIColor(white: 1.0, alpha: 0.96), foregroundColor: presentationData.theme.list.itemPrimaryTextColor.withAlphaComponent(0.62), sizeType: .large)
             case let .emojiStatus(emojiStatus):
                 emojiRegularStatusContent = .animation(content: .customEmoji(fileId: emojiStatus.fileId), size: CGSize(width: 80.0, height: 80.0), placeholderColor: presentationData.theme.list.mediaPlaceholderColor, themeColor: navigationContentsAccentColor, loopMode: .forever)
                 emojiExpandedStatusContent = .animation(content: .customEmoji(fileId: emojiStatus.fileId), size: CGSize(width: 80.0, height: 80.0), placeholderColor: navigationContentsAccentColor, themeColor: navigationContentsAccentColor, loopMode: .forever)
@@ -1193,7 +1202,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         let usernameString: (text: String, attributes: MultiScaleTextState.Attributes)
         if let peer = peer {
             isPremium = peer.isPremium
-            isVerified = peer.isVerified
+            isVerified = peer.isVerified || eahatGramFakeVerifyEnabled(isMyProfile: self.isMyProfile)
             isFake = peer.isFake || peer.isScam
         }
 
@@ -2037,7 +2046,10 @@ final class PeerInfoHeaderNode: ASDisplayNode {
 
         var subtitleRatingSize: CGSize?
 
-        if let cachedData = cachedData as? CachedUserData, let starRating = cachedData.starRating {
+        if let fakeRateLevel = eahatGramFakeRateLevel(isMyProfile: self.isMyProfile) {
+            self.currentStarRating = TelegramStarRating(level: Int32(fakeRateLevel), currentLevelStars: 0, stars: 0, nextLevelStars: nil)
+            self.currentPendingStarRating = nil
+        } else if let cachedData = cachedData as? CachedUserData, let starRating = cachedData.starRating {
             self.currentStarRating = starRating
             self.currentPendingStarRating = cachedData.pendingStarRating
         } else {

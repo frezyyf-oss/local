@@ -379,11 +379,11 @@ public class GlassBackgroundView: UIView {
         }
     }
 
-    fileprivate static let liquidGLBevelDepth: CGFloat = 0.08
-    fileprivate static let liquidGLBevelWidth: CGFloat = 0.15
-    fileprivate static let liquidGLRefractionWeight: CGFloat = 0.01
-    fileprivate static let overShiftedGlowWeight: CGFloat = 0.25
-    fileprivate static let overShiftedNoiseWeight: CGFloat = 0.06
+    fileprivate static let liquidGLBevelDepth: CGFloat = 0.16
+    fileprivate static let liquidGLBevelWidth: CGFloat = 0.24
+    fileprivate static let liquidGLRefractionWeight: CGFloat = 0.035
+    fileprivate static let overShiftedGlowWeight: CGFloat = 0.42
+    fileprivate static let overShiftedNoiseWeight: CGFloat = 0.11
 
     fileprivate static let customGlassNoiseImage: UIImage? = {
         let size = CGSize(width: 96.0, height: 96.0)
@@ -405,22 +405,22 @@ public class GlassBackgroundView: UIView {
         switch tintColor.kind {
         case .panel:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.004)
+                return UIColor(white: 1.0, alpha: 0.018)
             } else {
-                return UIColor(white: 1.0, alpha: 0.008)
+                return UIColor(white: 1.0, alpha: 0.032)
             }
         case .clear:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.0)
+                return UIColor(white: 1.0, alpha: 0.014)
             } else {
-                return UIColor(white: 1.0, alpha: 0.0)
+                return UIColor(white: 1.0, alpha: 0.024)
             }
         case let .custom(style, color):
             switch style {
             case .clear:
-                return color.withAlphaComponent(isDark ? 0.004 : 0.008)
+                return color.withAlphaComponent(isDark ? 0.016 : 0.028)
             case .default:
-                return color.withAlphaComponent(isDark ? 0.012 : 0.02)
+                return color.withAlphaComponent(isDark ? 0.036 : 0.058)
             }
         }
     }
@@ -429,18 +429,18 @@ public class GlassBackgroundView: UIView {
         switch tintColor.kind {
         case .panel:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.14)
+                return UIColor(white: 1.0, alpha: 0.24)
             } else {
-                return UIColor(white: 1.0, alpha: 0.18)
+                return UIColor(white: 1.0, alpha: 0.32)
             }
         case .clear:
             if isDark {
-                return UIColor(white: 1.0, alpha: 0.08)
+                return UIColor(white: 1.0, alpha: 0.2)
             } else {
-                return UIColor(white: 1.0, alpha: 0.11)
+                return UIColor(white: 1.0, alpha: 0.28)
             }
         case let .custom(_, color):
-            return color.withAlphaComponent(isDark ? 0.14 : 0.18)
+            return color.withAlphaComponent(isDark ? 0.24 : 0.32)
         }
     }
 
@@ -885,11 +885,7 @@ public class GlassBackgroundView: UIView {
         }
 
         if let nativeParamsView = self.nativeParamsView, let nativeView = self.nativeView {
-            if usesClearTint {
-                nativeView.contentView.backgroundColor = .clear
-            } else {
-                nativeView.contentView.backgroundColor = GlassBackgroundView.customGlassOverlayColor(isDark: isDark, tintColor: tintColor)
-            }
+            nativeView.contentView.backgroundColor = GlassBackgroundView.customGlassOverlayColor(isDark: isDark, tintColor: tintColor)
             nativeView.layer.cornerRadius = outerCornerRadius
             nativeView.contentView.layer.cornerRadius = outerCornerRadius
             nativeView.contentView.layer.masksToBounds = true
@@ -900,9 +896,9 @@ public class GlassBackgroundView: UIView {
                 nativeHighlightLayer.endPoint = CGPoint(x: 0.88, y: 0.96)
                 let bevelEdge = max(0.08, min(0.22, GlassBackgroundView.liquidGLBevelWidth))
                 nativeHighlightLayer.colors = [
-                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.26 : 0.34) : (isDark ? 0.2 : 0.28)).cgColor,
-                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.12 : 0.18) : (isDark ? 0.1 : 0.16)).cgColor,
-                    UIColor(white: 1.0, alpha: 0.008 + GlassBackgroundView.liquidGLRefractionWeight).cgColor,
+                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.38 : 0.5) : (isDark ? 0.3 : 0.42)).cgColor,
+                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.18 : 0.26) : (isDark ? 0.14 : 0.22)).cgColor,
+                    UIColor(white: 1.0, alpha: 0.018 + GlassBackgroundView.liquidGLRefractionWeight).cgColor,
                     UIColor(white: 1.0, alpha: 0.0).cgColor
                 ]
                 nativeHighlightLayer.locations = [
@@ -918,7 +914,7 @@ public class GlassBackgroundView: UIView {
                 nativeShadeLayer.colors = [
                     UIColor(white: 1.0, alpha: 0.0).cgColor,
                     UIColor(white: 1.0, alpha: 0.0).cgColor,
-                    UIColor(white: 0.0, alpha: usesClearTint ? (isDark ? 0.048 : 0.016) : (isDark ? 0.068 : 0.026)).cgColor
+                    UIColor(white: 0.0, alpha: usesClearTint ? (isDark ? 0.085 : 0.034) : (isDark ? 0.11 : 0.052)).cgColor
                 ]
                 nativeShadeLayer.locations = [
                     NSNumber(value: 0.0),
@@ -931,8 +927,8 @@ public class GlassBackgroundView: UIView {
                 nativeSpecularPrimaryLayer.startPoint = CGPoint(x: 0.18, y: 0.12)
                 nativeSpecularPrimaryLayer.endPoint = CGPoint(x: 0.82, y: 0.76)
                 nativeSpecularPrimaryLayer.colors = [
-                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.28 : 0.38) : (isDark ? 0.22 : 0.32)).cgColor,
-                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.12 : 0.16) : (isDark ? 0.08 : 0.12)).cgColor,
+                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.42 : 0.56) : (isDark ? 0.34 : 0.48)).cgColor,
+                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.18 : 0.24) : (isDark ? 0.12 : 0.18)).cgColor,
                     UIColor(white: 1.0, alpha: 0.0).cgColor
                 ]
                 nativeSpecularPrimaryLayer.locations = [
@@ -947,8 +943,8 @@ public class GlassBackgroundView: UIView {
                 nativeSpecularSecondaryLayer.startPoint = CGPoint(x: 0.78, y: 0.82)
                 nativeSpecularSecondaryLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
                 nativeSpecularSecondaryLayer.colors = [
-                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.14 : 0.2) : (isDark ? 0.1 : 0.16)).cgColor,
-                    UIColor(white: 1.0, alpha: 0.05).cgColor,
+                    UIColor(white: 1.0, alpha: usesClearTint ? (isDark ? 0.22 : 0.3) : (isDark ? 0.16 : 0.24)).cgColor,
+                    UIColor(white: 1.0, alpha: 0.07).cgColor,
                     UIColor(white: 1.0, alpha: 0.0).cgColor
                 ]
                 nativeSpecularSecondaryLayer.locations = [
@@ -967,7 +963,7 @@ public class GlassBackgroundView: UIView {
                 } else {
                     nativeNoiseView.backgroundColor = .clear
                 }
-                nativeNoiseView.alpha = usesClearTint ? (isDark ? 0.12 : 0.07) : (isDark ? 0.09 : 0.05)
+                nativeNoiseView.alpha = usesClearTint ? (isDark ? 0.18 : 0.12) : (isDark ? 0.14 : 0.09)
             }
             nativeParamsView.layer.cornerRadius = outerCornerRadius
             nativeParamsView.layer.masksToBounds = false
@@ -978,9 +974,9 @@ public class GlassBackgroundView: UIView {
             nativeParamsView.layer.borderWidth = UIScreenPixel
             nativeParamsView.layer.borderColor = GlassBackgroundView.customGlassBorderColor(isDark: isDark, tintColor: tintColor).cgColor
             nativeParamsView.layer.shadowColor = UIColor(white: 0.0, alpha: 1.0).cgColor
-            nativeParamsView.layer.shadowOpacity = usesClearTint ? (isDark ? 0.018 : 0.01) : (isDark ? 0.05 : 0.028)
-            nativeParamsView.layer.shadowOffset = CGSize(width: 0.0, height: usesClearTint ? 8.0 : 10.0)
-            nativeParamsView.layer.shadowRadius = usesClearTint ? 16.0 : 20.0
+            nativeParamsView.layer.shadowOpacity = usesClearTint ? (isDark ? 0.052 : 0.028) : (isDark ? 0.08 : 0.044)
+            nativeParamsView.layer.shadowOffset = CGSize(width: 0.0, height: usesClearTint ? 10.0 : 12.0)
+            nativeParamsView.layer.shadowRadius = usesClearTint ? 24.0 : 28.0
             nativeParamsView.layer.shadowPath = UIBezierPath(roundedRect: CGRect(origin: CGPoint(), size: size), cornerRadius: outerCornerRadius).cgPath
         }
 

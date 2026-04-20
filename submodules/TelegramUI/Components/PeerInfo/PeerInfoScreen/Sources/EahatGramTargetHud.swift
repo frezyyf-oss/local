@@ -142,6 +142,9 @@ final class EahatGramDebugSettings {
     private static let nftUsernamePriceKey = "eahatGram.nftUsernamePrice"
     private static let nftUsernamePurchaseDateKey = "eahatGram.nftUsernamePurchaseDate"
     private static let fakePhoneNumberKey = "eahatGram.fakePhoneNumber"
+    private static let fakeRateEnabledKey = "eahatGram.fakeRateEnabled"
+    private static let fakeRateLevelKey = "eahatGram.fakeRateLevel"
+    private static let fakeVerifyEnabledKey = "eahatGram.fakeVerifyEnabled"
     private static let voiceModEnabledKey = "eahatGram.voiceModEnabled"
     private static let voiceModPresetKey = "eahatGram.voiceModPreset"
     private static let voiceModV2EnabledKey = "eahatGram.voiceModV2Enabled"
@@ -152,6 +155,9 @@ final class EahatGramDebugSettings {
     static let nftUsernamePrice = Atomic<String>(value: UserDefaults.standard.string(forKey: nftUsernamePriceKey) ?? "")
     static let nftUsernamePurchaseDate = Atomic<Int32?>(value: (UserDefaults.standard.object(forKey: nftUsernamePurchaseDateKey) as? NSNumber).map { $0.int32Value })
     static let fakePhoneNumber = Atomic<String>(value: UserDefaults.standard.string(forKey: fakePhoneNumberKey) ?? "")
+    static let fakeRateEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: fakeRateEnabledKey) as? Bool ?? false)
+    static let fakeRateLevel = Atomic<String>(value: UserDefaults.standard.string(forKey: fakeRateLevelKey) ?? "87")
+    static let fakeVerifyEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: fakeVerifyEnabledKey) as? Bool ?? false)
     static let voiceModEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: voiceModEnabledKey) as? Bool ?? false)
     static let voiceModPreset = Atomic<String>(value: UserDefaults.standard.string(forKey: voiceModPresetKey) ?? EahatGramVoiceModPreset.chipmunk.rawValue)
     static let voiceModV2Enabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: voiceModV2EnabledKey) as? Bool ?? false)
@@ -195,6 +201,27 @@ final class EahatGramDebugSettings {
             value
         }
         UserDefaults.standard.set(value, forKey: self.fakePhoneNumberKey)
+    }
+
+    static func setFakeRateEnabled(_ value: Bool) {
+        _ = self.fakeRateEnabled.modify { _ in
+            value
+        }
+        UserDefaults.standard.set(value, forKey: self.fakeRateEnabledKey)
+    }
+
+    static func setFakeRateLevel(_ value: String) {
+        _ = self.fakeRateLevel.modify { _ in
+            value
+        }
+        UserDefaults.standard.set(value, forKey: self.fakeRateLevelKey)
+    }
+
+    static func setFakeVerifyEnabled(_ value: Bool) {
+        _ = self.fakeVerifyEnabled.modify { _ in
+            value
+        }
+        UserDefaults.standard.set(value, forKey: self.fakeVerifyEnabledKey)
     }
 
     static func setVoiceModEnabled(_ value: Bool) {
@@ -525,6 +552,23 @@ func eahatGramDisplayedPhoneText(context: AccountContext, phone: String?, isMyPr
         return ""
     }
     return formatPhoneNumber(context: context, number: rawPhone)
+}
+
+func eahatGramFakeRateLevel(isMyProfile: Bool) -> Int? {
+    guard isMyProfile, EahatGramDebugSettings.fakeRateEnabled.with({ $0 }) else {
+        return nil
+    }
+    let normalized = EahatGramDebugSettings.fakeRateLevel.with { value in
+        String(value.filter { $0.isNumber })
+    }
+    guard let parsed = Int(normalized), parsed > 0 else {
+        return nil
+    }
+    return min(999, parsed)
+}
+
+func eahatGramFakeVerifyEnabled(isMyProfile: Bool) -> Bool {
+    return isMyProfile && EahatGramDebugSettings.fakeVerifyEnabled.with { $0 }
 }
 
 enum EahatGramTargetHudRentState: Equatable {

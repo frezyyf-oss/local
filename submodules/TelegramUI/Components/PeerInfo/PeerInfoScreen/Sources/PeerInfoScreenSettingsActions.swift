@@ -729,6 +729,10 @@ private final class EahatGramArguments {
     let updateNftUsernameTag: (String) -> Void
     let updateNftUsernamePrice: (String) -> Void
     let updateFakePhoneNumber: (String) -> Void
+    let updateFakeRateEnabled: (Bool) -> Void
+    let updateFakeRateLevel: (String) -> Void
+    let updateFakeVerifyEnabled: (Bool) -> Void
+    let openWallpaperPicker: () -> Void
     let updateStarsAmount: (Int32) -> Void
     let addStars: () -> Void
     let updateTargetHudEnabled: (Bool) -> Void
@@ -771,6 +775,10 @@ private final class EahatGramArguments {
         updateNftUsernameTag: @escaping (String) -> Void,
         updateNftUsernamePrice: @escaping (String) -> Void,
         updateFakePhoneNumber: @escaping (String) -> Void,
+        updateFakeRateEnabled: @escaping (Bool) -> Void,
+        updateFakeRateLevel: @escaping (String) -> Void,
+        updateFakeVerifyEnabled: @escaping (Bool) -> Void,
+        openWallpaperPicker: @escaping () -> Void,
         updateStarsAmount: @escaping (Int32) -> Void,
         addStars: @escaping () -> Void,
         updateTargetHudEnabled: @escaping (Bool) -> Void,
@@ -812,6 +820,10 @@ private final class EahatGramArguments {
         self.updateNftUsernameTag = updateNftUsernameTag
         self.updateNftUsernamePrice = updateNftUsernamePrice
         self.updateFakePhoneNumber = updateFakePhoneNumber
+        self.updateFakeRateEnabled = updateFakeRateEnabled
+        self.updateFakeRateLevel = updateFakeRateLevel
+        self.updateFakeVerifyEnabled = updateFakeVerifyEnabled
+        self.openWallpaperPicker = openWallpaperPicker
         self.updateStarsAmount = updateStarsAmount
         self.addStars = addStars
         self.updateTargetHudEnabled = updateTargetHudEnabled
@@ -851,6 +863,7 @@ private enum EahatGramSection: Int32 {
     case controls
     case farm
     case functest
+    case wallpaper
     case custom
     case stars
     case chain
@@ -865,6 +878,7 @@ private enum EahatGramTab: Int, Equatable {
     case chain
     case farm
     case functest
+    case walpaper
 }
 
 private struct EahatGramState: Equatable {
@@ -890,6 +904,9 @@ private struct EahatGramState: Equatable {
     var nftUsernameTagText: String
     var nftUsernamePriceText: String
     var fakePhoneNumberText: String
+    var fakeRateEnabled: Bool
+    var fakeRateLevelText: String
+    var fakeVerifyEnabled: Bool
     var useDirectRpc: Bool
     var starsAmount: Int32
     var chainPeerIdText: String
@@ -933,6 +950,9 @@ private struct EahatGramState: Equatable {
         self.nftUsernameTagText = EahatGramDebugSettings.nftUsernameTag.with { $0 }
         self.nftUsernamePriceText = EahatGramDebugSettings.nftUsernamePrice.with { $0 }
         self.fakePhoneNumberText = EahatGramDebugSettings.fakePhoneNumber.with { $0 }
+        self.fakeRateEnabled = EahatGramDebugSettings.fakeRateEnabled.with { $0 }
+        self.fakeRateLevelText = EahatGramDebugSettings.fakeRateLevel.with { $0 }
+        self.fakeVerifyEnabled = EahatGramDebugSettings.fakeVerifyEnabled.with { $0 }
         self.useDirectRpc = true
         self.starsAmount = 100
         self.chainPeerIdText = ""
@@ -963,6 +983,11 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case nftUsernameTag(String)
     case nftUsernamePrice(String)
     case fakePhoneNumber(String)
+    case fakeRate(Bool)
+    case fakeRateLevel(String)
+    case fakeVerify(Bool)
+    case wallpaperInfo(String)
+    case openWallpaperPicker
     case starsAmount(Int32)
     case addStars
     case starsStatus(String)
@@ -1010,12 +1035,14 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
         case .functestInfo, .functestToggle:
             return EahatGramSection.functest.rawValue
+        case .wallpaperInfo, .openWallpaperPicker:
+            return EahatGramSection.wallpaper.rawValue
         case .addCustomGiftToProfile:
             return EahatGramSection.custom.rawValue
         case .starsAmount, .addStars, .starsStatus:
@@ -1045,6 +1072,16 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 16
         case .fakePhoneNumber:
             return 11
+        case .fakeRate:
+            return 23
+        case .fakeRateLevel:
+            return 24
+        case .fakeVerify:
+            return 25
+        case .wallpaperInfo:
+            return 7000000
+        case .openWallpaperPicker:
+            return 7000001
         case .addCustomGiftToProfile:
             return 1
         case .starsAmount:
@@ -1179,6 +1216,36 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case let .fakePhoneNumber(lhsText):
             if case let .fakePhoneNumber(rhsText) = rhs {
                 return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .fakeRate(lhsValue):
+            if case let .fakeRate(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .fakeRateLevel(lhsText):
+            if case let .fakeRateLevel(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .fakeVerify(lhsValue):
+            if case let .fakeVerify(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .wallpaperInfo(lhsText):
+            if case let .wallpaperInfo(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case .openWallpaperPicker:
+            if case .openWallpaperPicker = rhs {
+                return true
             } else {
                 return false
             }
@@ -1541,6 +1608,60 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateFakePhoneNumber(value)
                 },
                 action: {}
+            )
+        case let .fakeRate(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Fake Rate",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateFakeRateEnabled(value)
+                }
+            )
+        case let .fakeRateLevel(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Rate Level"),
+                text: text,
+                placeholder: "87",
+                type: .number,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateFakeRateLevel(value)
+                },
+                action: {}
+            )
+        case let .fakeVerify(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Fake Verify",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateFakeVerifyEnabled(value)
+                }
+            )
+        case let .wallpaperInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case .openWallpaperPicker:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Choose Wallpaper From Gallery",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.openWallpaperPicker()
+                }
             )
         case .addCustomGiftToProfile:
             return ItemListActionItem(
@@ -2229,6 +2350,11 @@ private func eahatGramEntries(
         entries.append(.nftUsernameTag(state.nftUsernameTagText))
         entries.append(.nftUsernamePrice(state.nftUsernamePriceText))
         entries.append(.fakePhoneNumber(state.fakePhoneNumberText))
+        entries.append(.fakeRate(state.fakeRateEnabled))
+        if state.fakeRateEnabled {
+            entries.append(.fakeRateLevel(state.fakeRateLevelText))
+        }
+        entries.append(.fakeVerify(state.fakeVerifyEnabled))
         entries.append(.starsAmount(state.starsAmount))
         entries.append(.addStars)
         if !hasStarsContext {
@@ -2311,6 +2437,9 @@ private func eahatGramEntries(
         for toggle in EahatGramFunctestToggle.allCases {
             entries.append(.functestToggle(toggle.rawValue, toggle.title, toggle.value(state: state)))
         }
+    case .walpaper:
+        entries.append(.wallpaperInfo("Global chat wallpaper picker. The existing SettingsUI path applies the selected gallery asset with uploadCustomWallpaper."))
+        entries.append(.openWallpaperPicker)
     }
 
     entries.sort()
@@ -2503,6 +2632,46 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 return current
             }
             appendResponse("fakePhoneNumber value=\(normalized)")
+        },
+        updateFakeRateEnabled: { value in
+            EahatGramDebugSettings.setFakeRateEnabled(value)
+            updateState { current in
+                var current = current
+                current.fakeRateEnabled = value
+                return current
+            }
+            appendResponse("fakeRate enabled=\(value)")
+        },
+        updateFakeRateLevel: { value in
+            let normalized = eahatGramNormalizedNumericText(value, maxLength: 3)
+            EahatGramDebugSettings.setFakeRateLevel(normalized)
+            updateState { current in
+                var current = current
+                current.fakeRateLevelText = normalized
+                return current
+            }
+            appendResponse("fakeRate level=\(normalized)")
+        },
+        updateFakeVerifyEnabled: { value in
+            EahatGramDebugSettings.setFakeVerifyEnabled(value)
+            updateState { current in
+                var current = current
+                current.fakeVerifyEnabled = value
+                return current
+            }
+            appendResponse("fakeVerify enabled=\(value)")
+        },
+        openWallpaperPicker: {
+            presentCustomWallpaperPicker(
+                context: context,
+                present: { controller in
+                    presentControllerImpl?(controller)
+                },
+                push: { controller in
+                    pushControllerImpl?(controller)
+                }
+            )
+            appendResponse("wallpaperPicker opened")
         },
         updateStarsAmount: { value in
             updateState { current in
@@ -2948,7 +3117,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .textWithTabs("eahatGram", ["me", "test", "chain", "farm", "functest"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test", "chain", "farm", "functest", "walpaper"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
