@@ -5113,9 +5113,9 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                     let componentTransition = ComponentTransition(transition)
 
                     if animated {
-                        transition.updateBackgroundColor(node: strongSelf.backgroundNode, color: liquidGlassEnabled ? backgroundColor.withAlphaComponent(0.05) : backgroundColor)
+                        transition.updateBackgroundColor(node: strongSelf.backgroundNode, color: liquidGlassEnabled ? UIColor.clear : backgroundColor)
                     } else {
-                        strongSelf.backgroundNode.backgroundColor = liquidGlassEnabled ? backgroundColor.withAlphaComponent(0.05) : backgroundColor
+                        strongSelf.backgroundNode.backgroundColor = liquidGlassEnabled ? UIColor.clear : backgroundColor
                     }
 
                     if liquidGlassEnabled {
@@ -5130,7 +5130,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         }
                         let liquidGlassFrame = CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: layout.contentSize.width, height: itemHeight))
                         componentTransition.setFrame(view: liquidGlassView, frame: liquidGlassFrame)
-                        liquidGlassView.update(size: liquidGlassFrame.size, cornerRadius: 0.0, isDark: item.presentationData.theme.overallDarkAppearance, tintColor: .init(kind: .panel), transition: componentTransition)
+                        liquidGlassView.update(size: liquidGlassFrame.size, cornerRadius: 0.0, isDark: item.presentationData.theme.overallDarkAppearance, tintColor: .init(kind: .clear), transition: componentTransition)
                     } else if let liquidGlassView = strongSelf.liquidGlassView {
                         strongSelf.liquidGlassView = nil
                         liquidGlassView.removeFromSuperview()

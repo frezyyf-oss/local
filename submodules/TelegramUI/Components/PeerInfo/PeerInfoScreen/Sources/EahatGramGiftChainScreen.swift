@@ -588,6 +588,7 @@ private func eahatGramGiftChainHTMLDocument(
             targetPeerId: visualizationState.focusedPeerId ?? visualizationState.graph.rootPeerId
         ))
     }
+    let maxDepth = graph.nodes.map { $0.depth }.max() ?? 0
 
     let baseEdgesSVG = (!visualizationState.isVisualLineMode ? graph.edges : []).compactMap { edge -> String? in
         guard let geometry = eahatGramGiftChainExportEdgeGeometry(edge: edge, frames: frames) else {
@@ -655,12 +656,14 @@ private func eahatGramGiftChainHTMLDocument(
         """
     }.joined(separator: "\n")
 
-    let nodeCardsSVG = graph.nodes.sorted(by: { lhs, rhs in
+    let sortedNodes = graph.nodes.sorted(by: { lhs, rhs in
         if lhs.depth != rhs.depth {
             return lhs.depth < rhs.depth
         }
         return eahatGramRawPeerId(lhs.peerId) < eahatGramRawPeerId(rhs.peerId)
-    }).compactMap { node -> String? in
+    })
+
+    let nodeCardsSVG = sortedNodes.compactMap { node -> String? in
         guard let frame = frames[node.peerId] else {
             return nil
         }
@@ -679,9 +682,9 @@ private func eahatGramGiftChainHTMLDocument(
         let glossClass = isRoot ? "node-gloss node-gloss-root" : "node-gloss"
         return """
         <g class="\(cardClass)" data-search="\(eahatGramGiftChainHTMLEscape(searchText))" transform="translate(\(eahatGramGiftChainSVGNumber(frame.minX)) \(eahatGramGiftChainSVGNumber(frame.minY)))">
-          <rect class="node-shadow" x="0" y="6" width="220" height="96" rx="16" ry="16" />
-          <rect class="\(mainClass)" x="0" y="0" width="220" height="96" rx="16" ry="16" />
-          <rect class="\(glossClass)" x="1" y="1" width="218" height="94" rx="15" ry="15" />
+          <rect class="node-shadow" x="0" y="6" width="220" height="96" rx="8" ry="8" />
+          <rect class="\(mainClass)" x="0" y="0" width="220" height="96" rx="8" ry="8" />
+          <rect class="\(glossClass)" x="1" y="1" width="218" height="94" rx="7" ry="7" />
           <circle class="node-avatar" cx="33" cy="48" r="21" />
           <text class="node-avatar-text" x="33" y="53">\(eahatGramGiftChainHTMLEscape(eahatGramGiftChainSVGInitials(node.peer.compactDisplayTitle)))</text>
           <text class="node-title" x="66" y="27">\(eahatGramGiftChainHTMLEscape(eahatGramGiftChainSVGLabel(node.peer.compactDisplayTitle, maxLength: 20)))</text>
@@ -691,6 +694,36 @@ private func eahatGramGiftChainHTMLDocument(
           <text class="node-depth" x="208" y="28">chain \(node.depth)</text>
           <text class="node-meta node-meta-right" x="208" y="78">gifts \(node.incomingGiftCount)</text>
         </g>
+        """
+    }.joined(separator: "\n")
+
+    let nodeRows = sortedNodes.map { node -> String in
+        let username = node.peer.addressName.flatMap { "@\($0)" } ?? "@-"
+        let searchText = "\(node.peer.compactDisplayTitle) \(username) \(eahatGramRawPeerId(node.peerId))".lowercased()
+        let statusText: String
+        let statusClass: String
+        if node.peerId == graph.rootPeerId {
+            statusText = "Root"
+            statusClass = "state-root"
+        } else if node.peerId == visualizationState.focusedPeerId {
+            statusText = "Focused"
+            statusClass = "state-focused"
+        } else if selectedPathPeerIds.contains(node.peerId) {
+            statusText = "Path"
+            statusClass = "state-path"
+        } else {
+            statusText = "Node"
+            statusClass = "state-node"
+        }
+        return """
+        <tr data-search="\(eahatGramGiftChainHTMLEscape(searchText))">
+          <td><strong>\(eahatGramGiftChainHTMLEscape(node.peer.compactDisplayTitle))</strong><span class="peer-subtitle">\(eahatGramGiftChainHTMLEscape(username))</span></td>
+          <td>\(eahatGramRawPeerId(node.peerId))</td>
+          <td>\(node.depth)</td>
+          <td>\(node.incomingGiftCount)</td>
+          <td>\(node.mutualGiftCount)</td>
+          <td><span class="state-chip \(statusClass)">\(statusText)</span></td>
+        </tr>
         """
     }.joined(separator: "\n")
 
@@ -725,118 +758,209 @@ private func eahatGramGiftChainHTMLDocument(
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>Gift Chain Export</title>
-        <style>
+      <style>
         :root {
-          color-scheme: dark;
-          --bg: #0a0b10;
-          --panel: rgba(20, 22, 31, 0.92);
-          --panel-strong: rgba(30, 34, 48, 0.98);
-          --stroke: rgba(255, 255, 255, 0.08);
-          --accent: #6db4ff;
-          --accent-2: #9d6bff;
-          --danger: rgba(242, 66, 77, 0.95);
-          --text: #eef2ff;
-          --muted: #9aa4c7;
-          --good: #67d38f;
+          color-scheme: light;
+          --page: #f3f6f3;
+          --surface: #ffffff;
+          --surface-alt: #eef3f1;
+          --line: #d7dedb;
+          --line-strong: #9eaba6;
+          --text: #171d1a;
+          --muted: #63716b;
+          --accent: #0f8b7a;
+          --accent-strong: #09665a;
+          --path: #c28a15;
+          --danger: #d24d3e;
+          --ink: #202428;
         }
         * { box-sizing: border-box; }
+        html {
+          background: var(--page);
+        }
         body {
           margin: 0;
           min-height: 100vh;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          background:
-            radial-gradient(circle at top left, rgba(109, 180, 255, 0.20), transparent 28%),
-            radial-gradient(circle at top right, rgba(157, 107, 255, 0.18), transparent 24%),
-            linear-gradient(180deg, #0d1018 0%, #08090d 100%);
+          letter-spacing: 0;
+          background: linear-gradient(180deg, #f3f6f3 0%, #e7eeeb 100%);
           color: var(--text);
         }
+        button,
+        input {
+          font: inherit;
+        }
         .shell {
-          width: min(1440px, calc(100vw - 48px));
-          margin: 24px auto 48px;
+          width: min(1480px, calc(100vw - 40px));
+          margin: 20px auto 48px;
         }
-        .hero, .panel {
-          background: var(--panel);
-          border: 1px solid var(--stroke);
-          border-radius: 22px;
-          backdrop-filter: blur(18px);
-          box-shadow: 0 22px 60px rgba(0, 0, 0, 0.30);
+        .summary,
+        .panel,
+        .toolbar {
+          background: var(--surface);
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          box-shadow: 0 18px 45px rgba(27, 35, 31, 0.08);
         }
-        .hero {
-          padding: 28px;
-          margin-bottom: 20px;
+        .summary {
+          padding: 24px;
+          margin-bottom: 14px;
         }
-        .title {
+        .title-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 16px;
+          align-items: start;
+        }
+        .kicker,
+        .section-note,
+        dt,
+        .peer-subtitle {
+          color: var(--muted);
+        }
+        .kicker {
+          margin: 0 0 8px;
+          font-size: 13px;
+          font-weight: 700;
+        }
+        h1,
+        h2,
+        p {
+          margin: 0;
+        }
+        h1 {
           font-size: 34px;
-          font-weight: 750;
-          letter-spacing: -0.04em;
-          margin: 0 0 10px;
+          line-height: 1.12;
+          font-weight: 780;
         }
         .subtitle {
+          max-width: 820px;
+          margin-top: 10px;
           color: var(--muted);
           font-size: 14px;
           line-height: 1.6;
-          margin: 0;
         }
-        .badges {
+        .status-pill {
+          min-width: 132px;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px solid var(--line);
+          background: var(--surface-alt);
+          font-size: 13px;
+          font-weight: 700;
+          text-align: center;
+        }
+        .status-pill.ok {
+          color: var(--accent-strong);
+          border-color: rgba(15, 139, 122, 0.28);
+          background: rgba(15, 139, 122, 0.08);
+        }
+        .metrics {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 12px;
-          margin-top: 22px;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 1px;
+          margin: 22px 0 0;
+          overflow: hidden;
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          background: var(--line);
         }
-        .badge {
-          padding: 16px 18px;
-          border-radius: 18px;
-          background: var(--panel-strong);
-          border: 1px solid var(--stroke);
+        .metrics div {
+          min-width: 0;
+          padding: 14px 16px;
+          background: var(--surface);
         }
-        .badge-label {
-          color: var(--muted);
+        dt {
           font-size: 12px;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-        }
-        .badge-value {
-          margin-top: 8px;
-          font-size: 24px;
           font-weight: 700;
         }
+        dd {
+          margin: 5px 0 0;
+          font-size: 22px;
+          line-height: 1.2;
+          font-weight: 760;
+        }
         .toolbar {
-          display: flex;
+          position: sticky;
+          top: 10px;
+          z-index: 3;
+          display: grid;
+          grid-template-columns: minmax(240px, 1fr) auto auto;
           gap: 12px;
           align-items: center;
-          margin: 20px 0;
+          padding: 12px;
+          margin-bottom: 14px;
         }
         .search {
-          width: min(420px, 100%);
-          border: 1px solid var(--stroke);
-          border-radius: 16px;
-          padding: 14px 16px;
-          background: rgba(12, 14, 20, 0.88);
+          width: 100%;
+          min-width: 0;
+          border: 1px solid var(--line-strong);
+          border-radius: 8px;
+          padding: 11px 12px;
+          background: #ffffff;
           color: var(--text);
           font-size: 14px;
           outline: none;
         }
-        .panel {
-          padding: 24px;
-          margin-bottom: 20px;
+        .search:focus {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 3px rgba(15, 139, 122, 0.14);
         }
-        .panel-title {
-          margin: 0 0 14px;
-          font-size: 22px;
-          letter-spacing: -0.03em;
+        .zoom-control {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          color: var(--muted);
+          font-size: 13px;
+          white-space: nowrap;
+        }
+        .zoom-control input {
+          width: 150px;
+          accent-color: var(--accent);
+        }
+        .toolbar button {
+          border: 1px solid var(--line-strong);
+          border-radius: 8px;
+          padding: 10px 14px;
+          background: var(--ink);
+          color: #ffffff;
+          cursor: pointer;
+          font-weight: 700;
+        }
+        .panel {
+          padding: 18px;
+          margin-bottom: 14px;
+        }
+        .section-head {
+          display: flex;
+          gap: 12px;
+          justify-content: space-between;
+          align-items: end;
+          margin-bottom: 14px;
+        }
+        h2 {
+          font-size: 21px;
+          line-height: 1.25;
+          font-weight: 760;
+        }
+        .section-note {
+          font-size: 13px;
         }
         .graph-shell {
+          min-height: 420px;
           overflow: auto;
-          border-radius: 22px;
-          border: 1px solid var(--stroke);
+          border: 1px solid var(--line);
+          border-radius: 8px;
           background:
-            radial-gradient(circle at top left, rgba(109, 180, 255, 0.18), transparent 24%),
-            radial-gradient(circle at top right, rgba(242, 66, 77, 0.14), transparent 20%),
-            linear-gradient(180deg, rgba(11, 14, 22, 0.98), rgba(7, 9, 14, 0.98));
-          padding: 18px;
+            linear-gradient(90deg, rgba(23, 29, 26, 0.05) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(23, 29, 26, 0.05) 1px, transparent 1px),
+            #f8faf9;
+          background-size: 28px 28px;
+          padding: 16px;
         }
         .graph-stage {
           display: block;
+          max-width: none;
         }
         .edge {
           fill: none;
@@ -844,80 +968,81 @@ private func eahatGramGiftChainHTMLDocument(
           stroke-linejoin: round;
         }
         .edge-base {
-          stroke: rgba(145, 156, 179, 0.55);
+          stroke: rgba(98, 112, 105, 0.42);
           stroke-width: 2;
         }
         .edge-outgoing {
-          stroke: rgba(82, 143, 250, 0.95);
+          stroke: rgba(15, 139, 122, 0.95);
           stroke-width: 2.4;
         }
         .edge-mutual {
-          stroke: rgba(242, 66, 77, 0.95);
+          stroke: rgba(210, 77, 62, 0.95);
           stroke-width: 2.6;
         }
         .edge-focused {
-          stroke: rgba(245, 212, 92, 0.98);
+          stroke: rgba(194, 138, 21, 1.0);
           stroke-width: 3;
         }
         .edge-arrow {
           fill: var(--danger);
-          opacity: 0.98;
+          opacity: 0.96;
         }
         .node-shadow {
-          fill: rgba(0, 0, 0, 0.28);
-          filter: blur(6px);
+          fill: rgba(24, 31, 28, 0.16);
+          filter: blur(5px);
         }
         .node-main {
-          fill: rgba(23, 26, 36, 0.96);
-          stroke: rgba(64, 71, 87, 1.0);
+          fill: #ffffff;
+          stroke: #b8c3be;
           stroke-width: 1;
         }
         .node-main-root {
-          fill: rgba(41, 46, 61, 0.98);
-          stroke: rgba(112, 176, 250, 1.0);
+          fill: #f7faf8;
+          stroke: var(--ink);
+          stroke-width: 1.8;
         }
         .node-gloss {
-          fill: rgba(255, 255, 255, 0.015);
-          stroke: rgba(255, 255, 255, 0.03);
+          fill: transparent;
+          stroke: rgba(15, 139, 122, 0.10);
           stroke-width: 0.8;
         }
         .node-gloss-root {
-          fill: rgba(255, 255, 255, 0.028);
+          stroke: rgba(32, 36, 40, 0.18);
         }
         .node-card-path .node-main {
-          stroke: rgba(227, 189, 69, 1.0);
-          stroke-width: 1.8;
+          stroke: var(--path);
+          stroke-width: 2;
         }
         .node-card-target .node-main {
-          stroke: rgba(245, 212, 92, 0.98);
+          stroke: var(--danger);
           stroke-width: 2.2;
         }
         .node-avatar {
-          fill: rgba(255, 255, 255, 0.08);
-          stroke: rgba(255, 255, 255, 0.07);
+          fill: #e1ede9;
+          stroke: rgba(15, 139, 122, 0.24);
           stroke-width: 1;
         }
         .node-avatar-text {
           font-size: 14px;
-          font-weight: 700;
-          fill: #f4f7ff;
+          font-weight: 760;
+          fill: var(--accent-strong);
           text-anchor: middle;
         }
         .node-title {
           font-size: 14px;
-          font-weight: 600;
-          fill: #f2f5ff;
+          font-weight: 700;
+          fill: var(--text);
         }
         .node-subtitle,
         .node-meta {
           font-size: 11px;
-          fill: rgba(204, 209, 224, 1.0);
+          fill: var(--muted);
         }
         .node-depth {
           font-size: 11px;
-          font-weight: 600;
+          font-weight: 700;
           text-anchor: end;
-          fill: rgba(179, 189, 219, 1.0);
+          fill: var(--accent-strong);
         }
         .node-meta-right {
           text-anchor: end;
@@ -925,129 +1050,155 @@ private func eahatGramGiftChainHTMLDocument(
         .path-box {
           white-space: pre-wrap;
           line-height: 1.7;
-          color: #dbe4ff;
-          background: rgba(8, 11, 18, 0.9);
-          border: 1px solid var(--stroke);
-          border-radius: 18px;
-          padding: 18px;
-        }
-        .depth-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
-          gap: 16px;
-        }
-        .depth-column {
-          border: 1px solid var(--stroke);
-          border-radius: 18px;
-          background: rgba(11, 13, 20, 0.85);
+          color: var(--text);
+          background: var(--surface-alt);
+          border: 1px solid var(--line);
+          border-radius: 8px;
           padding: 16px;
+          overflow-wrap: anywhere;
         }
-        .depth-title {
-          font-size: 12px;
-          color: var(--muted);
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          margin-bottom: 14px;
-        }
-        .depth-cards {
-          display: grid;
-          gap: 12px;
-        }
-        .node-card {
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 16px;
-          padding: 14px;
-          background: linear-gradient(180deg, rgba(36, 41, 58, 0.95), rgba(17, 20, 31, 0.96));
-        }
-        .node-title {
-          font-size: 17px;
-          font-weight: 650;
-        }
-        .node-subtitle, .node-meta {
-          color: var(--muted);
-          font-size: 13px;
-          margin-top: 4px;
-        }
-        .node-stats {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-top: 12px;
-        }
-        .node-stats span {
-          font-size: 12px;
-          padding: 6px 10px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.06);
-          color: #dfe7ff;
+        .table-wrap {
+          overflow: auto;
+          border: 1px solid var(--line);
+          border-radius: 8px;
         }
         table {
           width: 100%;
           border-collapse: collapse;
-          overflow: hidden;
-          border-radius: 18px;
-          border: 1px solid var(--stroke);
+          background: var(--surface);
         }
-        th, td {
+        th,
+        td {
           text-align: left;
-          padding: 14px 16px;
+          padding: 12px 14px;
           font-size: 14px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          border-bottom: 1px solid var(--line);
+          vertical-align: top;
+          white-space: nowrap;
         }
         th {
           color: var(--muted);
-          font-weight: 600;
-          background: rgba(255, 255, 255, 0.03);
+          font-weight: 760;
+          background: var(--surface-alt);
+          position: sticky;
+          top: 0;
+          z-index: 1;
+        }
+        td strong,
+        .peer-subtitle {
+          display: block;
+        }
+        .peer-subtitle {
+          margin-top: 3px;
+          font-size: 12px;
         }
         tr:last-child td {
           border-bottom: none;
         }
-        .status-good {
-          color: var(--good);
-          font-weight: 700;
+        .state-chip {
+          display: inline-block;
+          min-width: 64px;
+          padding: 5px 8px;
+          border-radius: 8px;
+          border: 1px solid var(--line);
+          background: var(--surface-alt);
+          color: var(--muted);
+          font-size: 12px;
+          font-weight: 760;
+          text-align: center;
         }
-        @media (max-width: 768px) {
+        .state-root {
+          color: var(--ink);
+          border-color: rgba(32, 36, 40, 0.24);
+        }
+        .state-focused {
+          color: var(--danger);
+          border-color: rgba(210, 77, 62, 0.28);
+          background: rgba(210, 77, 62, 0.08);
+        }
+        .state-path {
+          color: #805800;
+          border-color: rgba(194, 138, 21, 0.32);
+          background: rgba(194, 138, 21, 0.10);
+        }
+        .state-node {
+          color: var(--accent-strong);
+          border-color: rgba(15, 139, 122, 0.24);
+          background: rgba(15, 139, 122, 0.08);
+        }
+        .is-hidden {
+          display: none;
+        }
+        @media (max-width: 820px) {
           .shell {
             width: calc(100vw - 20px);
-            margin: 10px auto 24px;
+            margin: 10px auto 28px;
           }
-          .hero, .panel {
-            padding: 18px;
-            border-radius: 18px;
+          .summary,
+          .panel {
+            padding: 14px;
           }
-          .title {
+          .title-row,
+          .toolbar,
+          .section-head {
+            grid-template-columns: 1fr;
+            display: grid;
+          }
+          h1 {
             font-size: 28px;
           }
-          th, td {
-            padding: 12px;
+          .status-pill {
+            width: 100%;
+            text-align: left;
+          }
+          .zoom-control {
+            justify-content: space-between;
+          }
+          .zoom-control input {
+            width: min(210px, 56vw);
+          }
+          th,
+          td {
+            padding: 10px 12px;
             font-size: 13px;
           }
         }
       </style>
     </head>
     <body>
-      <div class="shell">
-        <section class="hero">
-          <h1 class="title">Gift Chain Export</h1>
-          <p class="subtitle">Generated at \(eahatGramGiftChainHTMLEscape(generatedAt)) for root peer id \(eahatGramRawPeerId(graph.rootPeerId)). Current selection and visible graph are embedded below for desktop review.</p>
-          <div class="badges">
-            <div class="badge"><div class="badge-label">Root Peer</div><div class="badge-value">\(eahatGramRawPeerId(graph.rootPeerId))</div></div>
-            <div class="badge"><div class="badge-label">Visible Nodes</div><div class="badge-value">\(graph.nodes.count)</div></div>
-            <div class="badge"><div class="badge-label">Visible Edges</div><div class="badge-value">\(graph.edges.count)</div></div>
-            <div class="badge"><div class="badge-label">Highlighted Edges</div><div class="badge-value">\(graph.highlightEdges.count)</div></div>
-            <div class="badge"><div class="badge-label">Selected Lines</div><div class="badge-value">\(visualizationState.selectedEdges.count)</div></div>
-            <div class="badge"><div class="badge-label">Truncated</div><div class="badge-value \(graph.isTruncated ? "" : "status-good")">\(graph.isTruncated ? "YES" : "NO")</div></div>
+      <main class="shell">
+        <header class="summary">
+          <div class="title-row">
+            <div>
+              <p class="kicker">Gift Chain Export</p>
+              <h1>Gift Chain</h1>
+              <p class="subtitle">Generated \(eahatGramGiftChainHTMLEscape(generatedAt)). Root peer id \(eahatGramRawPeerId(graph.rootPeerId)).</p>
+            </div>
+            <div class="status-pill \(graph.isTruncated ? "" : "ok")">Truncated: \(graph.isTruncated ? "YES" : "NO")</div>
           </div>
-        </section>
+          <dl class="metrics">
+            <div><dt>Root Peer</dt><dd>\(eahatGramRawPeerId(graph.rootPeerId))</dd></div>
+            <div><dt>Visible Nodes</dt><dd>\(graph.nodes.count)</dd></div>
+            <div><dt>Visible Edges</dt><dd>\(graph.edges.count)</dd></div>
+            <div><dt>Highlighted Edges</dt><dd>\(graph.highlightEdges.count)</dd></div>
+            <div><dt>Selected Lines</dt><dd>\(visualizationState.selectedEdges.count)</dd></div>
+            <div><dt>Max Depth</dt><dd>\(maxDepth)</dd></div>
+          </dl>
+        </header>
 
         <div class="toolbar">
           <input id="query" class="search" type="search" placeholder="Filter by title, @username or peer id" oninput="filterGiftChain()">
+          <label class="zoom-control">Zoom <input id="zoom" type="range" min="45" max="160" value="100" oninput="setGiftChainZoom(this.value)"> <span id="zoomValue">100%</span></label>
+          <button type="button" onclick="resetGiftChainView()">Reset</button>
         </div>
 
         <section class="panel">
-          <h2 class="panel-title">Visualization</h2>
+          <div class="section-head">
+            <h2>Graph</h2>
+            <p class="section-note">Nodes: \(graph.nodes.count), edges: \(graph.edges.count)</p>
+          </div>
           <div class="graph-shell">
-            <svg class="graph-stage" width="\(eahatGramGiftChainSVGNumber(contentSize.width))" height="\(eahatGramGiftChainSVGNumber(contentSize.height))" viewBox="0 0 \(eahatGramGiftChainSVGNumber(contentSize.width)) \(eahatGramGiftChainSVGNumber(contentSize.height))" xmlns="http://www.w3.org/2000/svg">
+            <svg class="graph-stage" width="\(eahatGramGiftChainSVGNumber(contentSize.width))" height="\(eahatGramGiftChainSVGNumber(contentSize.height))" data-base-width="\(eahatGramGiftChainSVGNumber(contentSize.width))" data-base-height="\(eahatGramGiftChainSVGNumber(contentSize.height))" viewBox="0 0 \(eahatGramGiftChainSVGNumber(contentSize.width)) \(eahatGramGiftChainSVGNumber(contentSize.height))" xmlns="http://www.w3.org/2000/svg">
               <g class="edge-layer">
                 \(baseEdgesSVG)
                 \(highlightEdgesSVG)
@@ -1061,35 +1212,87 @@ private func eahatGramGiftChainHTMLDocument(
         </section>
 
         <section class="panel">
-          <h2 class="panel-title">Current Path</h2>
+          <div class="section-head">
+            <h2>Current Path</h2>
+          </div>
           <div class="path-box">\(eahatGramGiftChainHTMLEscape(selectedPathText))</div>
         </section>
 
         <section class="panel">
-          <h2 class="panel-title">Edges</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>From</th>
-                <th>To</th>
-                <th>Gift Count</th>
-                <th>Mutual</th>
-              </tr>
-            </thead>
-            <tbody>
-              \(edgeRows)
-            </tbody>
-          </table>
+          <div class="section-head">
+            <h2>Nodes</h2>
+            <p class="section-note">Sorted by chain depth and peer id</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Peer</th>
+                  <th>Peer Id</th>
+                  <th>Depth</th>
+                  <th>Gifts</th>
+                  <th>Mutual</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                \(nodeRows)
+              </tbody>
+            </table>
+          </div>
         </section>
-      </div>
+
+        <section class="panel">
+          <div class="section-head">
+            <h2>Edges</h2>
+            <p class="section-note">Sorted by gift count</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>Gift Count</th>
+                  <th>Mutual</th>
+                </tr>
+              </thead>
+              <tbody>
+                \(edgeRows)
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
       <script>
         function filterGiftChain() {
-          const query = (document.getElementById('query').value || '').toLowerCase().trim();
+          const input = document.getElementById('query');
+          const query = (input.value || '').toLowerCase().trim();
           document.querySelectorAll('[data-search]').forEach(function(node) {
             const haystack = node.getAttribute('data-search') || '';
-            node.style.display = !query || haystack.indexOf(query) !== -1 ? '' : 'none';
+            const hidden = Boolean(query) && haystack.indexOf(query) === -1;
+            node.classList.toggle('is-hidden', hidden);
           });
         }
+        function setGiftChainZoom(value) {
+          const stage = document.querySelector('.graph-stage');
+          const zoomValue = document.getElementById('zoomValue');
+          const width = Number(stage.getAttribute('data-base-width') || stage.getAttribute('width') || 0);
+          const height = Number(stage.getAttribute('data-base-height') || stage.getAttribute('height') || 0);
+          const scale = Number(value) / 100;
+          stage.style.width = Math.max(1, Math.round(width * scale)) + 'px';
+          stage.style.height = Math.max(1, Math.round(height * scale)) + 'px';
+          zoomValue.textContent = value + '%';
+        }
+        function resetGiftChainView() {
+          const input = document.getElementById('query');
+          const zoom = document.getElementById('zoom');
+          input.value = '';
+          zoom.value = '100';
+          filterGiftChain();
+          setGiftChainZoom('100');
+        }
+        setGiftChainZoom('100');
       </script>
     </body>
     </html>

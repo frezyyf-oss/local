@@ -1547,6 +1547,7 @@ func eahatGramAddGiftToProfileScreen(
         state: EahatGramAddGiftState,
         number: Int32,
         slug: String,
+        resolveRemotely: Bool,
         model: TelegramCore.StarGift.UniqueGift.Attribute?,
         backdrop: TelegramCore.StarGift.UniqueGift.Attribute?,
         symbol: TelegramCore.StarGift.UniqueGift.Attribute?,
@@ -1567,6 +1568,10 @@ func eahatGramAddGiftToProfileScreen(
             valueInfo: nil
         )
 
+        guard resolveRemotely else {
+            return .single(fallbackGift)
+        }
+
         let normalizedSlug = slug.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedSlug.isEmpty else {
             return .single(fallbackGift)
@@ -1579,8 +1584,10 @@ func eahatGramAddGiftToProfileScreen(
         }
 
         let valueInfoSignal = context.engine.payments.getUniqueStarGiftValueInfo(slug: normalizedSlug)
+        let fallbackRemoteSignal: Signal<(TelegramCore.StarGift.UniqueGift?, TelegramCore.StarGift.UniqueGift.ValueInfo?), NoError> = .single((nil, nil))
 
         return combineLatest(uniqueGiftSignal, valueInfoSignal)
+        |> timeout(1.5, queue: Queue.mainQueue(), alternate: fallbackRemoteSignal)
         |> map { realUniqueGift, valueInfo in
             return makeInsertedGift(
                 baseGift: baseGift,
@@ -1626,6 +1633,11 @@ func eahatGramAddGiftToProfileScreen(
         case .number, .random, .selected:
             baseTag = ""
         }
+        if case .nftTag = mode, baseTag.isEmpty {
+            setStatus("insertLocalGift failed reason=NFT_TAG_EMPTY")
+            return
+        }
+        let resolveRemotely = mode == .nftTag
         let baseTimestamp = Date().timeIntervalSince1970
         let baseDate = Int32(baseTimestamp)
         let baseUniqueGiftId = Int64(baseTimestamp * 1000.0)
@@ -1667,6 +1679,7 @@ func eahatGramAddGiftToProfileScreen(
                 state: state,
                 number: number,
                 slug: slug,
+                resolveRemotely: resolveRemotely,
                 model: model,
                 backdrop: backdrop,
                 symbol: symbol,

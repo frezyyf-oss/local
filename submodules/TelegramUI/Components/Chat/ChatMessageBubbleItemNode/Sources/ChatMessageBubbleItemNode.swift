@@ -5207,13 +5207,13 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                 size: backgroundFrame.size,
                 cornerRadius: min(18.0, floor(min(backgroundFrame.width, backgroundFrame.height) * 0.2)),
                 isDark: item.presentationData.theme.theme.overallDarkAppearance,
-                tintColor: .init(kind: .panel),
+                tintColor: .init(kind: .clear),
                 transition: ComponentTransition(legacyTransition)
             )
             strongSelf.backgroundWallpaperNode.alpha = 0.0
             strongSelf.shadowNode.alpha = 0.0
-            strongSelf.backgroundNode.alpha = 0.06
-            strongSelf.backgroundHighlightNode?.alpha = 0.06
+            strongSelf.backgroundNode.alpha = 0.0
+            strongSelf.backgroundHighlightNode?.alpha = 0.0
         } else {
             if let liquidGlassView = strongSelf.liquidGlassView {
                 strongSelf.liquidGlassView = nil
