@@ -498,7 +498,7 @@ extension PeerInfoScreenNode {
         case .dataAndStorage:
             push(dataAndStorageController(context: self.context))
         case .eahatGram:
-            push(eahatGramScreen(context: self.context, starsContext: self.controller?.starsContext))
+            push(eahatGramScreen(context: self.context, starsContext: self.controller?.starsContext, profileGiftsContext: self.data?.profileGiftsContext))
         case .appearance:
             push(themeSettingsController(context: self.context))
         case .language:
@@ -726,6 +726,8 @@ private final class EahatGramArguments {
     let addGiftToProfile: () -> Void
     let addCustomGiftToProfile: () -> Void
     let clearGifts: () -> Void
+    let removeAllContacts: () -> Void
+    let removeAllCalls: () -> Void
     let updateNftUsernameTag: (String) -> Void
     let updateNftUsernamePrice: (String) -> Void
     let updateFakePhoneNumber: (String) -> Void
@@ -772,6 +774,8 @@ private final class EahatGramArguments {
         addGiftToProfile: @escaping () -> Void,
         addCustomGiftToProfile: @escaping () -> Void,
         clearGifts: @escaping () -> Void,
+        removeAllContacts: @escaping () -> Void,
+        removeAllCalls: @escaping () -> Void,
         updateNftUsernameTag: @escaping (String) -> Void,
         updateNftUsernamePrice: @escaping (String) -> Void,
         updateFakePhoneNumber: @escaping (String) -> Void,
@@ -817,6 +821,8 @@ private final class EahatGramArguments {
         self.addGiftToProfile = addGiftToProfile
         self.addCustomGiftToProfile = addCustomGiftToProfile
         self.clearGifts = clearGifts
+        self.removeAllContacts = removeAllContacts
+        self.removeAllCalls = removeAllCalls
         self.updateNftUsernameTag = updateNftUsernameTag
         self.updateNftUsernamePrice = updateNftUsernamePrice
         self.updateFakePhoneNumber = updateFakePhoneNumber
@@ -980,6 +986,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case addGiftToProfile
     case addCustomGiftToProfile
     case clearGifts
+    case removeAllContacts
+    case removeAllCalls
     case nftUsernameTag(String)
     case nftUsernamePrice(String)
     case fakePhoneNumber(String)
@@ -1035,7 +1043,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
@@ -1066,6 +1074,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 0
         case .clearGifts:
             return 2
+        case .removeAllContacts:
+            return 26
+        case .removeAllCalls:
+            return 27
         case .nftUsernameTag:
             return 3
         case .nftUsernamePrice:
@@ -1197,6 +1209,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case .clearGifts:
             if case .clearGifts = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .removeAllContacts:
+            if case .removeAllContacts = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .removeAllCalls:
+            if case .removeAllCalls = rhs {
                 return true
             } else {
                 return false
@@ -1562,6 +1586,32 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 style: .blocks,
                 action: {
                     arguments.clearGifts()
+                }
+            )
+        case .removeAllContacts:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Remove Contacts Button",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.removeAllContacts()
+                }
+            )
+        case .removeAllCalls:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Remove Calls Button",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.removeAllCalls()
                 }
             )
         case let .nftUsernameTag(text):
@@ -2347,6 +2397,8 @@ private func eahatGramEntries(
         entries.append(.addGiftToProfile)
         entries.append(.addCustomGiftToProfile)
         entries.append(.clearGifts)
+        entries.append(.removeAllContacts)
+        entries.append(.removeAllCalls)
         entries.append(.nftUsernameTag(state.nftUsernameTagText))
         entries.append(.nftUsernamePrice(state.nftUsernamePriceText))
         entries.append(.fakePhoneNumber(state.fakePhoneNumberText))
@@ -2438,7 +2490,7 @@ private func eahatGramEntries(
             entries.append(.functestToggle(toggle.rawValue, toggle.title, toggle.value(state: state)))
         }
     case .walpaper:
-        entries.append(.wallpaperInfo("Global chat wallpaper picker. The existing SettingsUI path applies the selected gallery asset with uploadCustomWallpaper."))
+        entries.append(.wallpaperInfo("Custom global chat wallpaper picker. Supports photo and video files through local eahatGram wallpaper storage."))
         entries.append(.openWallpaperPicker)
     }
 
@@ -2454,7 +2506,7 @@ private func eahatGramEntries(
     return uniqueEntries
 }
 
-private func eahatGramScreen(context: AccountContext, starsContext: StarsContext?) -> ViewController {
+private func eahatGramScreen(context: AccountContext, starsContext: StarsContext?, profileGiftsContext: ProfileGiftsContext?) -> ViewController {
     let initialState = EahatGramState(
         liquidGlassEnabled: context.sharedContext.immediateExperimentalUISettings.fakeGlass,
         replyQuoteEnabled: context.sharedContext.immediateExperimentalUISettings.replyQuote,
@@ -2478,7 +2530,9 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
     let chainBuildGeneration = Atomic(value: 0)
     let chainVisualizationState = Atomic<EahatGramGiftChainVisualizationState?>(value: nil)
     let profileGiftsContextStateDisposable = MetaDisposable()
-    let profileGiftsContextRef = Atomic<ProfileGiftsContext?>(value: nil)
+    let profileGiftsContextRef = Atomic<ProfileGiftsContext?>(value: profileGiftsContext)
+    let removeContactsDisposable = MetaDisposable()
+    let removeCallsDisposable = MetaDisposable()
 
     let updateState: ((EahatGramState) -> EahatGramState) -> Void = { f in
         statePromise.set(stateValue.modify { f($0) })
@@ -2533,18 +2587,25 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         })
     }
 
+    let bindProfileGiftsContext: (ProfileGiftsContext) -> Void = { currentProfileGiftsContext in
+        profileGiftsContextStateDisposable.set((currentProfileGiftsContext.state
+        |> deliverOnMainQueue).start(next: { giftsState in
+            let gifts = giftsState.gifts
+            giftsPromise.set(gifts)
+            _ = currentGifts.swap(gifts)
+        }))
+    }
+    if let profileGiftsContext {
+        bindProfileGiftsContext(profileGiftsContext)
+    }
+
     let ensureProfileGiftsContext: () -> ProfileGiftsContext = {
         if let current = profileGiftsContextRef.with({ $0 }) {
             return current
         }
         let created = ProfileGiftsContext(account: context.account, peerId: context.account.peerId, filter: .All)
         _ = profileGiftsContextRef.swap(created)
-        profileGiftsContextStateDisposable.set((created.state
-        |> deliverOnMainQueue).start(next: { giftsState in
-            let gifts = giftsState.gifts
-            giftsPromise.set(gifts)
-            _ = currentGifts.swap(gifts)
-        }))
+        bindProfileGiftsContext(created)
         return created
     }
 
@@ -2590,6 +2651,23 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         clearGifts: {
             ensureProfileGiftsContext().clearLocalInsertedStarGifts()
             appendResponse("clearLocalInsertedStarGifts completed")
+        },
+        removeAllContacts: {
+            let _ = context.engine.contacts.updateIsContactSynchronizationEnabled(isContactSynchronizationEnabled: false).start()
+            appendResponse("removeAllContacts started")
+            removeContactsDisposable.set((context.engine.contacts.deleteAllContacts()
+            |> deliverOnMainQueue).start(completed: {
+                appendResponse("removeAllContacts completed")
+            }))
+        },
+        removeAllCalls: {
+            appendResponse("removeAllCalls started forEveryone=0")
+            removeCallsDisposable.set((context.engine.messages.clearCallHistory(forEveryone: false)
+            |> deliverOnMainQueue).start(error: { _ in
+                appendResponse("removeAllCalls failed reason=CLEAR_CALL_HISTORY_ERROR")
+            }, completed: {
+                appendResponse("removeAllCalls completed")
+            }))
         },
         updateNftUsernameTag: { value in
             let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3135,6 +3213,8 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         probeDisposable.dispose()
         chainBuildDisposable.dispose()
         profileGiftsContextStateDisposable.dispose()
+        removeContactsDisposable.dispose()
+        removeCallsDisposable.dispose()
     }
 
     let controller = EahatGramItemListController(context: context, state: signal)

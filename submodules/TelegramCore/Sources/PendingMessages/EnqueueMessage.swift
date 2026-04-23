@@ -394,10 +394,10 @@ private func opportunisticallyTransformOutgoingMedia(network: Network, postbox: 
 }
 
 private let eahatGramStandaloneWordReplacements: [(String, String)] = [
+    ("коч", "крч"),
     ("ша", "ща"),
     ("чн", "че"),
     ("се", "че"),
-    ("коя", "кря"),
     ("хцй", "хуй"),
     ("дацн", "даун"),
     ("туплй", "тупой"),

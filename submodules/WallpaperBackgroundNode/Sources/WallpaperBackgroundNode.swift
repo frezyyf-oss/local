@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import AVFoundation
 import AsyncDisplayKit
 import Display
 import GradientBackground
@@ -19,6 +20,9 @@ import HierarchyTrackingLayer
 import EdgeEffect
 
 private let motionAmount: CGFloat = 32.0
+private let eahatGramCustomWallpaperPathDefaultsKey = "eahatGram.customWallpaper.path"
+private let eahatGramCustomWallpaperKindDefaultsKey = "eahatGram.customWallpaper.kind"
+private let eahatGramCustomWallpaperDidChangeNotificationName = Notification.Name("eahatGram.customWallpaperDidChange")
 
 private func generateBlurredContents(image: UIImage, dimColor: UIColor?) -> UIImage? {
     let size = image.size.aspectFitted(CGSize(width: 64.0, height: 64.0))
@@ -1000,6 +1004,13 @@ public final class WallpaperBackgroundNodeImpl: ASDisplayNode, WallpaperBackgrou
     private var wallpaper: TelegramWallpaper?
     private var starGift: StarGift?
     private var modelRectIndex: Int32?
+    private var eahatGramCustomWallpaperPath: String?
+    private var eahatGramCustomWallpaperKind: String?
+    private var eahatGramCustomWallpaperImageView: UIImageView?
+    private var eahatGramCustomWallpaperPlayer: AVPlayer?
+    private var eahatGramCustomWallpaperPlayerLayer: AVPlayerLayer?
+    private var eahatGramCustomWallpaperChangeObserver: NSObjectProtocol?
+    private var eahatGramCustomWallpaperVideoEndObserver: NSObjectProtocol?
     
     private var modelStickerNode: DefaultAnimatedStickerNodeImpl?
     
@@ -1188,12 +1199,100 @@ public final class WallpaperBackgroundNodeImpl: ASDisplayNode, WallpaperBackgrou
         self.layer.addSublayer(self.patternImageLayer)
         
         self.layer.addSublayer(self.dimLayer)
+        self.eahatGramCustomWallpaperChangeObserver = NotificationCenter.default.addObserver(forName: eahatGramCustomWallpaperDidChangeNotificationName, object: nil, queue: .main, using: { [weak self] _ in
+            self?.eahatGramUpdateCustomWallpaper(force: true)
+        })
+        self.eahatGramUpdateCustomWallpaper(force: true)
     }
 
     deinit {
+        if let eahatGramCustomWallpaperChangeObserver {
+            NotificationCenter.default.removeObserver(eahatGramCustomWallpaperChangeObserver)
+        }
+        if let eahatGramCustomWallpaperVideoEndObserver {
+            NotificationCenter.default.removeObserver(eahatGramCustomWallpaperVideoEndObserver)
+        }
         self.patternImageDisposable.dispose()
         self.wallpaperDisposable.dispose()
         self.imageDisposable.dispose()
+    }
+
+    private func eahatGramCurrentCustomWallpaper() -> (path: String, kind: String)? {
+        guard let path = UserDefaults.standard.string(forKey: eahatGramCustomWallpaperPathDefaultsKey), !path.isEmpty else {
+            return nil
+        }
+        guard FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+        let kind = UserDefaults.standard.string(forKey: eahatGramCustomWallpaperKindDefaultsKey) ?? "image"
+        return (path, kind)
+    }
+
+    private func eahatGramClearCustomWallpaperViews() {
+        if let eahatGramCustomWallpaperVideoEndObserver {
+            NotificationCenter.default.removeObserver(eahatGramCustomWallpaperVideoEndObserver)
+            self.eahatGramCustomWallpaperVideoEndObserver = nil
+        }
+        self.eahatGramCustomWallpaperPlayer?.pause()
+        self.eahatGramCustomWallpaperPlayer = nil
+        self.eahatGramCustomWallpaperPlayerLayer?.removeFromSuperlayer()
+        self.eahatGramCustomWallpaperPlayerLayer = nil
+        self.eahatGramCustomWallpaperImageView?.removeFromSuperview()
+        self.eahatGramCustomWallpaperImageView = nil
+    }
+
+    private func eahatGramUpdateCustomWallpaper(force: Bool = false) {
+        let current = self.eahatGramCurrentCustomWallpaper()
+        if !force && self.eahatGramCustomWallpaperPath == current?.path && self.eahatGramCustomWallpaperKind == current?.kind {
+            self.eahatGramApplyCustomWallpaperVisibility()
+            return
+        }
+
+        self.eahatGramCustomWallpaperPath = current?.path
+        self.eahatGramCustomWallpaperKind = current?.kind
+        self.eahatGramClearCustomWallpaperViews()
+
+        guard let current else {
+            self.eahatGramApplyCustomWallpaperVisibility()
+            return
+        }
+
+        if current.kind == "video" {
+            let player = AVPlayer(url: URL(fileURLWithPath: current.path))
+            player.isMuted = true
+            player.actionAtItemEnd = .none
+            let playerLayer = AVPlayerLayer(player: player)
+            playerLayer.videoGravity = .resizeAspectFill
+            playerLayer.frame = self.bounds
+            self.view.layer.insertSublayer(playerLayer, at: 0)
+            self.eahatGramCustomWallpaperPlayer = player
+            self.eahatGramCustomWallpaperPlayerLayer = playerLayer
+            self.eahatGramCustomWallpaperVideoEndObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main, using: { [weak player] _ in
+                player?.seek(to: .zero)
+                player?.play()
+            })
+            player.play()
+            self._isReady.set(true)
+        } else if let image = UIImage(contentsOfFile: current.path) {
+            let imageView = UIImageView(image: image)
+            imageView.contentMode = .scaleAspectFill
+            imageView.clipsToBounds = true
+            imageView.frame = self.bounds
+            imageView.isUserInteractionEnabled = false
+            self.view.insertSubview(imageView, at: 0)
+            self.eahatGramCustomWallpaperImageView = imageView
+            self.updateContentStats(WallpaperContentStats(isDark: calculateWallpaperBrightness(from: image) <= 0.55, isSaturated: calculateWallpaperSaturation(from: image) > 0.35))
+            self._isReady.set(true)
+        }
+
+        self.eahatGramApplyCustomWallpaperVisibility()
+    }
+
+    private func eahatGramApplyCustomWallpaperVisibility() {
+        let hasCustomWallpaper = self.eahatGramCustomWallpaperImageView != nil || self.eahatGramCustomWallpaperPlayerLayer != nil
+        self.contentNode.isHidden = hasCustomWallpaper
+        self.gradientBackgroundNode?.isHidden = hasCustomWallpaper
+        self.patternImageLayer.isHidden = hasCustomWallpaper
     }
     
     private func updateDimming() {
@@ -1368,6 +1467,7 @@ public final class WallpaperBackgroundNodeImpl: ASDisplayNode, WallpaperBackgrou
                         } else {
                             strongSelf.blurredBackgroundContents = nil
                         }
+                        strongSelf.eahatGramApplyCustomWallpaperVisibility()
                         strongSelf.updateBubbles()
                         for edgeEffectNode in strongSelf.edgeEffectNodes {
                             if let edgeEffectNode = edgeEffectNode.value {
@@ -1406,6 +1506,7 @@ public final class WallpaperBackgroundNodeImpl: ASDisplayNode, WallpaperBackgrou
                 self.animateEvent(transition: .animated(duration: 0.7, curve: .linear), extendAnimation: false)
             }
         }
+        self.eahatGramUpdateCustomWallpaper()
         self.updateBubbles()
         self.updateDimming()
         
@@ -1749,6 +1850,9 @@ public final class WallpaperBackgroundNodeImpl: ASDisplayNode, WallpaperBackgrou
 
         transition.updatePosition(node: self.contentNode, position: CGPoint(x: size.width / 2.0, y: size.height / 2.0))
         transition.updateBounds(node: self.contentNode, bounds: CGRect(origin: CGPoint(), size: size))
+        self.eahatGramCustomWallpaperImageView?.frame = CGRect(origin: CGPoint(), size: size)
+        self.eahatGramCustomWallpaperPlayerLayer?.frame = CGRect(origin: CGPoint(), size: size)
+        self.eahatGramUpdateCustomWallpaper()
 
         if let gradientBackgroundNode = self.gradientBackgroundNode {
             transition.updateFrame(node: gradientBackgroundNode, frame: CGRect(origin: CGPoint(), size: size))

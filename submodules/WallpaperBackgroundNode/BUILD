@@ -49,6 +49,9 @@ swift_library(
     copts = [
         "-warnings-as-errors",
     ],
+    sdk_frameworks = [
+        "AVFoundation",
+    ],
     data = [
         ":WallpaperBackgroundNodeBundle",
     ],
