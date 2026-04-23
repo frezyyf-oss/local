@@ -100,5 +100,5 @@ private final class EahatGramCustomWallpaperPickerController: ViewController, UI
 public func presentCustomWallpaperPicker(context: AccountContext, present: @escaping (ViewController) -> Void, push: @escaping (ViewController) -> Void) {
     _ = context
     _ = push
-    present(EahatGramCustomWallpaperPickerController())
+    present(EahatGramCustomWallpaperPickerController(navigationBarPresentationData: nil))
 }
