@@ -73,7 +73,6 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
     
     private let animationCache: AnimationCache
     private let animationRenderer: MultiAnimationRenderer
-    private let bottomFilterTabsNode: ChatListFilterTabContainerNode
     
     private var itemNodes: [ChatListFilterTabEntryId: ChatListContainerItemNode] = [:]
     private var pendingItemNode: (ChatListFilterTabEntryId, ChatListContainerItemNode, Disposable)?
@@ -1114,6 +1113,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
     private var presentationData: PresentationData
     private let animationCache: AnimationCache
     private let animationRenderer: MultiAnimationRenderer
+    private let bottomFilterTabsNode: ChatListFilterTabContainerNode
     
     let mainContainerNode: ChatListContainerNode
     
