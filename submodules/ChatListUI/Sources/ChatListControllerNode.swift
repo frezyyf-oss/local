@@ -1229,7 +1229,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         self.contentThemeLongPressGesture.minimumPressDuration = 3.0
         self.contentThemeLongPressGesture.cancelsTouchesInView = false
         self.contentThemeLongPressGesture.addTarget(self, action: #selector(self.contentThemeLongPressGestureRecognized(_:)))
-        self.mainContainerNode.view.addGestureRecognizer(self.contentThemeLongPressGesture)
+        self.view.addGestureRecognizer(self.contentThemeLongPressGesture)
 
         self.mainContainerNode.contentOffsetChanged = { [weak self] offset, listView in
             self?.contentOffsetChanged(offset: offset, listView: listView, isPrimary: true)
@@ -1492,6 +1492,20 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         }
     }
 
+    private func isView(_ view: UIView?, descendantOf containerView: UIView?) -> Bool {
+        guard let containerView = containerView else {
+            return false
+        }
+        var currentView = view
+        while let view = currentView {
+            if view === containerView {
+                return true
+            }
+            currentView = view.superview
+        }
+        return false
+    }
+
     private func updateHeaderThemeBackground(frame: CGRect, transition: ContainedViewLayoutTransition) {
         let value = self.currentChatListThemeValue(for: .header)
         if let navigationBarComponentView = self.navigationBarView.view {
@@ -1531,6 +1545,9 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         guard gesture.state == .began else {
             return
         }
+        guard self.isChatListThemeEditMode else {
+            return
+        }
         self.presentChatListThemeEditor(for: .header, sourceView: gesture.view)
     }
 
@@ -1542,8 +1559,17 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
             return
         }
 
-        let location = gesture.location(in: self.mainContainerNode.view)
-        var currentView = self.mainContainerNode.view.hitTest(location, with: nil)
+        let location = gesture.location(in: self.view)
+        let hitView = self.view.hitTest(location, with: nil)
+
+        if self.isView(hitView, descendantOf: self.headerThemeLongPressGesture.view) {
+            return
+        }
+        if self.bottomFilterTabsNode.supernode != nil && self.isView(hitView, descendantOf: self.bottomFilterTabsNode.view) {
+            return
+        }
+
+        var currentView = hitView
         while let view = currentView {
             if view.asyncdisplaykit_node is ChatListItemNode {
                 self.presentChatListThemeEditor(for: .rowBackground, sourceView: view)
@@ -1551,7 +1577,10 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
             }
             currentView = view.superview
         }
-        self.presentChatListThemeEditor(for: .listBackground, sourceView: self.mainContainerNode.view)
+
+        if self.isView(hitView, descendantOf: self.mainContainerNode.view) || self.isView(hitView, descendantOf: self.inlineStackContainerNode?.view) || hitView === self.view || hitView === self.listThemeBackgroundView {
+            self.presentChatListThemeEditor(for: .listBackground, sourceView: hitView ?? self.mainContainerNode.view)
+        }
     }
 
     private func persistChatListThemeValue(
