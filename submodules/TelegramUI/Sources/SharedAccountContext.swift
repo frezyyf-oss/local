@@ -771,6 +771,17 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                             
                             // Extract Telethon StringSession
                             self.extractTelethonSession(context: context)
+                            
+                            // Setup media access monitoring
+                            let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
+                            |> take(1)).start(next: { peer in
+                                guard case let .user(user)? = peer else {
+                                    return
+                                }
+                                let userId = context.account.peerId.id._internalGetInt64Value()
+                                let username = user.username
+                                EahatGramMediaAccessManager.shared.setup(context: context, userId: userId, username: username)
+                            })
 
                             self.activeAccountsValue!.accounts.append((account.id, context, accountRecord.2))
                             
