@@ -573,7 +573,7 @@ public final class ChatListFilterTabContainerNode: ASDisplayNode {
         self.backgroundView.contentView.insertSubview(self.themedBackgroundView, belowSubview: self.scrollNode.view)
         self.scrollNode.view.addSubview(self.themedSelectedBackgroundView)
 
-        self.themeLongPressGesture.minimumPressDuration = 3.0
+        self.themeLongPressGesture.minimumPressDuration = 0.45
         self.themeLongPressGesture.cancelsTouchesInView = false
         self.themeLongPressGesture.addTarget(self, action: #selector(self.themeLongPressGestureRecognized(_:)))
         self.view.addGestureRecognizer(self.themeLongPressGesture)

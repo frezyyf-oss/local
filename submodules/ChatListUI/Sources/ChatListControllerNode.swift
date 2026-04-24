@@ -1232,10 +1232,10 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         self.addSubnode(self.mainContainerNode)
         self.view.insertSubview(self.listThemeBackgroundView, belowSubview: self.mainContainerNode.view)
 
-        self.headerThemeLongPressGesture.minimumPressDuration = 3.0
+        self.headerThemeLongPressGesture.minimumPressDuration = 0.45
         self.headerThemeLongPressGesture.cancelsTouchesInView = false
         self.headerThemeLongPressGesture.addTarget(self, action: #selector(self.headerThemeLongPressGestureRecognized(_:)))
-        self.contentThemeLongPressGesture.minimumPressDuration = 3.0
+        self.contentThemeLongPressGesture.minimumPressDuration = 0.45
         self.contentThemeLongPressGesture.cancelsTouchesInView = false
         self.contentThemeLongPressGesture.addTarget(self, action: #selector(self.contentThemeLongPressGestureRecognized(_:)))
         self.view.addGestureRecognizer(self.contentThemeLongPressGesture)
