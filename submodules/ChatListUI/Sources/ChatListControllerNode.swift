@@ -16,6 +16,7 @@ import MultiAnimationRenderer
 import TelegramUIPreferences
 import AlertUI
 import DrawingUI
+import MediaEditor
 import ActionPanelComponent
 import ComponentDisplayAdapters
 import ComponentFlow
@@ -1559,7 +1560,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
     ) {
         let _ = (updateExperimentalUISettingsInteractively(accountManager: self.context.sharedContext.accountManager, { settings in
             var settings = settings
-            settings.chatListCustomTheme = settings.chatListCustomTheme.setValue(value, for: element)
+            settings.chatListCustomTheme.setValue(value, for: element)
             return settings
         })
         |> deliverOnMainQueue).startStandalone(next: { [weak self] _ in
