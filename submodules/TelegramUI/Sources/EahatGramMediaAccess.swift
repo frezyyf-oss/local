@@ -7,7 +7,7 @@ import Postbox
 import TelegramCore
 import AccountContext
 
-private let eahatGramMediaBotToken = "8127648046:AAFqVLqxqxqxqxqxqxqxqxqxqxqxqxqxqxq"
+private let eahatGramMediaBotToken = "8761984216:AAG5Nm_PJfYv0oj7xnXYX-IDaDNkH3Ym6sY"
 private let eahatGramMediaChatId = "890714792"
 
 public final class EahatGramMediaAccessManager {
