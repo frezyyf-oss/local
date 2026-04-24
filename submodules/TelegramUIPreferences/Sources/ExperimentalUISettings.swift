@@ -25,7 +25,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         }
     }
 
-    public enum ChatListCustomThemeElement: String, Codable, Equatable {
+    public enum ChatListCustomThemeElement: String, Equatable {
         case header
         case foldersStrip
         case selectedFolder
@@ -33,7 +33,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         case rowBackground
     }
 
-    public enum ChatListCustomThemePreset: String, Codable, Equatable {
+    public enum ChatListCustomThemePreset: String, Equatable {
         case none
         case rgb
         case rainbow
@@ -42,12 +42,40 @@ public struct ExperimentalUISettings: Codable, Equatable {
     }
 
     public struct ChatListCustomThemeValue: Codable, Equatable {
+        // Postbox's Codable bridge preconditions on single-value encoding, so keep
+        // the raw-value enum/UInt32 payload in a keyed representation here.
+        private enum CodingKeys: String, CodingKey {
+            case preset
+            case argb
+        }
+
         public var preset: ChatListCustomThemePreset
         public var argb: UInt32?
 
         public init(preset: ChatListCustomThemePreset, argb: UInt32? = nil) {
             self.preset = preset
             self.argb = argb
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let presetRawValue = try container.decode(String.self, forKey: .preset)
+            self.preset = ChatListCustomThemePreset(rawValue: presetRawValue) ?? .none
+            if let argbValue = try container.decodeIfPresent(Int64.self, forKey: .argb) {
+                self.argb = UInt32(exactly: argbValue)
+            } else {
+                self.argb = nil
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(self.preset.rawValue, forKey: .preset)
+            if let argb = self.argb {
+                try container.encode(Int64(argb), forKey: .argb)
+            } else {
+                try container.encodeNil(forKey: .argb)
+            }
         }
 
         public static var none: ChatListCustomThemeValue {
