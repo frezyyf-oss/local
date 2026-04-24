@@ -14,6 +14,41 @@ import LiquidLens
 import AppBundle
 import SearchBarNode
 import TabSelectionRecognizer
+import TelegramUIPreferences
+
+public enum TabBarCustomThemeElement: Equatable {
+    case background
+    case itemBackground
+    case selectedItemBackground
+    case searchBackground
+}
+
+public struct TabBarCustomThemeState: Equatable {
+    public let background: ExperimentalUISettings.ChatListCustomThemeValue?
+    public let itemBackground: ExperimentalUISettings.ChatListCustomThemeValue?
+    public let selectedItemBackground: ExperimentalUISettings.ChatListCustomThemeValue?
+    public let searchBackground: ExperimentalUISettings.ChatListCustomThemeValue?
+    public let isEditing: Bool
+
+    public init(
+        background: ExperimentalUISettings.ChatListCustomThemeValue?,
+        itemBackground: ExperimentalUISettings.ChatListCustomThemeValue?,
+        selectedItemBackground: ExperimentalUISettings.ChatListCustomThemeValue?,
+        searchBackground: ExperimentalUISettings.ChatListCustomThemeValue?,
+        isEditing: Bool
+    ) {
+        self.background = background
+        self.itemBackground = itemBackground
+        self.selectedItemBackground = selectedItemBackground
+        self.searchBackground = searchBackground
+        self.isEditing = isEditing
+    }
+}
+
+public protocol TabBarComponentThemeProvider: AnyObject {
+    var tabBarCustomThemeState: TabBarCustomThemeState? { get }
+    func tabBarCustomThemeLongPressed(element: TabBarCustomThemeElement, sourceView: UIView?)
+}
 
 public final class NavigationSearchView: UIView {
     private struct Params: Equatable {
@@ -354,6 +389,8 @@ public final class TabBarComponent: Component {
     public let search: Search?
     public let selectedId: AnyHashable?
     public let outerInsets: UIEdgeInsets
+    public let customThemeState: TabBarCustomThemeState?
+    public let customThemeAction: ((TabBarCustomThemeElement, UIView?) -> Void)?
     
     public init(
         theme: PresentationTheme,
@@ -363,7 +400,9 @@ public final class TabBarComponent: Component {
         items: [Item],
         search: Search?,
         selectedId: AnyHashable?,
-        outerInsets: UIEdgeInsets
+        outerInsets: UIEdgeInsets,
+        customThemeState: TabBarCustomThemeState? = nil,
+        customThemeAction: ((TabBarCustomThemeElement, UIView?) -> Void)? = nil
     ) {
         self.theme = theme
         self.tintSelectedItem = tintSelectedItem
@@ -373,6 +412,8 @@ public final class TabBarComponent: Component {
         self.search = search
         self.selectedId = selectedId
         self.outerInsets = outerInsets
+        self.customThemeState = customThemeState
+        self.customThemeAction = customThemeAction
     }
     
     public static func ==(lhs: TabBarComponent, rhs: TabBarComponent) -> Bool {
@@ -400,6 +441,12 @@ public final class TabBarComponent: Component {
         if lhs.outerInsets != rhs.outerInsets {
             return false
         }
+        if lhs.customThemeState != rhs.customThemeState {
+            return false
+        }
+        if (lhs.customThemeAction == nil) != (rhs.customThemeAction == nil) {
+            return false
+        }
         return true
     }
     
@@ -411,6 +458,11 @@ public final class TabBarComponent: Component {
         private var measureItemViews: [AnyHashable: ComponentView<Empty>] = [:]
         private var itemViews: [AnyHashable: ComponentView<Empty>] = [:]
         private var selectedItemViews: [AnyHashable: ComponentView<Empty>] = [:]
+        private var itemThemeViews: [AnyHashable: EahatGramChatListThemeBackgroundView] = [:]
+
+        private var backgroundThemeView: EahatGramChatListThemeBackgroundView?
+        private var selectedItemThemeView: EahatGramChatListThemeBackgroundView?
+        private var searchThemeView: EahatGramChatListThemeBackgroundView?
 
         private var searchView: NavigationSearchView?
         
@@ -423,6 +475,8 @@ public final class TabBarComponent: Component {
         private var selectionGestureState: (startX: CGFloat, currentX: CGFloat, itemWidth: CGFloat, itemId: AnyHashable)?
         private var overrideSelectedItemId: AnyHashable?
         private var pendingDoubleTapItem: (id: AnyHashable, previouslySelectedId: AnyHashable?, timer: Foundation.Timer)?
+        private let backgroundThemeLongPressGesture: UILongPressGestureRecognizer
+        private let searchThemeLongPressGesture: UILongPressGestureRecognizer
 
         public var currentSearchNode: ASDisplayNode? {
             return self.searchView?.searchBarNode
@@ -434,6 +488,8 @@ public final class TabBarComponent: Component {
             
             self.contextGestureContainerView = ContextControllerSourceView()
             self.contextGestureContainerView.isGestureEnabled = true
+            self.backgroundThemeLongPressGesture = UILongPressGestureRecognizer()
+            self.searchThemeLongPressGesture = UILongPressGestureRecognizer()
             
             super.init(frame: frame)
             
@@ -449,6 +505,15 @@ public final class TabBarComponent: Component {
             let tabSelectionRecognizer = TabSelectionRecognizer(target: self, action: #selector(self.onTabSelectionGesture(_:)))
             self.tabSelectionRecognizer = tabSelectionRecognizer
             self.contextGestureContainerView.addGestureRecognizer(tabSelectionRecognizer)
+
+            self.backgroundThemeLongPressGesture.minimumPressDuration = 0.45
+            self.backgroundThemeLongPressGesture.cancelsTouchesInView = false
+            self.backgroundThemeLongPressGesture.addTarget(self, action: #selector(self.backgroundThemeLongPressGestureRecognized(_:)))
+            self.addGestureRecognizer(self.backgroundThemeLongPressGesture)
+
+            self.searchThemeLongPressGesture.minimumPressDuration = 0.45
+            self.searchThemeLongPressGesture.cancelsTouchesInView = false
+            self.searchThemeLongPressGesture.addTarget(self, action: #selector(self.searchThemeLongPressGestureRecognized(_:)))
             
             self.contextGestureContainerView.shouldBegin = { [weak self] point in
                 guard let self, let component = self.component else {
@@ -516,6 +581,35 @@ public final class TabBarComponent: Component {
         
         deinit {
             self.pendingDoubleTapItem?.timer.invalidate()
+        }
+
+        @objc private func backgroundThemeLongPressGestureRecognized(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began, let component = self.component else {
+                return
+            }
+            guard component.customThemeState?.isEditing == true, let customThemeAction = component.customThemeAction else {
+                return
+            }
+
+            let location = gesture.location(in: self)
+            if self.item(atExactPoint: location) != nil {
+                return
+            }
+            if let searchView = self.searchView, searchView.frame.contains(location) {
+                return
+            }
+
+            customThemeAction(.background, self.backgroundThemeView ?? self.backgroundContainer)
+        }
+
+        @objc private func searchThemeLongPressGestureRecognized(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began, let component = self.component else {
+                return
+            }
+            guard component.customThemeState?.isEditing == true, let customThemeAction = component.customThemeAction else {
+                return
+            }
+            customThemeAction(.searchBackground, self.searchView)
         }
         
         public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -620,6 +714,18 @@ public final class TabBarComponent: Component {
             return self.convert(itemView.bounds, from: itemView)
         }
 
+        private func item(atExactPoint point: CGPoint) -> AnyHashable? {
+            for (id, itemView) in self.itemViews {
+                guard let itemView = itemView.view else {
+                    continue
+                }
+                if itemView.frame.contains(point) {
+                    return id
+                }
+            }
+            return nil
+        }
+
         private func item(at point: CGPoint) -> AnyHashable? {
             var closestItem: (AnyHashable, CGFloat)?
             for (id, itemView) in self.itemViews {
@@ -660,6 +766,7 @@ public final class TabBarComponent: Component {
             self.state = state
             
             self.overrideUserInterfaceStyle = component.theme.overallDarkAppearance ? .dark : .light
+            let customThemeState = component.customThemeState
 
             let barHeight: CGFloat = 56.0 + innerInset * 2.0
 
@@ -727,6 +834,8 @@ public final class TabBarComponent: Component {
             let itemHeight: CGFloat = 56.0
             let contentWidth: CGFloat = innerInset * 2.0 + totalItemsWidth
             let tabsSize = CGSize(width: min(availableSize.width, contentWidth), height: itemHeight + innerInset * 2.0)
+            let itemThemeValue = customThemeState?.itemBackground
+            let selectedItemThemeValue = customThemeState?.selectedItemBackground
 
             var selectionFrame: CGRect?
             var nextItemX: CGFloat = innerInset
@@ -805,6 +914,31 @@ public final class TabBarComponent: Component {
                         self.liquidLensView.selectedContentView.addSubview(selectedItemComponentView)
                     }
 
+                    if let itemThemeValue {
+                        let itemThemeView: EahatGramChatListThemeBackgroundView
+                        if let current = self.itemThemeViews[item.id] {
+                            itemThemeView = current
+                        } else {
+                            itemThemeView = EahatGramChatListThemeBackgroundView()
+                            self.itemThemeViews[item.id] = itemThemeView
+                        }
+                        if itemThemeView.superview == nil {
+                            self.liquidLensView.contentView.insertSubview(itemThemeView, belowSubview: itemComponentView)
+                        } else {
+                            self.liquidLensView.contentView.insertSubview(itemThemeView, belowSubview: itemComponentView)
+                        }
+                        let themedItemFrame = itemFrame.insetBy(dx: 4.0, dy: 4.0)
+                        itemTransition.setFrame(view: itemThemeView, frame: themedItemFrame)
+                        itemThemeView.update(
+                            value: itemThemeValue,
+                            isDark: component.theme.overallDarkAppearance,
+                            cornerRadius: themedItemFrame.height * 0.5
+                        )
+                    } else if let itemThemeView = self.itemThemeViews[item.id] {
+                        itemThemeView.removeFromSuperview()
+                        self.itemThemeViews.removeValue(forKey: item.id)
+                    }
+
                     if let search = component.search, search.isActive {
                         if isItemSelected {
                             itemFrame.origin.x = floor((48.0 - itemSize.width) * 0.5)
@@ -812,20 +946,39 @@ public final class TabBarComponent: Component {
                             itemAlphaTransition.setBlur(layer: itemComponentView.layer, radius: 0.0)
                             itemTransition.setAlpha(view: selectedItemComponentView, alpha: 1.0)
                             itemAlphaTransition.setBlur(layer: selectedItemComponentView.layer, radius: 0.0)
+                            if let itemThemeView = self.itemThemeViews[item.id] {
+                                itemTransition.setAlpha(view: itemThemeView, alpha: 1.0)
+                                itemAlphaTransition.setBlur(layer: itemThemeView.layer, radius: 0.0)
+                            }
                         } else {
                             itemTransition.setAlpha(view: itemComponentView, alpha: 0.0)
                             itemAlphaTransition.setBlur(layer: itemComponentView.layer, radius: 10.0)
                             itemTransition.setAlpha(view: selectedItemComponentView, alpha: 0.0)
                             itemAlphaTransition.setBlur(layer: selectedItemComponentView.layer, radius: 10.0)
+                            if let itemThemeView = self.itemThemeViews[item.id] {
+                                itemTransition.setAlpha(view: itemThemeView, alpha: 0.0)
+                                itemAlphaTransition.setBlur(layer: itemThemeView.layer, radius: 10.0)
+                            }
                         }
                     } else {
                         itemTransition.setAlpha(view: itemComponentView, alpha: 1.0)
                         itemAlphaTransition.setBlur(layer: itemComponentView.layer, radius: 0.0)
                         itemTransition.setAlpha(view: selectedItemComponentView, alpha: 1.0)
                         itemAlphaTransition.setBlur(layer: selectedItemComponentView.layer, radius: 0.0)
+                        if let itemThemeView = self.itemThemeViews[item.id] {
+                            itemTransition.setAlpha(view: itemThemeView, alpha: 1.0)
+                            itemAlphaTransition.setBlur(layer: itemThemeView.layer, radius: 0.0)
+                        }
                     }
 
                     itemTransition.setFrame(view: itemComponentView, frame: itemFrame)
+                    if let itemThemeView = self.itemThemeViews[item.id] {
+                        let themedItemFrame = itemFrame.insetBy(dx: 4.0, dy: 4.0)
+                        itemTransition.setFrame(view: itemThemeView, frame: themedItemFrame)
+                    }
+                    if isItemSelected {
+                        selectionFrame = itemFrame
+                    }
                     itemTransition.setPosition(view: selectedItemComponentView, position: itemFrame.center)
                     itemTransition.setBounds(view: selectedItemComponentView, bounds: CGRect(origin: CGPoint(), size: itemFrame.size))
                     itemTransition.setScale(view: selectedItemComponentView, scale: (self.selectionGestureState != nil && component.isLiftedStateEnabled) ? 1.15 : 1.0)
@@ -843,12 +996,14 @@ public final class TabBarComponent: Component {
                     removeIds.append(id)
                     itemView.view?.removeFromSuperview()
                     self.selectedItemViews[id]?.view?.removeFromSuperview()
+                    self.itemThemeViews[id]?.removeFromSuperview()
                 }
             }
             for id in removeIds {
                 self.itemViews.removeValue(forKey: id)
                 self.selectedItemViews.removeValue(forKey: id)
                 self.measureItemViews.removeValue(forKey: id)
+                self.itemThemeViews.removeValue(forKey: id)
             }
             
             var tabsFrame = CGRect(origin: CGPoint(), size: tabsSize)
@@ -881,6 +1036,31 @@ public final class TabBarComponent: Component {
             lensSelection.x = max(0.0, min(lensSelection.x, lensSize.width - lensSelection.width))
             
             self.liquidLensView.update(size: lensSize, selectionOrigin: CGPoint(x: lensSelection.x, y: 0.0), selectionSize: CGSize(width: lensSelection.width, height: lensSize.height), inset: 4.0, isDark: component.theme.overallDarkAppearance, isLifted: self.selectionGestureState != nil && component.isLiftedStateEnabled, isCollapsed: isLensCollapsed, transition: transition.withUserData(LiquidLensView.TransitionInfo(disableAnimationWorkarounds: !component.isLiftedStateEnabled)))
+
+            if let selectedItemThemeValue, let selectionFrame {
+                let selectedItemThemeView: EahatGramChatListThemeBackgroundView
+                if let current = self.selectedItemThemeView {
+                    selectedItemThemeView = current
+                } else {
+                    selectedItemThemeView = EahatGramChatListThemeBackgroundView()
+                    self.selectedItemThemeView = selectedItemThemeView
+                }
+                if selectedItemThemeView.superview == nil {
+                    self.liquidLensView.selectedContentView.insertSubview(selectedItemThemeView, at: 0)
+                } else {
+                    self.liquidLensView.selectedContentView.insertSubview(selectedItemThemeView, at: 0)
+                }
+                let themedSelectionFrame = selectionFrame.insetBy(dx: 4.0, dy: 4.0)
+                transition.setFrame(view: selectedItemThemeView, frame: themedSelectionFrame)
+                selectedItemThemeView.update(
+                    value: selectedItemThemeValue,
+                    isDark: component.theme.overallDarkAppearance,
+                    cornerRadius: themedSelectionFrame.height * 0.5
+                )
+            } else if let selectedItemThemeView = self.selectedItemThemeView {
+                self.selectedItemThemeView = nil
+                selectedItemThemeView.removeFromSuperview()
+            }
 
             var size = tabsSize
 
@@ -923,9 +1103,38 @@ public final class TabBarComponent: Component {
                 }
                 searchView.update(size: searchSize, theme: component.theme, strings: component.strings, isActive: search.isActive, transition: searchViewTransition)
                 transition.setFrame(view: searchView, frame: searchFrame)
+                if self.searchThemeLongPressGesture.view !== searchView {
+                    self.searchThemeLongPressGesture.view?.removeGestureRecognizer(self.searchThemeLongPressGesture)
+                    searchView.addGestureRecognizer(self.searchThemeLongPressGesture)
+                }
+
+                if let searchThemeValue = customThemeState?.searchBackground {
+                    let searchThemeView: EahatGramChatListThemeBackgroundView
+                    if let current = self.searchThemeView {
+                        searchThemeView = current
+                    } else {
+                        searchThemeView = EahatGramChatListThemeBackgroundView()
+                        self.searchThemeView = searchThemeView
+                    }
+                    if searchThemeView.superview == nil {
+                        self.backgroundContainer.contentView.insertSubview(searchThemeView, belowSubview: searchView)
+                    } else {
+                        self.backgroundContainer.contentView.insertSubview(searchThemeView, belowSubview: searchView)
+                    }
+                    transition.setFrame(view: searchThemeView, frame: searchFrame)
+                    searchThemeView.update(
+                        value: searchThemeValue,
+                        isDark: component.theme.overallDarkAppearance,
+                        cornerRadius: searchFrame.height * 0.5
+                    )
+                } else if let searchThemeView = self.searchThemeView {
+                    self.searchThemeView = nil
+                    searchThemeView.removeFromSuperview()
+                }
             } else {
                 if let searchView = self.searchView {
                     self.searchView = nil
+                    self.searchThemeLongPressGesture.view?.removeGestureRecognizer(self.searchThemeLongPressGesture)
                     transition.setFrame(view: searchView, frame: CGRect(origin: CGPoint(x: availableSize.width + 50.0, y: 0.0), size: searchView.bounds.size), completion: { [weak searchView] completed in
                         guard let searchView, completed else {
                             return
@@ -933,6 +1142,35 @@ public final class TabBarComponent: Component {
                         searchView.removeFromSuperview()
                     })
                 }
+                if let searchThemeView = self.searchThemeView {
+                    self.searchThemeView = nil
+                    searchThemeView.removeFromSuperview()
+                }
+            }
+
+            if let backgroundThemeValue = customThemeState?.background {
+                let backgroundThemeView: EahatGramChatListThemeBackgroundView
+                if let current = self.backgroundThemeView {
+                    backgroundThemeView = current
+                } else {
+                    backgroundThemeView = EahatGramChatListThemeBackgroundView()
+                    self.backgroundThemeView = backgroundThemeView
+                }
+                if backgroundThemeView.superview == nil {
+                    self.backgroundContainer.contentView.insertSubview(backgroundThemeView, at: 0)
+                } else {
+                    self.backgroundContainer.contentView.insertSubview(backgroundThemeView, at: 0)
+                }
+                let backgroundFrame = CGRect(origin: CGPoint(), size: size)
+                transition.setFrame(view: backgroundThemeView, frame: backgroundFrame)
+                backgroundThemeView.update(
+                    value: backgroundThemeValue,
+                    isDark: component.theme.overallDarkAppearance,
+                    cornerRadius: backgroundFrame.height * 0.5
+                )
+            } else if let backgroundThemeView = self.backgroundThemeView {
+                self.backgroundThemeView = nil
+                backgroundThemeView.removeFromSuperview()
             }
 
             transition.setFrame(view: self.backgroundContainer, frame: CGRect(origin: CGPoint(), size: size))

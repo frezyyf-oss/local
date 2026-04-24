@@ -31,6 +31,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         case selectedFolder
         case listBackground
         case rowBackground
+        case rootTabBarBackground
+        case rootTabBarItemBackground
+        case rootTabBarSelectedItemBackground
+        case rootTabBarSearchBackground
     }
 
     public enum ChatListCustomThemePreset: String, Equatable {
@@ -84,24 +88,74 @@ public struct ExperimentalUISettings: Codable, Equatable {
     }
 
     public struct ChatListCustomThemeSettings: Codable, Equatable {
+        private enum CodingKeys: String, CodingKey {
+            case header
+            case foldersStrip
+            case selectedFolder
+            case listBackground
+            case rowBackground
+            case rootTabBarBackground
+            case rootTabBarItemBackground
+            case rootTabBarSelectedItemBackground
+            case rootTabBarSearchBackground
+        }
+
         public var header: ChatListCustomThemeValue
         public var foldersStrip: ChatListCustomThemeValue
         public var selectedFolder: ChatListCustomThemeValue
         public var listBackground: ChatListCustomThemeValue
         public var rowBackground: ChatListCustomThemeValue
+        public var rootTabBarBackground: ChatListCustomThemeValue
+        public var rootTabBarItemBackground: ChatListCustomThemeValue
+        public var rootTabBarSelectedItemBackground: ChatListCustomThemeValue
+        public var rootTabBarSearchBackground: ChatListCustomThemeValue
 
         public init(
             header: ChatListCustomThemeValue,
             foldersStrip: ChatListCustomThemeValue,
             selectedFolder: ChatListCustomThemeValue,
             listBackground: ChatListCustomThemeValue,
-            rowBackground: ChatListCustomThemeValue
+            rowBackground: ChatListCustomThemeValue,
+            rootTabBarBackground: ChatListCustomThemeValue,
+            rootTabBarItemBackground: ChatListCustomThemeValue,
+            rootTabBarSelectedItemBackground: ChatListCustomThemeValue,
+            rootTabBarSearchBackground: ChatListCustomThemeValue
         ) {
             self.header = header
             self.foldersStrip = foldersStrip
             self.selectedFolder = selectedFolder
             self.listBackground = listBackground
             self.rowBackground = rowBackground
+            self.rootTabBarBackground = rootTabBarBackground
+            self.rootTabBarItemBackground = rootTabBarItemBackground
+            self.rootTabBarSelectedItemBackground = rootTabBarSelectedItemBackground
+            self.rootTabBarSearchBackground = rootTabBarSearchBackground
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.header = try container.decodeIfPresent(ChatListCustomThemeValue.self, forKey: .header) ?? .none
+            self.foldersStrip = try container.decodeIfPresent(ChatListCustomThemeValue.self, forKey: .foldersStrip) ?? .none
+            self.selectedFolder = try container.decodeIfPresent(ChatListCustomThemeValue.self, forKey: .selectedFolder) ?? .none
+            self.listBackground = try container.decodeIfPresent(ChatListCustomThemeValue.self, forKey: .listBackground) ?? .none
+            self.rowBackground = try container.decodeIfPresent(ChatListCustomThemeValue.self, forKey: .rowBackground) ?? .none
+            self.rootTabBarBackground = try container.decodeIfPresent(ChatListCustomThemeValue.self, forKey: .rootTabBarBackground) ?? .none
+            self.rootTabBarItemBackground = try container.decodeIfPresent(ChatListCustomThemeValue.self, forKey: .rootTabBarItemBackground) ?? .none
+            self.rootTabBarSelectedItemBackground = try container.decodeIfPresent(ChatListCustomThemeValue.self, forKey: .rootTabBarSelectedItemBackground) ?? .none
+            self.rootTabBarSearchBackground = try container.decodeIfPresent(ChatListCustomThemeValue.self, forKey: .rootTabBarSearchBackground) ?? .none
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(self.header, forKey: .header)
+            try container.encode(self.foldersStrip, forKey: .foldersStrip)
+            try container.encode(self.selectedFolder, forKey: .selectedFolder)
+            try container.encode(self.listBackground, forKey: .listBackground)
+            try container.encode(self.rowBackground, forKey: .rowBackground)
+            try container.encode(self.rootTabBarBackground, forKey: .rootTabBarBackground)
+            try container.encode(self.rootTabBarItemBackground, forKey: .rootTabBarItemBackground)
+            try container.encode(self.rootTabBarSelectedItemBackground, forKey: .rootTabBarSelectedItemBackground)
+            try container.encode(self.rootTabBarSearchBackground, forKey: .rootTabBarSearchBackground)
         }
 
         public static var defaultValue: ChatListCustomThemeSettings {
@@ -110,7 +164,11 @@ public struct ExperimentalUISettings: Codable, Equatable {
                 foldersStrip: .none,
                 selectedFolder: .none,
                 listBackground: .none,
-                rowBackground: .none
+                rowBackground: .none,
+                rootTabBarBackground: .none,
+                rootTabBarItemBackground: .none,
+                rootTabBarSelectedItemBackground: .none,
+                rootTabBarSearchBackground: .none
             )
         }
 
@@ -126,6 +184,14 @@ public struct ExperimentalUISettings: Codable, Equatable {
                 return self.listBackground
             case .rowBackground:
                 return self.rowBackground
+            case .rootTabBarBackground:
+                return self.rootTabBarBackground
+            case .rootTabBarItemBackground:
+                return self.rootTabBarItemBackground
+            case .rootTabBarSelectedItemBackground:
+                return self.rootTabBarSelectedItemBackground
+            case .rootTabBarSearchBackground:
+                return self.rootTabBarSearchBackground
             }
         }
 
@@ -141,11 +207,29 @@ public struct ExperimentalUISettings: Codable, Equatable {
                 self.listBackground = value
             case .rowBackground:
                 self.rowBackground = value
+            case .rootTabBarBackground:
+                self.rootTabBarBackground = value
+            case .rootTabBarItemBackground:
+                self.rootTabBarItemBackground = value
+            case .rootTabBarSelectedItemBackground:
+                self.rootTabBarSelectedItemBackground = value
+            case .rootTabBarSearchBackground:
+                self.rootTabBarSearchBackground = value
             }
         }
 
         public var hasAnimatedPresets: Bool {
-            let values = [self.header, self.foldersStrip, self.selectedFolder, self.listBackground, self.rowBackground]
+            let values = [
+                self.header,
+                self.foldersStrip,
+                self.selectedFolder,
+                self.listBackground,
+                self.rowBackground,
+                self.rootTabBarBackground,
+                self.rootTabBarItemBackground,
+                self.rootTabBarSelectedItemBackground,
+                self.rootTabBarSearchBackground
+            ]
             return values.contains(where: {
                 switch $0.preset {
                 case .rainbow, .asfalo, .asfolo:

@@ -38,6 +38,14 @@ public func eahatGramChatListBogatiColor(
         return isDark ? UIColor(red: 0.09, green: 0.11, blue: 0.14, alpha: 1.0) : UIColor(red: 0.95, green: 0.98, blue: 1.0, alpha: 1.0)
     case .rowBackground:
         return isDark ? UIColor(red: 0.13, green: 0.16, blue: 0.20, alpha: 0.94) : UIColor(red: 0.91, green: 0.96, blue: 1.0, alpha: 0.96)
+    case .rootTabBarBackground:
+        return isDark ? UIColor(red: 0.12, green: 0.15, blue: 0.20, alpha: 0.94) : UIColor(red: 0.89, green: 0.94, blue: 1.0, alpha: 0.96)
+    case .rootTabBarItemBackground:
+        return isDark ? UIColor(red: 0.18, green: 0.22, blue: 0.29, alpha: 0.88) : UIColor(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.90)
+    case .rootTabBarSelectedItemBackground:
+        return isDark ? UIColor(red: 0.22, green: 0.52, blue: 0.94, alpha: 0.98) : UIColor(red: 0.24, green: 0.56, blue: 0.98, alpha: 0.96)
+    case .rootTabBarSearchBackground:
+        return isDark ? UIColor(red: 0.14, green: 0.18, blue: 0.24, alpha: 0.92) : UIColor(red: 0.86, green: 0.92, blue: 0.99, alpha: 0.94)
     }
 }
 

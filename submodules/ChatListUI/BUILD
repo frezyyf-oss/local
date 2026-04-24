@@ -125,6 +125,7 @@ swift_library(
         "//submodules/TelegramUI/Components/GlobalControlPanelsContext",
         "//submodules/TelegramUI/Components/MediaPlaybackHeaderPanelComponent",
         "//submodules/TelegramUI/Components/LiveLocationHeaderPanelComponent",
+        "//submodules/TelegramUI/Components/TabBarComponent",
         "//submodules/TelegramUI/Components/ChatList/ChatListSearchFiltersContainerNode",
         "//submodules/TelegramUI/Components/ChatList/ChatListHeaderNoticeComponent",
         "//submodules/TelegramUI/Components/AlertComponent",

@@ -4,6 +4,7 @@ import AsyncDisplayKit
 import SwiftSignalKit
 import Display
 import TelegramPresentationData
+import TabBarComponent
 
 public final class TabBarItemInfo: NSObject {
     public let previewing: Bool
@@ -241,6 +242,16 @@ open class TabBarControllerImpl: ViewController, TabBarController {
             if index >= 0 && index < strongSelf.tabBarControllerNode.tabBarItems.count {
                 strongSelf.controllers[index].tabBarItemContextAction(sourceView: view, gesture: gesture)
             }
+        }, themeProvider: { [weak self] in
+            guard let self else {
+                return nil
+            }
+            for controller in self.controllers {
+                if let controller = controller as? TabBarComponentThemeProvider {
+                    return controller
+                }
+            }
+            return nil
         }, swipeAction: { [weak self] index, direction in
             guard let strongSelf = self else {
                 return

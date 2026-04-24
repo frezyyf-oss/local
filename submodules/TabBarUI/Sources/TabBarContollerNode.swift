@@ -54,6 +54,7 @@ final class TabBarControllerNode: ASDisplayNode {
     private let itemHasDoubleTapAction: (Int) -> Bool
     private let itemDoubleTapped: (Int) -> Void
     private let contextAction: (Int, ContextExtractedContentContainingView, ContextGesture) -> Void
+    private let themeProvider: () -> TabBarComponentThemeProvider?
     
     private let tabBarView = ComponentView<Empty>()
     
@@ -105,13 +106,14 @@ final class TabBarControllerNode: ASDisplayNode {
         return nil
     }
     
-    init(theme: PresentationTheme, strings: PresentationStrings, itemSelected: @escaping (Int, Bool, [ASDisplayNode]) -> Void, itemHasDoubleTapAction: @escaping (Int) -> Bool, itemDoubleTapped: @escaping (Int) -> Void, contextAction: @escaping (Int, ContextExtractedContentContainingView, ContextGesture) -> Void, swipeAction: @escaping (Int, TabBarItemSwipeDirection) -> Void, toolbarActionSelected: @escaping (ToolbarActionOption) -> Void, disabledPressed: @escaping () -> Void, activateSearch: @escaping () -> Void, deactivateSearch: @escaping () -> Void) {
+    init(theme: PresentationTheme, strings: PresentationStrings, itemSelected: @escaping (Int, Bool, [ASDisplayNode]) -> Void, itemHasDoubleTapAction: @escaping (Int) -> Bool, itemDoubleTapped: @escaping (Int) -> Void, contextAction: @escaping (Int, ContextExtractedContentContainingView, ContextGesture) -> Void, themeProvider: @escaping () -> TabBarComponentThemeProvider?, swipeAction: @escaping (Int, TabBarItemSwipeDirection) -> Void, toolbarActionSelected: @escaping (ToolbarActionOption) -> Void, disabledPressed: @escaping () -> Void, activateSearch: @escaping () -> Void, deactivateSearch: @escaping () -> Void) {
         self.theme = theme
         self.strings = strings
         self.itemSelected = itemSelected
         self.itemHasDoubleTapAction = itemHasDoubleTapAction
         self.itemDoubleTapped = itemDoubleTapped
         self.contextAction = contextAction
+        self.themeProvider = themeProvider
         self.disabledOverlayNode = ASDisplayNode()
         self.disabledOverlayNode.backgroundColor = theme.rootController.tabBar.backgroundColor.withAlphaComponent(0.5)
         self.disabledOverlayNode.alpha = 0.0
@@ -219,6 +221,9 @@ final class TabBarControllerNode: ASDisplayNode {
         if self.selectedIndex < self.tabBarItems.count {
             selectedId = ObjectIdentifier(self.tabBarItems[self.selectedIndex].item)
         }
+        let tabBarThemeProvider = self.themeProvider()
+        let tabBarCustomThemeState = tabBarThemeProvider?.tabBarCustomThemeState
+        let isEditingTabBarTheme = tabBarCustomThemeState?.isEditing == true && self.currentController === (tabBarThemeProvider as? ViewController)
         var tabBarTransition = ComponentTransition(transition)
         if self.isChangingSelectedIndex {
             self.isChangingSelectedIndex = false
@@ -260,7 +265,18 @@ final class TabBarControllerNode: ASDisplayNode {
                                 return
                             }
                             if let index = self.tabBarItems.firstIndex(where: { AnyHashable(ObjectIdentifier($0.item)) == itemId }) {
-                                self.contextAction(index, sourceView, gesture)
+                                if
+                                    let tabBarThemeProvider = self.themeProvider(),
+                                    tabBarThemeProvider.tabBarCustomThemeState?.isEditing == true,
+                                    self.currentController === (tabBarThemeProvider as? ViewController)
+                                {
+                                    tabBarThemeProvider.tabBarCustomThemeLongPressed(
+                                        element: index == self.selectedIndex ? .selectedItemBackground : .itemBackground,
+                                        sourceView: sourceView
+                                    )
+                                } else {
+                                    self.contextAction(index, sourceView, gesture)
+                                }
                             }
                         }
                     )
@@ -283,7 +299,14 @@ final class TabBarControllerNode: ASDisplayNode {
                     )
                 },
                 selectedId: selectedId,
-                outerInsets: UIEdgeInsets(top: 0.0, left: sideInset, bottom: tabBarBottomInset, right: sideInset)
+                outerInsets: UIEdgeInsets(top: 0.0, left: sideInset, bottom: tabBarBottomInset, right: sideInset),
+                customThemeState: tabBarCustomThemeState,
+                customThemeAction: isEditingTabBarTheme ? { [weak self] element, sourceView in
+                    guard let self, let tabBarThemeProvider = self.themeProvider() else {
+                        return
+                    }
+                    tabBarThemeProvider.tabBarCustomThemeLongPressed(element: element, sourceView: sourceView)
+                } : nil
             )),
             environment: {},
             containerSize: CGSize(width: params.layout.size.width - sideInset * 2.0, height: 100.0)

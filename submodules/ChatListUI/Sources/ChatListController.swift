@@ -59,6 +59,7 @@ import ChatListFilterTabContainerNode
 import HeaderPanelContainerComponent
 import HorizontalTabsComponent
 import GlobalControlPanelsContext
+import TabBarComponent
 
 private final class ContextControllerContentSourceImpl: ContextControllerContentSource {
     let controller: ViewController
@@ -89,7 +90,7 @@ private final class ContextControllerContentSourceImpl: ContextControllerContent
     }
 }
 
-public class ChatListControllerImpl: TelegramBaseController, ChatListController {
+public class ChatListControllerImpl: TelegramBaseController, ChatListController, TabBarComponentThemeProvider {
     private var validLayout: ContainerViewLayout?
     
     public let context: AccountContext
@@ -6136,6 +6137,49 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             })
             navigationController.pushViewController(controller)
         }
+    }
+
+    private func currentRootTabBarThemeValue(
+        for element: ExperimentalUISettings.ChatListCustomThemeElement
+    ) -> ExperimentalUISettings.ChatListCustomThemeValue? {
+        return eahatGramResolvedChatListThemeValue(
+            settings: self.context.sharedContext.immediateExperimentalUISettings,
+            element: element,
+            isDark: self.presentationData.theme.overallDarkAppearance
+        )
+    }
+
+    public var tabBarCustomThemeState: TabBarCustomThemeState? {
+        guard case .chatList(.root) = self.location else {
+            return nil
+        }
+        return TabBarCustomThemeState(
+            background: self.currentRootTabBarThemeValue(for: .rootTabBarBackground),
+            itemBackground: self.currentRootTabBarThemeValue(for: .rootTabBarItemBackground),
+            selectedItemBackground: self.currentRootTabBarThemeValue(for: .rootTabBarSelectedItemBackground),
+            searchBackground: self.currentRootTabBarThemeValue(for: .rootTabBarSearchBackground),
+            isEditing: self.chatListDisplayNode.hasChatListThemeEditMode
+        )
+    }
+
+    public func tabBarCustomThemeLongPressed(element: TabBarCustomThemeElement, sourceView: UIView?) {
+        guard case .chatList(.root) = self.location else {
+            return
+        }
+
+        let themeElement: ExperimentalUISettings.ChatListCustomThemeElement
+        switch element {
+        case .background:
+            themeElement = .rootTabBarBackground
+        case .itemBackground:
+            themeElement = .rootTabBarItemBackground
+        case .selectedItemBackground:
+            themeElement = .rootTabBarSelectedItemBackground
+        case .searchBackground:
+            themeElement = .rootTabBarSearchBackground
+        }
+
+        self.chatListDisplayNode.presentExternalChatListThemeEditor(for: themeElement, sourceView: sourceView)
     }
     
     override public func tabBarDisabledAction() {

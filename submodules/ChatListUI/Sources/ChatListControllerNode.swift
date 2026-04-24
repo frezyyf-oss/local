@@ -1221,6 +1221,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
             }
             self.isChatListThemeEditMode = true
             self.controller?.requestLayout(transition: .immediate)
+            (self.controller?.parent as? TabBarController)?.updateLayout(transition: .immediate)
         })
 
         self.setViewBlock({
@@ -1483,6 +1484,14 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
             return self.presentationData.theme.chatList.backgroundColor
         case .rowBackground:
             return self.presentationData.theme.chatList.itemBackgroundColor
+        case .rootTabBarBackground:
+            return self.presentationData.theme.rootController.tabBar.backgroundColor
+        case .rootTabBarItemBackground:
+            return self.presentationData.theme.rootController.tabBar.textColor.withAlphaComponent(0.18)
+        case .rootTabBarSelectedItemBackground:
+            return self.presentationData.theme.rootController.tabBar.selectedTextColor.withAlphaComponent(0.24)
+        case .rootTabBarSearchBackground:
+            return self.presentationData.theme.rootController.tabBar.backgroundColor
         }
     }
 
@@ -1498,6 +1507,18 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
                 transition: .immediate
             )
         }
+        (self.controller?.parent as? TabBarController)?.updateLayout(transition: .immediate)
+    }
+
+    var hasChatListThemeEditMode: Bool {
+        return self.isChatListThemeEditMode
+    }
+
+    func presentExternalChatListThemeEditor(
+        for element: ExperimentalUISettings.ChatListCustomThemeElement,
+        sourceView: UIView?
+    ) {
+        self.presentChatListThemeEditor(for: element, sourceView: sourceView)
     }
 
     private func attachHeaderThemeGesture(to view: UIView) {
@@ -2119,6 +2140,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
     func containerLayoutUpdated(_ layout: ContainerViewLayout, navigationBarHeight: CGFloat, visualNavigationHeight: CGFloat, cleanNavigationBarHeight: CGFloat, storiesInset: CGFloat, transition: ContainedViewLayoutTransition) {
         if eahatGramConsumeChatListThemeEditModeRequest() {
             self.isChatListThemeEditMode = true
+            (self.controller?.parent as? TabBarController)?.updateLayout(transition: .immediate)
         }
 
         var navigationBarHeight = navigationBarHeight
