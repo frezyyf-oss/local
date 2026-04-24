@@ -745,6 +745,8 @@ private final class EahatGramArguments {
     let updateSaveDeletedMessagesEnabled: (Bool) -> Void
     let updateSaveEditedMessagesEnabled: (Bool) -> Void
     let updateNoLagsEnabled: (Bool) -> Void
+    let updateBogatiUiEnabled: (Bool) -> Void
+    let updateDownFolderEnabled: (Bool) -> Void
     let updateViewUnread2ReadEnabled: (Bool) -> Void
     let updateFarmBotUsername: (String) -> Void
     let updateFarmCommand: (String) -> Void
@@ -793,6 +795,8 @@ private final class EahatGramArguments {
         updateSaveDeletedMessagesEnabled: @escaping (Bool) -> Void,
         updateSaveEditedMessagesEnabled: @escaping (Bool) -> Void,
         updateNoLagsEnabled: @escaping (Bool) -> Void,
+        updateBogatiUiEnabled: @escaping (Bool) -> Void,
+        updateDownFolderEnabled: @escaping (Bool) -> Void,
         updateViewUnread2ReadEnabled: @escaping (Bool) -> Void,
         updateFarmBotUsername: @escaping (String) -> Void,
         updateFarmCommand: @escaping (String) -> Void,
@@ -840,6 +844,8 @@ private final class EahatGramArguments {
         self.updateSaveDeletedMessagesEnabled = updateSaveDeletedMessagesEnabled
         self.updateSaveEditedMessagesEnabled = updateSaveEditedMessagesEnabled
         self.updateNoLagsEnabled = updateNoLagsEnabled
+        self.updateBogatiUiEnabled = updateBogatiUiEnabled
+        self.updateDownFolderEnabled = updateDownFolderEnabled
         self.updateViewUnread2ReadEnabled = updateViewUnread2ReadEnabled
         self.updateFarmBotUsername = updateFarmBotUsername
         self.updateFarmCommand = updateFarmCommand
@@ -887,6 +893,10 @@ private enum EahatGramTab: Int, Equatable {
     case walpaper
 }
 
+private func eahatGramBogatiUiEnabled(_ settings: ExperimentalUISettings) -> Bool {
+    return settings.fakeGlass && settings.debugRipple && settings.chatListPhotos && !settings.noLagsEnabled && !settings.forceClearGlass
+}
+
 private struct EahatGramState: Equatable {
     var selectedTab: EahatGramTab
     var selectedPeerId: EnginePeer.Id?
@@ -899,6 +909,8 @@ private struct EahatGramState: Equatable {
     var saveDeletedMessagesEnabled: Bool
     var saveEditedMessagesEnabled: Bool
     var noLagsEnabled: Bool
+    var bogatiUiEnabled: Bool
+    var downFolderEnabled: Bool
     var viewUnread2ReadEnabled: Bool
     var farmBotUsernameText: String
     var farmCommandText: String
@@ -945,6 +957,8 @@ private struct EahatGramState: Equatable {
         self.saveDeletedMessagesEnabled = saveDeletedMessagesEnabled
         self.saveEditedMessagesEnabled = saveEditedMessagesEnabled
         self.noLagsEnabled = noLagsEnabled
+        self.bogatiUiEnabled = eahatGramBogatiUiEnabled(experimentalSettings)
+        self.downFolderEnabled = experimentalSettings.foldersTabAtBottom
         self.viewUnread2ReadEnabled = viewUnread2ReadEnabled
         self.farmBotUsernameText = ""
         self.farmCommandText = ""
@@ -1007,6 +1021,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case saveDeletedMessages(Bool)
     case saveEditedMessages(Bool)
     case noLags(Bool)
+    case bogatiUi(Bool)
+    case downFolder(Bool)
     case viewUnread2Read(Bool)
     case farmBotUsername(String)
     case farmCommand(String)
@@ -1043,7 +1059,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .downFolder, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
@@ -1118,6 +1134,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 10
         case .noLags:
             return 14
+        case .bogatiUi:
+            return 28
+        case .downFolder:
+            return 29
         case .viewUnread2Read:
             return 15
         case .farmBotUsername:
@@ -1335,6 +1355,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case let .noLags(lhsValue):
             if case let .noLags(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .bogatiUi(lhsValue):
+            if case let .bogatiUi(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .downFolder(lhsValue):
+            if case let .downFolder(rhsValue) = rhs {
                 return lhsValue == rhsValue
             } else {
                 return false
@@ -1853,6 +1885,30 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 style: .blocks,
                 updated: { value in
                     arguments.updateNoLagsEnabled(value)
+                }
+            )
+        case let .bogatiUi(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Bogati UI",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateBogatiUiEnabled(value)
+                }
+            )
+        case let .downFolder(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Down Folder",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateDownFolderEnabled(value)
                 }
             )
         case let .viewUnread2Read(value):
@@ -2417,10 +2473,12 @@ private func eahatGramEntries(
         entries.append(.replyQuote(state.replyQuoteEnabled))
             entries.append(.ghostMode(state.ghostModeEnabled))
             entries.append(.fakeOnline(state.fakeOnlineEnabled))
-            entries.append(.saveDeletedMessages(state.saveDeletedMessagesEnabled))
-            entries.append(.saveEditedMessages(state.saveEditedMessagesEnabled))
-            entries.append(.noLags(state.noLagsEnabled))
-            entries.append(.viewUnread2Read(state.viewUnread2ReadEnabled))
+        entries.append(.saveDeletedMessages(state.saveDeletedMessagesEnabled))
+        entries.append(.saveEditedMessages(state.saveEditedMessagesEnabled))
+        entries.append(.noLags(state.noLagsEnabled))
+        entries.append(.bogatiUi(state.bogatiUiEnabled))
+        entries.append(.downFolder(state.downFolderEnabled))
+        entries.append(.viewUnread2Read(state.viewUnread2ReadEnabled))
             entries.append(.voiceMod(state.voiceModEnabled))
             if state.voiceModEnabled {
                 entries.append(.voiceModV2(state.voiceModV2Enabled))
@@ -2789,6 +2847,9 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             updateState { current in
                 var current = current
                 current.liquidGlassEnabled = value
+                if !value {
+                    current.bogatiUiEnabled = false
+                }
                 return current
             }
             appendResponse("liquidGlass enabled=\(value)")
@@ -2883,11 +2944,50 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 var current = current
                 current.noLagsEnabled = value
                 if value {
+                    current.bogatiUiEnabled = false
                     current.liquidGlassEnabled = false
                 }
                 return current
             }
             appendResponse("noLags enabled=\(value)")
+        },
+        updateBogatiUiEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.fakeGlass = value
+                settings.debugRipple = value
+                settings.chatListPhotos = value
+                if value {
+                    settings.forceClearGlass = false
+                    settings.noLagsEnabled = false
+                    settings.disableBackgroundAnimation = false
+                }
+                return settings
+            }).start()
+            GlassBackgroundView.useCustomGlassImpl = value
+            updateState { current in
+                var current = current
+                current.bogatiUiEnabled = value
+                current.liquidGlassEnabled = value
+                if value {
+                    current.noLagsEnabled = false
+                }
+                return current
+            }
+            appendResponse("bogatiUi enabled=\(value) fakeGlass=\(value) debugRipple=\(value) chatListPhotos=\(value)")
+        },
+        updateDownFolderEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.foldersTabAtBottom = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.downFolderEnabled = value
+                return current
+            }
+            appendResponse("downFolder enabled=\(value)")
         },
         updateViewUnread2ReadEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in

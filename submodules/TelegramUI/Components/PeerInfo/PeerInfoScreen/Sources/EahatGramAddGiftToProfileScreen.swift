@@ -1300,6 +1300,7 @@ func eahatGramAddGiftToProfileScreen(
     let giftsDisposable = MetaDisposable()
     let attributesDisposable = MetaDisposable()
     let insertDisposable = MetaDisposable()
+    let nftInsertCounter = Atomic<Int>(value: 0)
 
     let updateState: ((EahatGramAddGiftState) -> EahatGramAddGiftState) -> Void = { f in
         statePromise.set(stateValue.modify { f($0) })
@@ -1639,6 +1640,9 @@ func eahatGramAddGiftToProfileScreen(
             return
         }
         let resolveRemotely = mode == .nftTag
+        let nftInsertSeries = mode == .nftTag ? (nftInsertCounter.modify { current -> Int in
+            return current + 1
+        } - 1) : 0
         let baseTimestamp = Date().timeIntervalSince1970
         let baseDate = Int32(baseTimestamp)
         let baseUniqueGiftId = Int64(baseTimestamp * 1000.0)
@@ -1672,8 +1676,8 @@ func eahatGramAddGiftToProfileScreen(
             let slug = eahatGramResolvedGiftSlug(
                 baseTag: baseTag,
                 number: number,
-                batchIndex: batchCount > 1 ? index : nil,
-                forceNumberSuffix: randomized
+                batchIndex: mode == .nftTag ? (nftInsertSeries * batchCount + index) : (batchCount > 1 ? index : nil),
+                forceNumberSuffix: randomized || (mode == .nftTag && nftInsertSeries > 0)
             )
             let insertedGift = enrichedInsertedGiftSignal(
                 baseGift: baseGift,

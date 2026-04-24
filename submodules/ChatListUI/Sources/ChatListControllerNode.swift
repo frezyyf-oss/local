@@ -73,6 +73,7 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
     
     private let animationCache: AnimationCache
     private let animationRenderer: MultiAnimationRenderer
+    private let bottomFilterTabsNode: ChatListFilterTabContainerNode
     
     private var itemNodes: [ChatListFilterTabEntryId: ChatListContainerItemNode] = [:]
     private var pendingItemNode: (ChatListFilterTabEntryId, ChatListContainerItemNode, Disposable)?
@@ -1181,6 +1182,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         self.presentationData = presentationData
         self.animationCache = animationCache
         self.animationRenderer = animationRenderer
+        self.bottomFilterTabsNode = ChatListFilterTabContainerNode(context: context)
         
         var filterBecameEmpty: ((ChatListFilter?) -> Void)?
         var filterEmptyAction: ((ChatListFilter?) -> Void)?
@@ -1225,6 +1227,23 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         }
         self.mainContainerNode.shouldStopScrolling = { [weak self] listView, velocity in
             return self?.shouldStopScrolling(listView: listView, velocity: velocity, isPrimary: true) ?? false
+        }
+        self.bottomFilterTabsNode.tabSelected = { [weak self] id, isDisabled in
+            self?.activateBottomFilterTab(id: id, isDisabled: isDisabled)
+        }
+        self.bottomFilterTabsNode.tabRequestedDeletion = { [weak self] id in
+            guard let self else {
+                return
+            }
+            if case let .filter(filterId) = id {
+                self.controller?.askForFilterRemoval(id: filterId)
+            }
+        }
+        self.bottomFilterTabsNode.contextGesture = { [weak self] id, sourceNode, gesture, isDisabled in
+            self?.controller?.tabContextGesture(id: id, sourceNode: sourceNode, sourceView: nil, gesture: gesture, keepInPlace: false, isDisabled: isDisabled)
+        }
+        self.bottomFilterTabsNode.presentPremiumTip = { [weak self] in
+            self?.presentFoldersPremiumLimit()
         }
         
         self.addSubnode(self.debugListView)
@@ -1400,9 +1419,42 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
             toolbarNode.updateTheme(ToolbarTheme(rootControllerTheme: self.presentationData.theme))
         }
     }
+
+    private func presentFoldersPremiumLimit() {
+        guard let tabContainerData = self.controller?.tabContainerData else {
+            return
+        }
+        let filtersCount = tabContainerData.0.count(where: { item in
+            if case .all = item {
+                return false
+            } else {
+                return true
+            }
+        })
+        let context = self.context
+        var replaceImpl: ((ViewController) -> Void)?
+        let controller = PremiumLimitScreen(context: context, subject: .folders, count: Int32(filtersCount), action: {
+            let controller = PremiumIntroScreen(context: context, source: .folders)
+            replaceImpl?(controller)
+            return true
+        })
+        replaceImpl = { [weak controller] c in
+            controller?.replace(with: c)
+        }
+        self.controller?.push(controller)
+    }
+
+    private func activateBottomFilterTab(id: ChatListFilterTabEntryId, isDisabled: Bool) {
+        if isDisabled {
+            self.presentFoldersPremiumLimit()
+        } else {
+            self.controller?.selectTab(id: id)
+        }
+    }
     
     private func updateNavigationBar(layout: ContainerViewLayout, deferScrollApplication: Bool, transition: ComponentTransition) -> (navigationHeight: CGFloat, storiesInset: CGFloat) {
         let headerContent = self.controller?.updateHeaderContent()
+        let useBottomFolderTabs = self.context.sharedContext.immediateExperimentalUISettings.foldersTabAtBottom && self.toolbar == nil && !self.isReorderingFilters
         
         var panels: [HeaderPanelContainerComponent.Panel] = []
         if let chatListNotice = self.controller?.globalControlPanelsContextState?.chatListNotice {
@@ -1503,7 +1555,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         var navigationHeaderPanels: AnyComponent<Empty>?
         if self.controller?.tabContainerData != nil || !panels.isEmpty {
             var tabs: AnyComponent<Empty>?
-            if let tabContainerData = self.controller?.tabContainerData, tabContainerData.0.count > 1 {
+            if !useBottomFolderTabs, let tabContainerData = self.controller?.tabContainerData, tabContainerData.0.count > 1 {
                 let selectedTab: HorizontalTabsComponent.Tab.Id
                 switch self.effectiveContainerNode.currentItemFilter {
                 case .all:
@@ -1806,6 +1858,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         var visualNavigationHeight = visualNavigationHeight
         var cleanNavigationBarHeight = cleanNavigationBarHeight
         var storiesInset = storiesInset
+        let useBottomFolderTabs = self.context.sharedContext.immediateExperimentalUISettings.foldersTabAtBottom && self.toolbar == nil && !self.isReorderingFilters
         
         let navigationBarLayout = self.updateNavigationBar(layout: layout, deferScrollApplication: true, transition: ComponentTransition(transition))
         self.mainContainerNode.initialScrollingOffset = ChatListNavigationBar.searchScrollHeight + navigationBarLayout.storiesInset
@@ -1868,6 +1921,40 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
             self.toolbarNode = nil
             transition.updateAlpha(node: toolbarNode, alpha: 0.0, completion: { [weak toolbarNode] _ in
                 toolbarNode?.removeFromSupernode()
+            })
+        }
+
+        if useBottomFolderTabs, let tabContainerData = self.controller?.tabContainerData, tabContainerData.0.count > 1 {
+            if self.bottomFilterTabsNode.supernode == nil {
+                self.insertSubnode(self.bottomFilterTabsNode, aboveSubnode: self.mainContainerNode)
+                self.bottomFilterTabsNode.alpha = 0.0
+            }
+            let bottomTabsHeight: CGFloat = 44.0
+            let bottomTabsSpacing: CGFloat = 8.0
+            let bottomInset = max(layout.intrinsicInsets.bottom, layout.safeInsets.bottom)
+            let bottomFrame = CGRect(
+                origin: CGPoint(x: 0.0, y: layout.size.height - bottomInset - bottomTabsHeight - bottomTabsSpacing),
+                size: CGSize(width: layout.size.width, height: bottomTabsHeight)
+            )
+            self.bottomFilterTabsNode.update(
+                size: bottomFrame.size,
+                sideInset: layout.safeInsets.left,
+                filters: tabContainerData.0,
+                selectedFilter: self.effectiveContainerNode.currentItemFilter,
+                isReordering: false,
+                isEditing: self.isEditing,
+                canReorderAllChats: self.context.isPremium,
+                filtersLimit: tabContainerData.2,
+                transitionFraction: self.mainContainerNode.transitionFraction,
+                presentationData: self.presentationData,
+                transition: transition
+            )
+            transition.updateFrame(node: self.bottomFilterTabsNode, frame: bottomFrame)
+            transition.updateAlpha(node: self.bottomFilterTabsNode, alpha: 1.0)
+            insets.bottom += bottomTabsHeight + bottomTabsSpacing
+        } else if self.bottomFilterTabsNode.supernode != nil {
+            transition.updateAlpha(node: self.bottomFilterTabsNode, alpha: 0.0, completion: { [weak self] _ in
+                self?.bottomFilterTabsNode.removeFromSupernode()
             })
         }
         

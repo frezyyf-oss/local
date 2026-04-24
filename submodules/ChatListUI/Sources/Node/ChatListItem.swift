@@ -2437,7 +2437,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                 editingOffset = 0.0
             }
 
-            let enableChatListPhotos = true
+            let enableChatListPhotos = item.context.sharedContext.immediateExperimentalUISettings.chatListPhotos
 
             // if changed, adjust setupItem accordingly
             var avatarDiameter = min(60.0, floor(item.presentationData.fontSize.baseDisplaySize * 60.0 / 17.0))
