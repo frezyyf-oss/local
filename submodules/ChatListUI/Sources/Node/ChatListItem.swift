@@ -30,6 +30,7 @@ import MultilineTextComponent
 import MultilineTextWithEntitiesComponent
 import ShimmerEffect
 import GlassBackgroundComponent
+import TelegramUIPreferences
 
 public enum ChatListItemContent {
     public final class ThreadInfo: Equatable {
@@ -1369,6 +1370,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
     var actionButtonBackgroundView: UIImageView?
     var actionButtonNode: HighlightableButtonNode?
     private var liquidGlassView: GlassBackgroundView?
+    private var customThemeBackgroundView: EahatGramChatListThemeBackgroundView?
 
     private var placeholderNode: ShimmerEffectNode?
     private var absoluteLocation: (CGRect, CGSize)?
@@ -3228,7 +3230,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                 if message.flags.isSending && !message._asMessage().isSentOrAcknowledged {
                     statusState = .clock(PresentationResourcesChatList.clockFrameImage(item.presentationData.theme), PresentationResourcesChatList.clockMinImage(item.presentationData.theme))
                 } else if message.id.peerId != account.peerId {
-                    if hasFailedMessages {
+                    if hasFailedMessages && !item.context.sharedContext.immediateExperimentalUISettings.hideFailedWarning {
                         statusState = .failed(item.presentationData.theme.chatList.failedFillColor, item.presentationData.theme.chatList.failedForegroundColor)
                     } else {
                         if let forumTopicData = forumTopicData {
@@ -5109,13 +5111,40 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         }
                         highlightedBackgroundColor = theme.itemHighlightedBackgroundColor
                     }
-                    let liquidGlassEnabled = item.context.sharedContext.immediateExperimentalUISettings.fakeGlass && !backgroundColor.isEqual(UIColor.clear)
+                    let rowThemeValue = eahatGramResolvedChatListThemeValue(
+                        settings: item.context.sharedContext.immediateExperimentalUISettings,
+                        element: .rowBackground,
+                        isDark: item.presentationData.theme.overallDarkAppearance
+                    )
+                    let rowThemeEnabled = rowThemeValue != nil && !item.selected
+                    let liquidGlassEnabled = !rowThemeEnabled && item.context.sharedContext.immediateExperimentalUISettings.fakeGlass && !backgroundColor.isEqual(UIColor.clear)
                     let componentTransition = ComponentTransition(transition)
 
                     if animated {
-                        transition.updateBackgroundColor(node: strongSelf.backgroundNode, color: liquidGlassEnabled ? UIColor.clear : backgroundColor)
+                        transition.updateBackgroundColor(node: strongSelf.backgroundNode, color: (liquidGlassEnabled || rowThemeEnabled) ? UIColor.clear : backgroundColor)
                     } else {
-                        strongSelf.backgroundNode.backgroundColor = liquidGlassEnabled ? UIColor.clear : backgroundColor
+                        strongSelf.backgroundNode.backgroundColor = (liquidGlassEnabled || rowThemeEnabled) ? UIColor.clear : backgroundColor
+                    }
+
+                    if rowThemeEnabled, let rowThemeValue = rowThemeValue {
+                        let customThemeBackgroundView: EahatGramChatListThemeBackgroundView
+                        if let current = strongSelf.customThemeBackgroundView {
+                            customThemeBackgroundView = current
+                        } else {
+                            customThemeBackgroundView = EahatGramChatListThemeBackgroundView()
+                            strongSelf.customThemeBackgroundView = customThemeBackgroundView
+                            strongSelf.view.insertSubview(customThemeBackgroundView, belowSubview: strongSelf.contextContainer.view)
+                        }
+                        let themedBackgroundFrame = CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: layout.contentSize.width, height: itemHeight))
+                        componentTransition.setFrame(view: customThemeBackgroundView, frame: themedBackgroundFrame)
+                        customThemeBackgroundView.update(
+                            value: rowThemeValue,
+                            isDark: item.presentationData.theme.overallDarkAppearance,
+                            cornerRadius: 0.0
+                        )
+                    } else if let customThemeBackgroundView = strongSelf.customThemeBackgroundView {
+                        strongSelf.customThemeBackgroundView = nil
+                        customThemeBackgroundView.removeFromSuperview()
                     }
 
                     if liquidGlassEnabled {
@@ -5141,10 +5170,16 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         if let liquidGlassView = strongSelf.liquidGlassView {
                             componentTransition.setAlpha(view: liquidGlassView, alpha: 1.0 - inlineNavigationLocation.progress)
                         }
+                        if let customThemeBackgroundView = strongSelf.customThemeBackgroundView {
+                            componentTransition.setAlpha(view: customThemeBackgroundView, alpha: 1.0 - inlineNavigationLocation.progress)
+                        }
                     } else {
                         transition.updateAlpha(node: strongSelf.backgroundNode, alpha: 1.0)
                         if let liquidGlassView = strongSelf.liquidGlassView {
                             componentTransition.setAlpha(view: liquidGlassView, alpha: 1.0)
+                        }
+                        if let customThemeBackgroundView = strongSelf.customThemeBackgroundView {
+                            componentTransition.setAlpha(view: customThemeBackgroundView, alpha: 1.0)
                         }
                     }
 

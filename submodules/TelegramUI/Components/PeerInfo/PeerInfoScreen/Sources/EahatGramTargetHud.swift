@@ -138,6 +138,7 @@ private func eahatGramCollectibleUsernameOwnerSignal(context: AccountContext, us
 
 final class EahatGramDebugSettings {
     private static let targetHudEnabledKey = "eahatGram.targetHudEnabled"
+    private static let nftUsernameTagsKey = "eahatGram.nftUsernameTags"
     private static let nftUsernameTagKey = "eahatGram.nftUsernameTag"
     private static let nftUsernamePriceKey = "eahatGram.nftUsernamePrice"
     private static let nftUsernamePurchaseDateKey = "eahatGram.nftUsernamePurchaseDate"
@@ -150,7 +151,43 @@ final class EahatGramDebugSettings {
     private static let voiceModV2EnabledKey = "eahatGram.voiceModV2Enabled"
     private static let voiceModV2VoiceKey = "eahatGram.voiceModV2Voice"
 
+    struct NftUsernameTagRecord: Codable, Equatable {
+        let username: String
+        let priceText: String
+        let purchaseDate: Int32?
+    }
+
+    private static func migratedNftUsernameTags() -> [NftUsernameTagRecord] {
+        if
+            let data = UserDefaults.standard.data(forKey: self.nftUsernameTagsKey),
+            let records = try? JSONDecoder().decode([NftUsernameTagRecord].self, from: data)
+        {
+            return records
+        }
+
+        let legacyUsername = eahatGramNormalizedUsernameTag(UserDefaults.standard.string(forKey: self.nftUsernameTagKey) ?? "")
+        let legacyPriceText = eahatGramNormalizedNftPriceText(UserDefaults.standard.string(forKey: self.nftUsernamePriceKey) ?? "")
+        let legacyPurchaseDate = (UserDefaults.standard.object(forKey: self.nftUsernamePurchaseDateKey) as? NSNumber).map { $0.int32Value }
+        guard !legacyUsername.isEmpty else {
+            return []
+        }
+        let migrated = [NftUsernameTagRecord(username: legacyUsername, priceText: legacyPriceText, purchaseDate: legacyPurchaseDate)]
+        if let encoded = try? JSONEncoder().encode(migrated) {
+            UserDefaults.standard.set(encoded, forKey: self.nftUsernameTagsKey)
+        }
+        return migrated
+    }
+
+    private static func persistNftUsernameTags(_ records: [NftUsernameTagRecord]) {
+        if records.isEmpty {
+            UserDefaults.standard.removeObject(forKey: self.nftUsernameTagsKey)
+        } else if let encoded = try? JSONEncoder().encode(records) {
+            UserDefaults.standard.set(encoded, forKey: self.nftUsernameTagsKey)
+        }
+    }
+
     static let targetHudEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: targetHudEnabledKey) as? Bool ?? false)
+    static let nftUsernameTags = Atomic<[NftUsernameTagRecord]>(value: self.migratedNftUsernameTags())
     static let nftUsernameTag = Atomic<String>(value: UserDefaults.standard.string(forKey: nftUsernameTagKey) ?? "")
     static let nftUsernamePrice = Atomic<String>(value: UserDefaults.standard.string(forKey: nftUsernamePriceKey) ?? "")
     static let nftUsernamePurchaseDate = Atomic<Int32?>(value: (UserDefaults.standard.object(forKey: nftUsernamePurchaseDateKey) as? NSNumber).map { $0.int32Value })
@@ -194,6 +231,25 @@ final class EahatGramDebugSettings {
         } else {
             UserDefaults.standard.removeObject(forKey: self.nftUsernamePurchaseDateKey)
         }
+    }
+
+    static func resolvedNftUsernameTags() -> [NftUsernameTagRecord] {
+        return self.nftUsernameTags.with { $0 }
+    }
+
+    static func appendNftUsernameTag(username: String, priceText: String, purchaseDate: Int32?) -> Int {
+        let normalizedUsername = eahatGramNormalizedUsernameTag(username)
+        guard !normalizedUsername.isEmpty else {
+            return self.nftUsernameTags.with { $0.count }
+        }
+        let normalizedPriceText = eahatGramNormalizedNftPriceText(priceText)
+        let updatedRecords = self.nftUsernameTags.modify { current in
+            var current = current
+            current.append(NftUsernameTagRecord(username: normalizedUsername, priceText: normalizedPriceText, purchaseDate: purchaseDate))
+            self.persistNftUsernameTags(current)
+            return current
+        }
+        return updatedRecords.count
     }
 
     static func setFakePhoneNumber(_ value: String) {
@@ -383,29 +439,46 @@ func eahatGramNormalizedNftPriceText(_ value: String) -> String {
     return value.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-func eahatGramDisplayedVisualCollectibleUsername(mainUsername: String?, additionalActiveUsernames: [String], isMyProfile: Bool) -> EahatGramVisualCollectibleUsername? {
+func eahatGramDisplayedVisualCollectibleUsernames(mainUsername: String?, additionalActiveUsernames: [String], isMyProfile: Bool) -> [EahatGramVisualCollectibleUsername] {
     guard isMyProfile else {
-        return nil
+        return []
     }
     let normalizedMainUsername = mainUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
     let mainUsernameValue = (normalizedMainUsername?.isEmpty == false) ? normalizedMainUsername : nil
-    let nftUsernameTag = eahatGramNormalizedUsernameTag(EahatGramDebugSettings.nftUsernameTag.with { $0 })
-    guard !nftUsernameTag.isEmpty else {
-        return nil
-    }
     let normalizedAdditionalUsernames = Set(additionalActiveUsernames.map(eahatGramNormalizedCollectibleUsername))
-    let normalizedVisualUsername = eahatGramNormalizedCollectibleUsername(nftUsernameTag)
-    if normalizedVisualUsername == eahatGramNormalizedCollectibleUsername(mainUsernameValue ?? "") {
-        return nil
+    let normalizedMainValue = eahatGramNormalizedCollectibleUsername(mainUsernameValue ?? "")
+    var seenNormalizedUsernames = Set<String>()
+    var result: [EahatGramVisualCollectibleUsername] = []
+    for record in EahatGramDebugSettings.resolvedNftUsernameTags() {
+        let username = eahatGramNormalizedUsernameTag(record.username)
+        guard !username.isEmpty else {
+            continue
+        }
+        let normalizedVisualUsername = eahatGramNormalizedCollectibleUsername(username)
+        if normalizedVisualUsername == normalizedMainValue {
+            continue
+        }
+        if normalizedAdditionalUsernames.contains(normalizedVisualUsername) {
+            continue
+        }
+        if !seenNormalizedUsernames.insert(normalizedVisualUsername).inserted {
+            continue
+        }
+        result.append(EahatGramVisualCollectibleUsername(
+            username: username,
+            priceText: eahatGramNormalizedNftPriceText(record.priceText),
+            purchaseDate: record.purchaseDate
+        ))
     }
-    if normalizedAdditionalUsernames.contains(normalizedVisualUsername) {
-        return nil
-    }
-    return EahatGramVisualCollectibleUsername(
-        username: nftUsernameTag,
-        priceText: eahatGramNormalizedNftPriceText(EahatGramDebugSettings.nftUsernamePrice.with { $0 }),
-        purchaseDate: EahatGramDebugSettings.nftUsernamePurchaseDate.with { $0 }
-    )
+    return result
+}
+
+func eahatGramDisplayedVisualCollectibleUsername(mainUsername: String?, additionalActiveUsernames: [String], isMyProfile: Bool) -> EahatGramVisualCollectibleUsername? {
+    return eahatGramDisplayedVisualCollectibleUsernames(
+        mainUsername: mainUsername,
+        additionalActiveUsernames: additionalActiveUsernames,
+        isMyProfile: isMyProfile
+    ).first
 }
 
 #if false
@@ -446,7 +519,8 @@ func eahatGramDisplayedUsername(mainUsername: String?, additionalActiveUsernames
             }
             return EahatGramDisplayedUsername(text: "@\(mainUsernameValue)", additionalText: additionalText, openValue: mainUsernameValue)
         } else {
-            return EahatGramDisplayedUsername(text: "@\(visualCollectibleUsername.username)", additionalText: nil, openValue: nil)
+            let remainingTags = Array(visualCollectibleUsernames.dropFirst()).map { "@\($0.username)" }.joined(separator: ", ")
+            return EahatGramDisplayedUsername(text: "@\(visualCollectibleUsername.username)", additionalText: remainingTags.isEmpty ? nil : remainingTags, openValue: nil)
         }
     }
     let nftUsernameTag = eahatGramNormalizedUsernameTag(EahatGramDebugSettings.nftUsernameTag.with { $0 })
@@ -500,8 +574,12 @@ func eahatGramDisplayedUsername(mainUsername: String?, additionalActiveUsernames
             return EahatGramDisplayedUsername(text: nil, additionalText: nil, openValue: nil)
         }
     }
-    if let visualCollectibleUsername = eahatGramDisplayedVisualCollectibleUsername(mainUsername: mainUsername, additionalActiveUsernames: additionalActiveUsernames, isMyProfile: isMyProfile) {
+    let visualCollectibleUsernames = eahatGramDisplayedVisualCollectibleUsernames(mainUsername: mainUsername, additionalActiveUsernames: additionalActiveUsernames, isMyProfile: isMyProfile)
+    if let visualCollectibleUsername = visualCollectibleUsernames.first {
         if let mainUsernameValue {
+            let visualAdditionalText = visualCollectibleUsernames.map { "@\($0.username)" }.joined(separator: ", ")
+            return EahatGramDisplayedUsername(text: "@\(mainUsernameValue)", additionalText: visualAdditionalText, openValue: mainUsernameValue)
+            #if false
             let additionalText: String
             if additionalActiveUsernames.isEmpty {
                 additionalText = "а также @\(visualCollectibleUsername.username)"
@@ -509,6 +587,7 @@ func eahatGramDisplayedUsername(mainUsername: String?, additionalActiveUsernames
                 additionalText = "@\(visualCollectibleUsername.username)"
             }
             return EahatGramDisplayedUsername(text: "@\(mainUsernameValue)", additionalText: additionalText, openValue: mainUsernameValue)
+            #endif
         } else {
             return EahatGramDisplayedUsername(text: "@\(visualCollectibleUsername.username)", additionalText: nil, openValue: nil)
         }

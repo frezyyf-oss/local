@@ -8,23 +8,127 @@ public struct ExperimentalUISettings: Codable, Equatable {
             public var key: MessageReaction.Reaction
             public var messageId: EngineMessage.Id
             public var mediaId: EngineMedia.Id
-            
+
             public init(key: MessageReaction.Reaction, messageId: EngineMessage.Id, mediaId: EngineMedia.Id) {
                 self.key = key
                 self.messageId = messageId
                 self.mediaId = mediaId
             }
         }
-        
+
         public var accountId: Int64
         public var items: [Item]
-        
+
         public init(accountId: Int64, items: [Item]) {
             self.accountId = accountId
             self.items = items
         }
     }
-    
+
+    public enum ChatListCustomThemeElement: String, Codable, Equatable {
+        case header
+        case foldersStrip
+        case selectedFolder
+        case listBackground
+        case rowBackground
+    }
+
+    public enum ChatListCustomThemePreset: String, Codable, Equatable {
+        case none
+        case rgb
+        case rainbow
+        case asfalo
+        case asfolo
+    }
+
+    public struct ChatListCustomThemeValue: Codable, Equatable {
+        public var preset: ChatListCustomThemePreset
+        public var argb: UInt32?
+
+        public init(preset: ChatListCustomThemePreset, argb: UInt32? = nil) {
+            self.preset = preset
+            self.argb = argb
+        }
+
+        public static var none: ChatListCustomThemeValue {
+            return ChatListCustomThemeValue(preset: .none, argb: nil)
+        }
+    }
+
+    public struct ChatListCustomThemeSettings: Codable, Equatable {
+        public var header: ChatListCustomThemeValue
+        public var foldersStrip: ChatListCustomThemeValue
+        public var selectedFolder: ChatListCustomThemeValue
+        public var listBackground: ChatListCustomThemeValue
+        public var rowBackground: ChatListCustomThemeValue
+
+        public init(
+            header: ChatListCustomThemeValue,
+            foldersStrip: ChatListCustomThemeValue,
+            selectedFolder: ChatListCustomThemeValue,
+            listBackground: ChatListCustomThemeValue,
+            rowBackground: ChatListCustomThemeValue
+        ) {
+            self.header = header
+            self.foldersStrip = foldersStrip
+            self.selectedFolder = selectedFolder
+            self.listBackground = listBackground
+            self.rowBackground = rowBackground
+        }
+
+        public static var defaultValue: ChatListCustomThemeSettings {
+            return ChatListCustomThemeSettings(
+                header: .none,
+                foldersStrip: .none,
+                selectedFolder: .none,
+                listBackground: .none,
+                rowBackground: .none
+            )
+        }
+
+        public func value(for element: ChatListCustomThemeElement) -> ChatListCustomThemeValue {
+            switch element {
+            case .header:
+                return self.header
+            case .foldersStrip:
+                return self.foldersStrip
+            case .selectedFolder:
+                return self.selectedFolder
+            case .listBackground:
+                return self.listBackground
+            case .rowBackground:
+                return self.rowBackground
+            }
+        }
+
+        public mutating func setValue(_ value: ChatListCustomThemeValue, for element: ChatListCustomThemeElement) {
+            switch element {
+            case .header:
+                self.header = value
+            case .foldersStrip:
+                self.foldersStrip = value
+            case .selectedFolder:
+                self.selectedFolder = value
+            case .listBackground:
+                self.listBackground = value
+            case .rowBackground:
+                self.rowBackground = value
+            }
+        }
+
+        public var hasAnimatedPresets: Bool {
+            let values = [self.header, self.foldersStrip, self.selectedFolder, self.listBackground, self.rowBackground]
+            return values.contains(where: {
+                switch $0.preset {
+                case .rainbow, .asfalo, .asfolo:
+                    return true
+                case .none, .rgb:
+                    return false
+                }
+            })
+        }
+    }
+
     public var keepChatNavigationStack: Bool
     public var skipReadHistory: Bool
     public var alwaysDisplayTyping: Bool
@@ -79,7 +183,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var noLagsEnabled: Bool
     public var viewUnread2Read: Bool
     public var debugRipple: Bool
-    
+    public var bogatiUiEnabled: Bool
+    public var hideFailedWarning: Bool
+    public var chatListCustomTheme: ChatListCustomThemeSettings
+
     public static var defaultSettings: ExperimentalUISettings {
         return ExperimentalUISettings(
             keepChatNavigationStack: false,
@@ -135,10 +242,13 @@ public struct ExperimentalUISettings: Codable, Equatable {
             forceClearGlass: false,
             noLagsEnabled: false,
             viewUnread2Read: false,
-            debugRipple: false
+            debugRipple: false,
+            bogatiUiEnabled: false,
+            hideFailedWarning: false,
+            chatListCustomTheme: .defaultValue
         )
     }
-    
+
     public init(
         keepChatNavigationStack: Bool,
         skipReadHistory: Bool,
@@ -193,7 +303,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         forceClearGlass: Bool,
         noLagsEnabled: Bool,
         viewUnread2Read: Bool,
-        debugRipple: Bool
+        debugRipple: Bool,
+        bogatiUiEnabled: Bool,
+        hideFailedWarning: Bool,
+        chatListCustomTheme: ChatListCustomThemeSettings
     ) {
         self.keepChatNavigationStack = keepChatNavigationStack
         self.skipReadHistory = skipReadHistory
@@ -249,8 +362,11 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.noLagsEnabled = noLagsEnabled
         self.viewUnread2Read = viewUnread2Read
         self.debugRipple = debugRipple
+        self.bogatiUiEnabled = bogatiUiEnabled
+        self.hideFailedWarning = hideFailedWarning
+        self.chatListCustomTheme = chatListCustomTheme
     }
-    
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: StringCodingKey.self)
 
@@ -308,8 +424,11 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.noLagsEnabled = try container.decodeIfPresent(Bool.self, forKey: "noLagsEnabled") ?? false
         self.viewUnread2Read = try container.decodeIfPresent(Bool.self, forKey: "viewUnread2Read") ?? false
         self.debugRipple = try container.decodeIfPresent(Bool.self, forKey: "debugRipple") ?? false
+        self.bogatiUiEnabled = try container.decodeIfPresent(Bool.self, forKey: "bogatiUiEnabled") ?? false
+        self.hideFailedWarning = try container.decodeIfPresent(Bool.self, forKey: "hideFailedWarning") ?? false
+        self.chatListCustomTheme = try container.decodeIfPresent(ChatListCustomThemeSettings.self, forKey: "chatListCustomTheme") ?? .defaultValue
     }
-    
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: StringCodingKey.self)
 
@@ -367,6 +486,9 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encodeIfPresent(self.noLagsEnabled, forKey: "noLagsEnabled")
         try container.encodeIfPresent(self.viewUnread2Read, forKey: "viewUnread2Read")
         try container.encodeIfPresent(self.debugRipple, forKey: "debugRipple")
+        try container.encodeIfPresent(self.bogatiUiEnabled, forKey: "bogatiUiEnabled")
+        try container.encodeIfPresent(self.hideFailedWarning, forKey: "hideFailedWarning")
+        try container.encodeIfPresent(self.chatListCustomTheme, forKey: "chatListCustomTheme")
     }
 }
 
@@ -382,4 +504,17 @@ public func updateExperimentalUISettingsInteractively(accountManager: AccountMan
             return SharedPreferencesEntry(f(currentSettings))
         })
     }
+}
+
+public let eahatGramChatListThemeEditModeRequestedNotification = Notification.Name("eahatGramChatListThemeEditModeRequestedNotification")
+
+private let eahatGramChatListThemeEditModePending = Atomic<Bool>(value: false)
+
+public func eahatGramRequestChatListThemeEditMode() {
+    _ = eahatGramChatListThemeEditModePending.swap(true)
+    NotificationCenter.default.post(name: eahatGramChatListThemeEditModeRequestedNotification, object: nil)
+}
+
+public func eahatGramConsumeChatListThemeEditModeRequest() -> Bool {
+    return eahatGramChatListThemeEditModePending.swap(false)
 }

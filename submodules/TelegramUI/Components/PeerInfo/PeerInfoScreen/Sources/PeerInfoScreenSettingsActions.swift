@@ -730,6 +730,7 @@ private final class EahatGramArguments {
     let removeAllCalls: () -> Void
     let updateNftUsernameTag: (String) -> Void
     let updateNftUsernamePrice: (String) -> Void
+    let addNftUsernameTag: () -> Void
     let updateFakePhoneNumber: (String) -> Void
     let updateFakeRateEnabled: (Bool) -> Void
     let updateFakeRateLevel: (String) -> Void
@@ -746,7 +747,9 @@ private final class EahatGramArguments {
     let updateSaveEditedMessagesEnabled: (Bool) -> Void
     let updateNoLagsEnabled: (Bool) -> Void
     let updateBogatiUiEnabled: (Bool) -> Void
+    let updateHideFailedWarningEnabled: (Bool) -> Void
     let updateDownFolderEnabled: (Bool) -> Void
+    let openCustomUiTheme: () -> Void
     let updateViewUnread2ReadEnabled: (Bool) -> Void
     let updateFarmBotUsername: (String) -> Void
     let updateFarmCommand: (String) -> Void
@@ -780,6 +783,7 @@ private final class EahatGramArguments {
         removeAllCalls: @escaping () -> Void,
         updateNftUsernameTag: @escaping (String) -> Void,
         updateNftUsernamePrice: @escaping (String) -> Void,
+        addNftUsernameTag: @escaping () -> Void,
         updateFakePhoneNumber: @escaping (String) -> Void,
         updateFakeRateEnabled: @escaping (Bool) -> Void,
         updateFakeRateLevel: @escaping (String) -> Void,
@@ -796,7 +800,9 @@ private final class EahatGramArguments {
         updateSaveEditedMessagesEnabled: @escaping (Bool) -> Void,
         updateNoLagsEnabled: @escaping (Bool) -> Void,
         updateBogatiUiEnabled: @escaping (Bool) -> Void,
+        updateHideFailedWarningEnabled: @escaping (Bool) -> Void,
         updateDownFolderEnabled: @escaping (Bool) -> Void,
+        openCustomUiTheme: @escaping () -> Void,
         updateViewUnread2ReadEnabled: @escaping (Bool) -> Void,
         updateFarmBotUsername: @escaping (String) -> Void,
         updateFarmCommand: @escaping (String) -> Void,
@@ -829,6 +835,7 @@ private final class EahatGramArguments {
         self.removeAllCalls = removeAllCalls
         self.updateNftUsernameTag = updateNftUsernameTag
         self.updateNftUsernamePrice = updateNftUsernamePrice
+        self.addNftUsernameTag = addNftUsernameTag
         self.updateFakePhoneNumber = updateFakePhoneNumber
         self.updateFakeRateEnabled = updateFakeRateEnabled
         self.updateFakeRateLevel = updateFakeRateLevel
@@ -845,7 +852,9 @@ private final class EahatGramArguments {
         self.updateSaveEditedMessagesEnabled = updateSaveEditedMessagesEnabled
         self.updateNoLagsEnabled = updateNoLagsEnabled
         self.updateBogatiUiEnabled = updateBogatiUiEnabled
+        self.updateHideFailedWarningEnabled = updateHideFailedWarningEnabled
         self.updateDownFolderEnabled = updateDownFolderEnabled
+        self.openCustomUiTheme = openCustomUiTheme
         self.updateViewUnread2ReadEnabled = updateViewUnread2ReadEnabled
         self.updateFarmBotUsername = updateFarmBotUsername
         self.updateFarmCommand = updateFarmCommand
@@ -894,7 +903,7 @@ private enum EahatGramTab: Int, Equatable {
 }
 
 private func eahatGramBogatiUiEnabled(_ settings: ExperimentalUISettings) -> Bool {
-    return settings.fakeGlass && settings.debugRipple && settings.chatListPhotos && !settings.noLagsEnabled && !settings.forceClearGlass
+    return settings.bogatiUiEnabled
 }
 
 private struct EahatGramState: Equatable {
@@ -910,6 +919,7 @@ private struct EahatGramState: Equatable {
     var saveEditedMessagesEnabled: Bool
     var noLagsEnabled: Bool
     var bogatiUiEnabled: Bool
+    var hideFailedWarningEnabled: Bool
     var downFolderEnabled: Bool
     var viewUnread2ReadEnabled: Bool
     var farmBotUsernameText: String
@@ -958,6 +968,7 @@ private struct EahatGramState: Equatable {
         self.saveEditedMessagesEnabled = saveEditedMessagesEnabled
         self.noLagsEnabled = noLagsEnabled
         self.bogatiUiEnabled = eahatGramBogatiUiEnabled(experimentalSettings)
+        self.hideFailedWarningEnabled = experimentalSettings.hideFailedWarning
         self.downFolderEnabled = experimentalSettings.foldersTabAtBottom
         self.viewUnread2ReadEnabled = viewUnread2ReadEnabled
         self.farmBotUsernameText = ""
@@ -1004,6 +1015,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case removeAllCalls
     case nftUsernameTag(String)
     case nftUsernamePrice(String)
+    case addNftUsernameTag
     case fakePhoneNumber(String)
     case fakeRate(Bool)
     case fakeRateLevel(String)
@@ -1022,7 +1034,9 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case saveEditedMessages(Bool)
     case noLags(Bool)
     case bogatiUi(Bool)
+    case noWarning(Bool)
     case downFolder(Bool)
+    case customUiTheme
     case viewUnread2Read(Bool)
     case farmBotUsername(String)
     case farmCommand(String)
@@ -1059,7 +1073,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .downFolder, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
@@ -1098,6 +1112,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 3
         case .nftUsernamePrice:
             return 16
+        case .addNftUsernameTag:
+            return 30
         case .fakePhoneNumber:
             return 11
         case .fakeRate:
@@ -1136,8 +1152,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 14
         case .bogatiUi:
             return 28
+        case .noWarning:
+            return 31
         case .downFolder:
             return 29
+        case .customUiTheme:
+            return 32
         case .viewUnread2Read:
             return 15
         case .farmBotUsername:
@@ -1257,6 +1277,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
+        case .addNftUsernameTag:
+            if case .addNftUsernameTag = rhs {
+                return true
+            } else {
+                return false
+            }
         case let .fakePhoneNumber(lhsText):
             if case let .fakePhoneNumber(rhsText) = rhs {
                 return lhsText == rhsText
@@ -1365,9 +1391,21 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
+        case let .noWarning(lhsValue):
+            if case let .noWarning(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
         case let .downFolder(lhsValue):
             if case let .downFolder(rhsValue) = rhs {
                 return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case .customUiTheme:
+            if case .customUiTheme = rhs {
+                return true
             } else {
                 return false
             }
@@ -1676,6 +1714,19 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 },
                 action: {}
             )
+        case .addNftUsernameTag:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add NFT Tag",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addNftUsernameTag()
+                }
+            )
         case let .fakePhoneNumber(text):
             return ItemListSingleLineInputItem(
                 context: arguments.context,
@@ -1899,6 +1950,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateBogatiUiEnabled(value)
                 }
             )
+        case let .noWarning(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "No Warning",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateHideFailedWarningEnabled(value)
+                }
+            )
         case let .downFolder(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -1909,6 +1972,19 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 style: .blocks,
                 updated: { value in
                     arguments.updateDownFolderEnabled(value)
+                }
+            )
+        case .customUiTheme:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Custom UI Theme",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.openCustomUiTheme()
                 }
             )
         case let .viewUnread2Read(value):
@@ -2457,6 +2533,7 @@ private func eahatGramEntries(
         entries.append(.removeAllCalls)
         entries.append(.nftUsernameTag(state.nftUsernameTagText))
         entries.append(.nftUsernamePrice(state.nftUsernamePriceText))
+        entries.append(.addNftUsernameTag)
         entries.append(.fakePhoneNumber(state.fakePhoneNumberText))
         entries.append(.fakeRate(state.fakeRateEnabled))
         if state.fakeRateEnabled {
@@ -2477,7 +2554,9 @@ private func eahatGramEntries(
         entries.append(.saveEditedMessages(state.saveEditedMessagesEnabled))
         entries.append(.noLags(state.noLagsEnabled))
         entries.append(.bogatiUi(state.bogatiUiEnabled))
+        entries.append(.noWarning(state.hideFailedWarningEnabled))
         entries.append(.downFolder(state.downFolderEnabled))
+        entries.append(.customUiTheme)
         entries.append(.viewUnread2Read(state.viewUnread2ReadEnabled))
             entries.append(.voiceMod(state.voiceModEnabled))
             if state.voiceModEnabled {
@@ -2759,6 +2838,25 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             }
             appendResponse("nftUsernamePrice value=\(normalized)")
         },
+        addNftUsernameTag: {
+            let currentState = stateValue.with { $0 }
+            let normalizedUsername = eahatGramNormalizedUsernameTag(currentState.nftUsernameTagText)
+            let normalizedPriceText = eahatGramNormalizedNftPriceText(currentState.nftUsernamePriceText)
+            guard !normalizedUsername.isEmpty else {
+                appendResponse("addNftUsernameTag failed reason=USERNAME_EMPTY")
+                return
+            }
+            let purchaseDate = Int32(Date().timeIntervalSince1970)
+            let totalCount = EahatGramDebugSettings.appendNftUsernameTag(
+                username: normalizedUsername,
+                priceText: normalizedPriceText,
+                purchaseDate: purchaseDate
+            )
+            EahatGramDebugSettings.setNftUsernameTag(normalizedUsername)
+            EahatGramDebugSettings.setNftUsernamePrice(normalizedPriceText)
+            EahatGramDebugSettings.setNftUsernamePurchaseDate(purchaseDate)
+            appendResponse("addNftUsernameTag completed username=\(normalizedUsername) total=\(totalCount)")
+        },
         updateFakePhoneNumber: { value in
             let normalized = eahatGramNormalizedNumericText(value, maxLength: 15)
             EahatGramDebugSettings.setFakePhoneNumber(normalized)
@@ -2847,9 +2945,6 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             updateState { current in
                 var current = current
                 current.liquidGlassEnabled = value
-                if !value {
-                    current.bogatiUiEnabled = false
-                }
                 return current
             }
             appendResponse("liquidGlass enabled=\(value)")
@@ -2928,6 +3023,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 settings.forceClearGlass = value
                 if value {
                     settings.fakeGlass = false
+                    settings.bogatiUiEnabled = false
                 }
                 return settings
             }).start()
@@ -2954,27 +3050,34 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         updateBogatiUiEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
                 var settings = settings
-                settings.fakeGlass = value
-                settings.debugRipple = value
-                settings.chatListPhotos = value
+                settings.bogatiUiEnabled = value
                 if value {
-                    settings.forceClearGlass = false
                     settings.noLagsEnabled = false
-                    settings.disableBackgroundAnimation = false
                 }
                 return settings
             }).start()
-            GlassBackgroundView.useCustomGlassImpl = value
             updateState { current in
                 var current = current
                 current.bogatiUiEnabled = value
-                current.liquidGlassEnabled = value
                 if value {
                     current.noLagsEnabled = false
                 }
                 return current
             }
-            appendResponse("bogatiUi enabled=\(value) fakeGlass=\(value) debugRipple=\(value) chatListPhotos=\(value)")
+            appendResponse("bogatiUi enabled=\(value)")
+        },
+        updateHideFailedWarningEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.hideFailedWarning = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.hideFailedWarningEnabled = value
+                return current
+            }
+            appendResponse("hideFailedWarning enabled=\(value)")
         },
         updateDownFolderEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
@@ -2988,6 +3091,19 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 return current
             }
             appendResponse("downFolder enabled=\(value)")
+        },
+        openCustomUiTheme: {
+            eahatGramRequestChatListThemeEditMode()
+            let controller = context.sharedContext.makeChatListController(
+                context: context,
+                location: .chatList(groupId: EngineChatList.Group(.root)),
+                controlsHistoryPreload: false,
+                hideNetworkActivityStatus: false,
+                previewing: false,
+                enableDebugActions: false
+            )
+            pushControllerImpl?(controller)
+            appendResponse("customUiTheme opened")
         },
         updateViewUnread2ReadEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in

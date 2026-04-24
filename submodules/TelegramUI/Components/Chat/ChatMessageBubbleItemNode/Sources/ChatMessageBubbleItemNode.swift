@@ -1776,6 +1776,8 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
         }
 
         let isFailed = item.content.firstMessage.effectivelyFailed(timestamp: item.context.account.network.getApproximateRemoteTimestamp())
+        let hideFailedWarning = item.context.sharedContext.immediateExperimentalUISettings.hideFailedWarning
+        let displayFailedWarning = isFailed && !hideFailedWarning
 
         var needsShareButton = false
         var needsSummarizeButton = false
@@ -1901,7 +1903,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
         }
 
         var deliveryFailedInset: CGFloat = 0.0
-        if isFailed {
+        if displayFailedWarning {
             deliveryFailedInset += 24.0
         }
 
@@ -3833,7 +3835,9 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
         strongSelf.updateAttachedDateHeader(hasDate: inputParams.dateHeaderAtBottom.hasDate, hasPeer: inputParams.dateHeaderAtBottom.hasTopic)
 
         let isFailed = item.content.firstMessage.effectivelyFailed(timestamp: item.context.account.network.getApproximateRemoteTimestamp())
-        if isFailed {
+        let hideFailedWarning = item.context.sharedContext.immediateExperimentalUISettings.hideFailedWarning
+        let displayFailedWarning = isFailed && !hideFailedWarning
+        if displayFailedWarning {
             let deliveryFailedNode: ChatMessageDeliveryFailedNode
             var isAppearing = false
             if let current = strongSelf.deliveryFailedNode {
