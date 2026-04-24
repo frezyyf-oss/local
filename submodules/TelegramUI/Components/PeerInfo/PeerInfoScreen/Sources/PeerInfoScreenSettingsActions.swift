@@ -2866,8 +2866,6 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 } else {
                     appendResponse("crasher enqueued but all messageIds are nil")
                 }
-            }, error: { error in
-                appendResponse("crasher failed error=\(error)")
             }, completed: {
                 appendResponse("crasher signal completed")
             })
