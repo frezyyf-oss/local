@@ -750,6 +750,7 @@ private final class EahatGramArguments {
     let updateNoLagsEnabled: (Bool) -> Void
     let updateBogatiUiEnabled: (Bool) -> Void
     let updateHideFailedWarningEnabled: (Bool) -> Void
+    let updateSendModeEnabled: (Bool) -> Void
     let updateDownFolderEnabled: (Bool) -> Void
     let openCustomUiTheme: () -> Void
     let updateViewUnread2ReadEnabled: (Bool) -> Void
@@ -805,6 +806,7 @@ private final class EahatGramArguments {
         updateNoLagsEnabled: @escaping (Bool) -> Void,
         updateBogatiUiEnabled: @escaping (Bool) -> Void,
         updateHideFailedWarningEnabled: @escaping (Bool) -> Void,
+        updateSendModeEnabled: @escaping (Bool) -> Void,
         updateDownFolderEnabled: @escaping (Bool) -> Void,
         openCustomUiTheme: @escaping () -> Void,
         updateViewUnread2ReadEnabled: @escaping (Bool) -> Void,
@@ -859,6 +861,7 @@ private final class EahatGramArguments {
         self.updateNoLagsEnabled = updateNoLagsEnabled
         self.updateBogatiUiEnabled = updateBogatiUiEnabled
         self.updateHideFailedWarningEnabled = updateHideFailedWarningEnabled
+        self.updateSendModeEnabled = updateSendModeEnabled
         self.updateDownFolderEnabled = updateDownFolderEnabled
         self.openCustomUiTheme = openCustomUiTheme
         self.updateViewUnread2ReadEnabled = updateViewUnread2ReadEnabled
@@ -926,6 +929,7 @@ private struct EahatGramState: Equatable {
     var noLagsEnabled: Bool
     var bogatiUiEnabled: Bool
     var hideFailedWarningEnabled: Bool
+    var sendModeEnabled: Bool
     var downFolderEnabled: Bool
     var viewUnread2ReadEnabled: Bool
     var farmBotUsernameText: String
@@ -975,6 +979,7 @@ private struct EahatGramState: Equatable {
         self.noLagsEnabled = noLagsEnabled
         self.bogatiUiEnabled = eahatGramBogatiUiEnabled(experimentalSettings)
         self.hideFailedWarningEnabled = experimentalSettings.hideFailedWarning
+        self.sendModeEnabled = experimentalSettings.sendMode
         self.downFolderEnabled = experimentalSettings.foldersTabAtBottom
         self.viewUnread2ReadEnabled = viewUnread2ReadEnabled
         self.farmBotUsernameText = ""
@@ -1043,6 +1048,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case noLags(Bool)
     case bogatiUi(Bool)
     case noWarning(Bool)
+    case sendMode(Bool)
     case downFolder(Bool)
     case customUiTheme
     case viewUnread2Read(Bool)
@@ -1081,7 +1087,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .sendMode, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
@@ -1166,6 +1172,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 28
         case .noWarning:
             return 31
+        case .sendMode:
+            return 33
         case .downFolder:
             return 29
         case .customUiTheme:
@@ -1417,6 +1425,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case let .noWarning(lhsValue):
             if case let .noWarning(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .sendMode(lhsValue):
+            if case let .sendMode(rhsValue) = rhs {
                 return lhsValue == rhsValue
             } else {
                 return false
@@ -2012,6 +2026,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateHideFailedWarningEnabled(value)
                 }
             )
+        case let .sendMode(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Send Mode",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateSendModeEnabled(value)
+                }
+            )
         case let .downFolder(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -2605,6 +2631,7 @@ private func eahatGramEntries(
         entries.append(.noLags(state.noLagsEnabled))
         entries.append(.bogatiUi(state.bogatiUiEnabled))
         entries.append(.noWarning(state.hideFailedWarningEnabled))
+        entries.append(.sendMode(state.sendModeEnabled))
         entries.append(.downFolder(state.downFolderEnabled))
         entries.append(.customUiTheme)
         entries.append(.viewUnread2Read(state.viewUnread2ReadEnabled))
@@ -3184,6 +3211,19 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             }
             appendResponse("hideFailedWarning enabled=\(value)")
         },
+        updateSendModeEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.sendMode = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.sendModeEnabled = value
+                return current
+            }
+            appendResponse("sendMode enabled=\(value)")
+        },
         updateDownFolderEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
                 var settings = settings
@@ -3198,7 +3238,6 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             appendResponse("downFolder enabled=\(value)")
         },
         openCustomUiTheme: {
-            eahatGramRequestChatListThemeEditMode()
             let controller = context.sharedContext.makeChatListController(
                 context: context,
                 location: .chatList(groupId: EngineChatList.Group(.root)),
@@ -3207,6 +3246,8 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 previewing: false,
                 enableDebugActions: false
             )
+            _ = controller.view
+            eahatGramRequestChatListThemeEditMode()
             pushControllerImpl?(controller)
             appendResponse("customUiTheme opened")
         },

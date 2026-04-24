@@ -7,6 +7,7 @@ import Display
 import SwiftSignalKit
 import TelegramPresentationData
 import AccountContext
+import TelegramUIPreferences
 import AppBundle
 import ReactionButtonListComponent
 import ReactionImageComponent
@@ -28,6 +29,19 @@ private func maybeAddRotationAnimation(_ layer: CALayer, duration: Double) {
     basicAnimation.timingFunction = CAMediaTimingFunction(name: CAMediaTimingFunctionName.linear)
     basicAnimation.beginTime = 1.0
     layer.add(basicAnimation, forKey: "clockFrameAnimation")
+}
+
+private func eahatGramEffectiveOutgoingStatus(_ status: ChatMessageDateAndStatusOutgoingType, hideFailedWarning: Bool, sendMode: Bool) -> ChatMessageDateAndStatusOutgoingType {
+    if hideFailedWarning && sendMode {
+        switch status {
+        case .Failed:
+            return .Sent(read: false)
+        default:
+            return status
+        }
+    } else {
+        return status
+    }
 }
 
 public enum ChatMessageDateAndStatusOutgoingType: Equatable {
@@ -358,6 +372,7 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
             let graphics = PresentationResourcesChat.principalGraphics(theme: arguments.presentationData.theme.theme, wallpaper: arguments.presentationData.theme.wallpaper, bubbleCorners: arguments.presentationData.chatBubbleCorners)
             let isDefaultWallpaper = serviceMessageColorHasDefaultWallpaper(arguments.presentationData.theme.wallpaper)
             let offset: CGFloat = -UIScreenPixel
+            let experimentalSettings = arguments.context.sharedContext.immediateExperimentalUISettings
             
             let checkSize: CGFloat = floor(floor(arguments.presentationData.fontSize.baseDisplaySize * 11.0 / 17.0))
             
@@ -428,7 +443,7 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                 }
             case let .BubbleOutgoing(status):
                 dateColor = arguments.presentationData.theme.theme.chat.message.outgoing.secondaryTextColor
-                outgoingStatus = status
+                outgoingStatus = eahatGramEffectiveOutgoingStatus(status, hideFailedWarning: experimentalSettings.hideFailedWarning, sendMode: experimentalSettings.sendMode)
                 leftInset = 5.0
                 loadedCheckFullImage = PresentationResourcesChat.chatOutgoingFullCheck(arguments.presentationData.theme.theme, size: checkSize)
                 loadedCheckPartialImage = PresentationResourcesChat.chatOutgoingPartialCheck(arguments.presentationData.theme.theme, size: checkSize)
@@ -470,7 +485,7 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                 }
             case let .ImageOutgoing(status):
                 dateColor = arguments.presentationData.theme.theme.chat.message.mediaDateAndStatusTextColor
-                outgoingStatus = status
+                outgoingStatus = eahatGramEffectiveOutgoingStatus(status, hideFailedWarning: experimentalSettings.hideFailedWarning, sendMode: experimentalSettings.sendMode)
                 backgroundImage = graphics.dateAndStatusMediaBackground
                 leftInset = 0.0
                 loadedCheckFullImage = PresentationResourcesChat.chatMediaFullCheck(arguments.presentationData.theme.theme, size: checkSize)
@@ -516,7 +531,7 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
             case let .FreeOutgoing(status):
                 let serviceColor = serviceMessageColorComponents(theme: arguments.presentationData.theme.theme, wallpaper: arguments.presentationData.theme.wallpaper)
                 dateColor = serviceColor.primaryText
-                outgoingStatus = status
+                outgoingStatus = eahatGramEffectiveOutgoingStatus(status, hideFailedWarning: experimentalSettings.hideFailedWarning, sendMode: experimentalSettings.sendMode)
                 blurredBackgroundColor = (selectDateFillStaticColor(theme: arguments.presentationData.theme.theme, wallpaper: arguments.presentationData.theme.wallpaper), arguments.context.sharedContext.energyUsageSettings.fullTranslucency && dateFillNeedsBlur(theme: arguments.presentationData.theme.theme, wallpaper: arguments.presentationData.theme.wallpaper))
                 leftInset = 0.0
                 loadedCheckFullImage = PresentationResourcesChat.chatFreeFullCheck(arguments.presentationData.theme.theme, size: checkSize, isDefaultWallpaper: isDefaultWallpaper)

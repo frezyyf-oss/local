@@ -213,6 +213,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var debugRipple: Bool
     public var bogatiUiEnabled: Bool
     public var hideFailedWarning: Bool
+    public var sendMode: Bool
     public var chatListCustomTheme: ChatListCustomThemeSettings
 
     public static var defaultSettings: ExperimentalUISettings {
@@ -273,6 +274,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
             debugRipple: false,
             bogatiUiEnabled: false,
             hideFailedWarning: false,
+            sendMode: false,
             chatListCustomTheme: .defaultValue
         )
     }
@@ -334,6 +336,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         debugRipple: Bool,
         bogatiUiEnabled: Bool,
         hideFailedWarning: Bool,
+        sendMode: Bool,
         chatListCustomTheme: ChatListCustomThemeSettings
     ) {
         self.keepChatNavigationStack = keepChatNavigationStack
@@ -392,6 +395,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.debugRipple = debugRipple
         self.bogatiUiEnabled = bogatiUiEnabled
         self.hideFailedWarning = hideFailedWarning
+        self.sendMode = sendMode
         self.chatListCustomTheme = chatListCustomTheme
     }
 
@@ -454,6 +458,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.debugRipple = try container.decodeIfPresent(Bool.self, forKey: "debugRipple") ?? false
         self.bogatiUiEnabled = try container.decodeIfPresent(Bool.self, forKey: "bogatiUiEnabled") ?? false
         self.hideFailedWarning = try container.decodeIfPresent(Bool.self, forKey: "hideFailedWarning") ?? false
+        self.sendMode = try container.decodeIfPresent(Bool.self, forKey: "sendMode") ?? false
         self.chatListCustomTheme = try container.decodeIfPresent(ChatListCustomThemeSettings.self, forKey: "chatListCustomTheme") ?? .defaultValue
     }
 
@@ -516,6 +521,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encodeIfPresent(self.debugRipple, forKey: "debugRipple")
         try container.encodeIfPresent(self.bogatiUiEnabled, forKey: "bogatiUiEnabled")
         try container.encodeIfPresent(self.hideFailedWarning, forKey: "hideFailedWarning")
+        try container.encodeIfPresent(self.sendMode, forKey: "sendMode")
         try container.encodeIfPresent(self.chatListCustomTheme, forKey: "chatListCustomTheme")
     }
 }

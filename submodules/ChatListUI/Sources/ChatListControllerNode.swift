@@ -1140,6 +1140,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
     private let listThemeBackgroundView: EahatGramChatListThemeBackgroundView
     private let headerThemeLongPressGesture: UILongPressGestureRecognizer
     private let contentThemeLongPressGesture: UILongPressGestureRecognizer
+    private var chatListThemeEditModeObserver: NSObjectProtocol?
     weak var controller: ChatListControllerImpl?
     private var isChatListThemeEditMode = false
 
@@ -1213,6 +1214,14 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         self.controller = controller
 
         super.init()
+
+        self.chatListThemeEditModeObserver = NotificationCenter.default.addObserver(forName: eahatGramChatListThemeEditModeRequestedNotification, object: nil, queue: .main, using: { [weak self] _ in
+            guard let self else {
+                return
+            }
+            self.isChatListThemeEditMode = true
+            self.controller?.requestLayout(transition: .immediate)
+        })
 
         self.setViewBlock({
             return UITracingLayerView()
@@ -1350,6 +1359,12 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         inlineContentPanRecognizer.cancelsTouchesInView = true
         self.inlineContentPanRecognizer = inlineContentPanRecognizer
         self.view.addGestureRecognizer(inlineContentPanRecognizer)
+    }
+
+    deinit {
+        if let chatListThemeEditModeObserver = self.chatListThemeEditModeObserver {
+            NotificationCenter.default.removeObserver(chatListThemeEditModeObserver)
+        }
     }
 
     override func didLoad() {
