@@ -1458,7 +1458,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
     ) -> UIColor {
         switch element {
         case .header:
-            return self.presentationData.theme.rootController.navigationBar.backgroundColor
+            return self.presentationData.theme.rootController.navigationBar.blurredBackgroundColor
         case .foldersStrip:
             return self.presentationData.theme.chatList.itemBackgroundColor
         case .selectedFolder:
@@ -1493,7 +1493,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
 
     private func updateHeaderThemeBackground(frame: CGRect, transition: ContainedViewLayoutTransition) {
         let value = self.currentChatListThemeValue(for: .header)
-        if let navigationBarComponentView = self.navigationBarView.view as? UIView {
+        if let navigationBarComponentView = self.navigationBarView.view {
             if self.headerThemeBackgroundView.superview == nil {
                 self.view.insertSubview(self.headerThemeBackgroundView, belowSubview: navigationBarComponentView)
             } else {
