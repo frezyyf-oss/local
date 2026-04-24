@@ -187,7 +187,7 @@ final class EahatGramDebugSettings {
     }
 
     static let targetHudEnabled = Atomic<Bool>(value: UserDefaults.standard.object(forKey: targetHudEnabledKey) as? Bool ?? false)
-    static let nftUsernameTags = Atomic<[NftUsernameTagRecord]>(value: self.migratedNftUsernameTags())
+    static let nftUsernameTags = Atomic<[NftUsernameTagRecord]>(value: EahatGramDebugSettings.migratedNftUsernameTags())
     static let nftUsernameTag = Atomic<String>(value: UserDefaults.standard.string(forKey: nftUsernameTagKey) ?? "")
     static let nftUsernamePrice = Atomic<String>(value: UserDefaults.standard.string(forKey: nftUsernamePriceKey) ?? "")
     static let nftUsernamePurchaseDate = Atomic<Int32?>(value: (UserDefaults.standard.object(forKey: nftUsernamePurchaseDateKey) as? NSNumber).map { $0.int32Value })
