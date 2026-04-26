@@ -20,6 +20,7 @@ import InstantPageCache
 import ItemListUI
 import AlertUI
 import GlassBackgroundComponent
+import TranslateUI
 private let eahatGramPersistedChainVisualizationState = Atomic<EahatGramGiftChainVisualizationState?>(value: nil)
 
 private func eahatGramInputTitle(_ presentationData: ItemListPresentationData, _ text: String) -> NSAttributedString {
@@ -48,6 +49,22 @@ private func eahatGramPeerIdFromText(_ value: String) -> EnginePeer.Id? {
         return nil
     }
     return EnginePeer.Id(namespace: Namespaces.Peer.CloudUser, id: EnginePeer.Id.Id._internalFromInt64Value(parsed))
+}
+
+private func eahatGramBaseTranslationLanguageCode(_ strings: PresentationStrings) -> String {
+    var languageCode = strings.baseLanguageCode
+    let rawSuffix = "-raw"
+    if languageCode.hasSuffix(rawSuffix) {
+        languageCode = String(languageCode.dropLast(rawSuffix.count))
+    }
+    return normalizeTranslationLanguage(languageCode)
+}
+
+private func eahatGramTranslationLanguageLabel(_ strings: PresentationStrings, languageCode: String?) -> String {
+    let interfaceLanguageCode = normalizeTranslationLanguage(strings.baseLanguageCode)
+    let locale = Locale(identifier: interfaceLanguageCode)
+    let effectiveLanguageCode = normalizeTranslationLanguage(languageCode ?? eahatGramBaseTranslationLanguageCode(strings))
+    return locale.localizedString(forLanguageCode: effectiveLanguageCode) ?? effectiveLanguageCode
 }
 
 struct EahatGramFarmJob: Codable, Equatable {
@@ -769,6 +786,10 @@ private final class EahatGramArguments {
     let updateBogatiUiEnabled: (Bool) -> Void
     let updateHideFailedWarningEnabled: (Bool) -> Void
     let updateSendModeEnabled: (Bool) -> Void
+    let updateTranslatorEnabled: (Bool) -> Void
+    let selectTranslatorLanguage: () -> Void
+    let updateTranslateMyMessagesEnabled: (Bool) -> Void
+    let selectTranslateMyMessagesLanguage: () -> Void
     let updateDownFolderEnabled: (Bool) -> Void
     let openCustomUiTheme: () -> Void
     let updateViewUnread2ReadEnabled: (Bool) -> Void
@@ -827,6 +848,10 @@ private final class EahatGramArguments {
         updateBogatiUiEnabled: @escaping (Bool) -> Void,
         updateHideFailedWarningEnabled: @escaping (Bool) -> Void,
         updateSendModeEnabled: @escaping (Bool) -> Void,
+        updateTranslatorEnabled: @escaping (Bool) -> Void,
+        selectTranslatorLanguage: @escaping () -> Void,
+        updateTranslateMyMessagesEnabled: @escaping (Bool) -> Void,
+        selectTranslateMyMessagesLanguage: @escaping () -> Void,
         updateDownFolderEnabled: @escaping (Bool) -> Void,
         openCustomUiTheme: @escaping () -> Void,
         updateViewUnread2ReadEnabled: @escaping (Bool) -> Void,
@@ -884,6 +909,10 @@ private final class EahatGramArguments {
         self.updateBogatiUiEnabled = updateBogatiUiEnabled
         self.updateHideFailedWarningEnabled = updateHideFailedWarningEnabled
         self.updateSendModeEnabled = updateSendModeEnabled
+        self.updateTranslatorEnabled = updateTranslatorEnabled
+        self.selectTranslatorLanguage = selectTranslatorLanguage
+        self.updateTranslateMyMessagesEnabled = updateTranslateMyMessagesEnabled
+        self.selectTranslateMyMessagesLanguage = selectTranslateMyMessagesLanguage
         self.updateDownFolderEnabled = updateDownFolderEnabled
         self.openCustomUiTheme = openCustomUiTheme
         self.updateViewUnread2ReadEnabled = updateViewUnread2ReadEnabled
@@ -954,6 +983,10 @@ private struct EahatGramState: Equatable {
     var bogatiUiEnabled: Bool
     var hideFailedWarningEnabled: Bool
     var sendModeEnabled: Bool
+    var translatorEnabled: Bool
+    var translatorLanguageCode: String?
+    var translateMyMessagesEnabled: Bool
+    var translateMyMessagesLanguageCode: String?
     var downFolderEnabled: Bool
     var viewUnread2ReadEnabled: Bool
     var farmBotUsernameText: String
@@ -1006,6 +1039,10 @@ private struct EahatGramState: Equatable {
         self.bogatiUiEnabled = eahatGramBogatiUiEnabled(experimentalSettings)
         self.hideFailedWarningEnabled = experimentalSettings.hideFailedWarning
         self.sendModeEnabled = experimentalSettings.sendMode
+        self.translatorEnabled = experimentalSettings.eahatGramTranslatorEnabled
+        self.translatorLanguageCode = experimentalSettings.eahatGramTranslatorLanguage
+        self.translateMyMessagesEnabled = experimentalSettings.eahatGramTranslateMyMessagesEnabled
+        self.translateMyMessagesLanguageCode = experimentalSettings.eahatGramTranslateMyMessagesLanguage
         self.downFolderEnabled = experimentalSettings.foldersTabAtBottom
         self.viewUnread2ReadEnabled = viewUnread2ReadEnabled
         self.farmBotUsernameText = ""
@@ -1077,6 +1114,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case bogatiUi(Bool)
     case noWarning(Bool)
     case sendMode(Bool)
+    case translator(Bool)
+    case translatorLanguage(String)
+    case translateMyMessages(Bool)
+    case translateMyMessagesLanguage(String)
     case downFolder(Bool)
     case customUiTheme
     case viewUnread2Read(Bool)
@@ -1116,7 +1157,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .fakeOnlineBackground, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .sendMode, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .fakeOnlineBackground, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .sendMode, .translator, .translatorLanguage, .translateMyMessages, .translateMyMessagesLanguage, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .farmBackground, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
@@ -1205,6 +1246,14 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 31
         case .sendMode:
             return 33
+        case .translator:
+            return 36
+        case .translatorLanguage:
+            return 37
+        case .translateMyMessages:
+            return 38
+        case .translateMyMessagesLanguage:
+            return 39
         case .downFolder:
             return 29
         case .customUiTheme:
@@ -2095,6 +2144,54 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateSendModeEnabled(value)
                 }
             )
+        case let .translator(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Translator",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateTranslatorEnabled(value)
+                }
+            )
+        case let .translatorLanguage(text):
+            return ItemListDisclosureItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Translator Language",
+                label: text,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.selectTranslatorLanguage()
+                }
+            )
+        case let .translateMyMessages(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Translate My Messages",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateTranslateMyMessagesEnabled(value)
+                }
+            )
+        case let .translateMyMessagesLanguage(text):
+            return ItemListDisclosureItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "My Messages Language",
+                label: text,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.selectTranslateMyMessagesLanguage()
+                }
+            )
         case let .downFolder(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -2660,6 +2757,7 @@ private enum EahatGramFunctestToggle: Int, CaseIterable {
 
 private func eahatGramEntries(
     state: EahatGramState,
+    presentationData: PresentationData,
     gifts: [ProfileGiftsContext.State.StarGift],
     farmJobs: [EahatGramFarmJob],
     noGiftsText: String,
@@ -2702,6 +2800,10 @@ private func eahatGramEntries(
         entries.append(.bogatiUi(state.bogatiUiEnabled))
         entries.append(.noWarning(state.hideFailedWarningEnabled))
         entries.append(.sendMode(state.sendModeEnabled))
+        entries.append(.translator(state.translatorEnabled))
+        entries.append(.translatorLanguage(eahatGramTranslationLanguageLabel(presentationData.strings, languageCode: state.translatorLanguageCode)))
+        entries.append(.translateMyMessages(state.translateMyMessagesEnabled))
+        entries.append(.translateMyMessagesLanguage(eahatGramTranslationLanguageLabel(presentationData.strings, languageCode: state.translateMyMessagesLanguageCode)))
         entries.append(.downFolder(state.downFolderEnabled))
         entries.append(.customUiTheme)
         entries.append(.viewUnread2Read(state.viewUnread2ReadEnabled))
@@ -3309,6 +3411,82 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             }
             appendResponse("sendMode enabled=\(value)")
         },
+        updateTranslatorEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.eahatGramTranslatorEnabled = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.translatorEnabled = value
+                return current
+            }
+            appendResponse("translator enabled=\(value)")
+        },
+        selectTranslatorLanguage: {
+            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+            let baseLanguageCode = eahatGramBaseTranslationLanguageCode(presentationData.strings)
+            let currentLanguageCode = stateValue.with { $0.translatorLanguageCode } ?? baseLanguageCode
+            let controller = languageSelectionController(
+                context: context,
+                fromLanguage: baseLanguageCode,
+                toLanguage: currentLanguageCode,
+                completion: { _, toLanguage in
+                    let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                        var settings = settings
+                        settings.eahatGramTranslatorLanguage = normalizeTranslationLanguage(toLanguage)
+                        return settings
+                    }).start()
+                    updateState { current in
+                        var current = current
+                        current.translatorLanguageCode = normalizeTranslationLanguage(toLanguage)
+                        return current
+                    }
+                    appendResponse("translator language=\(normalizeTranslationLanguage(toLanguage))")
+                }
+            )
+            pushControllerImpl?(controller)
+            appendResponse("translatorLanguage selector opened")
+        },
+        updateTranslateMyMessagesEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.eahatGramTranslateMyMessagesEnabled = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.translateMyMessagesEnabled = value
+                return current
+            }
+            appendResponse("translateMyMessages enabled=\(value)")
+        },
+        selectTranslateMyMessagesLanguage: {
+            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+            let baseLanguageCode = eahatGramBaseTranslationLanguageCode(presentationData.strings)
+            let currentLanguageCode = stateValue.with { $0.translateMyMessagesLanguageCode } ?? baseLanguageCode
+            let controller = languageSelectionController(
+                context: context,
+                fromLanguage: baseLanguageCode,
+                toLanguage: currentLanguageCode,
+                completion: { _, toLanguage in
+                    let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                        var settings = settings
+                        settings.eahatGramTranslateMyMessagesLanguage = normalizeTranslationLanguage(toLanguage)
+                        return settings
+                    }).start()
+                    updateState { current in
+                        var current = current
+                        current.translateMyMessagesLanguageCode = normalizeTranslationLanguage(toLanguage)
+                        return current
+                    }
+                    appendResponse("translateMyMessages language=\(normalizeTranslationLanguage(toLanguage))")
+                }
+            )
+            pushControllerImpl?(controller)
+            appendResponse("translateMyMessagesLanguage selector opened")
+        },
         updateDownFolderEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
                 var settings = settings
@@ -3664,7 +3842,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         )
         let listState = ItemListNodeState(
             presentationData: ItemListPresentationData(presentationData),
-            entries: eahatGramEntries(state: state, gifts: gifts, farmJobs: farmJobs, noGiftsText: noGiftsText, hasStarsContext: starsContext != nil),
+            entries: eahatGramEntries(state: state, presentationData: presentationData, gifts: gifts, farmJobs: farmJobs, noGiftsText: noGiftsText, hasStarsContext: starsContext != nil),
             style: .blocks,
             animateChanges: true
         )

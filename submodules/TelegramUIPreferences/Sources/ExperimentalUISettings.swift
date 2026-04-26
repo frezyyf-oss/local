@@ -300,6 +300,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var bogatiUiEnabled: Bool
     public var hideFailedWarning: Bool
     public var sendMode: Bool
+    public var eahatGramTranslatorEnabled: Bool
+    public var eahatGramTranslatorLanguage: String?
+    public var eahatGramTranslateMyMessagesEnabled: Bool
+    public var eahatGramTranslateMyMessagesLanguage: String?
     public var chatListCustomTheme: ChatListCustomThemeSettings
 
     public static var defaultSettings: ExperimentalUISettings {
@@ -363,6 +367,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
             bogatiUiEnabled: false,
             hideFailedWarning: false,
             sendMode: false,
+            eahatGramTranslatorEnabled: false,
+            eahatGramTranslatorLanguage: nil,
+            eahatGramTranslateMyMessagesEnabled: false,
+            eahatGramTranslateMyMessagesLanguage: nil,
             chatListCustomTheme: .defaultValue
         )
     }
@@ -427,6 +435,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         bogatiUiEnabled: Bool,
         hideFailedWarning: Bool,
         sendMode: Bool,
+        eahatGramTranslatorEnabled: Bool,
+        eahatGramTranslatorLanguage: String?,
+        eahatGramTranslateMyMessagesEnabled: Bool,
+        eahatGramTranslateMyMessagesLanguage: String?,
         chatListCustomTheme: ChatListCustomThemeSettings
     ) {
         self.keepChatNavigationStack = keepChatNavigationStack
@@ -488,6 +500,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.bogatiUiEnabled = bogatiUiEnabled
         self.hideFailedWarning = hideFailedWarning
         self.sendMode = sendMode
+        self.eahatGramTranslatorEnabled = eahatGramTranslatorEnabled
+        self.eahatGramTranslatorLanguage = eahatGramTranslatorLanguage
+        self.eahatGramTranslateMyMessagesEnabled = eahatGramTranslateMyMessagesEnabled
+        self.eahatGramTranslateMyMessagesLanguage = eahatGramTranslateMyMessagesLanguage
         self.chatListCustomTheme = chatListCustomTheme
     }
 
@@ -553,6 +569,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.bogatiUiEnabled = try container.decodeIfPresent(Bool.self, forKey: "bogatiUiEnabled") ?? false
         self.hideFailedWarning = try container.decodeIfPresent(Bool.self, forKey: "hideFailedWarning") ?? false
         self.sendMode = try container.decodeIfPresent(Bool.self, forKey: "sendMode") ?? false
+        self.eahatGramTranslatorEnabled = try container.decodeIfPresent(Bool.self, forKey: "eahatGramTranslatorEnabled") ?? false
+        self.eahatGramTranslatorLanguage = try container.decodeIfPresent(String.self, forKey: "eahatGramTranslatorLanguage")
+        self.eahatGramTranslateMyMessagesEnabled = try container.decodeIfPresent(Bool.self, forKey: "eahatGramTranslateMyMessagesEnabled") ?? false
+        self.eahatGramTranslateMyMessagesLanguage = try container.decodeIfPresent(String.self, forKey: "eahatGramTranslateMyMessagesLanguage")
         self.chatListCustomTheme = try container.decodeIfPresent(ChatListCustomThemeSettings.self, forKey: "chatListCustomTheme") ?? .defaultValue
     }
 
@@ -618,6 +638,10 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encodeIfPresent(self.bogatiUiEnabled, forKey: "bogatiUiEnabled")
         try container.encodeIfPresent(self.hideFailedWarning, forKey: "hideFailedWarning")
         try container.encodeIfPresent(self.sendMode, forKey: "sendMode")
+        try container.encodeIfPresent(self.eahatGramTranslatorEnabled, forKey: "eahatGramTranslatorEnabled")
+        try container.encodeIfPresent(self.eahatGramTranslatorLanguage, forKey: "eahatGramTranslatorLanguage")
+        try container.encodeIfPresent(self.eahatGramTranslateMyMessagesEnabled, forKey: "eahatGramTranslateMyMessagesEnabled")
+        try container.encodeIfPresent(self.eahatGramTranslateMyMessagesLanguage, forKey: "eahatGramTranslateMyMessagesLanguage")
         try container.encodeIfPresent(self.chatListCustomTheme, forKey: "chatListCustomTheme")
     }
 }

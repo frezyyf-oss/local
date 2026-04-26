@@ -58,6 +58,7 @@ import HeaderPanelContainerComponent
 import MediaPlaybackHeaderPanelComponent
 import LiveLocationHeaderPanelComponent
 import TranslateHeaderPanelComponent
+import TranslateUI
 import AdPanelHeaderPanelComponent
 import MessageFeeHeaderPanelComponent
 import LegacyChatHeaderPanelComponent
@@ -299,6 +300,9 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
     
     var interactiveEmojis: InteractiveEmojiConfiguration?
     private var interactiveEmojisDisposable: Disposable?
+    private var translateMyMessagesDisposable: Disposable?
+    private var translateMyMessagesInProgress = false
+    private var skipTranslateMyMessagesOnce = false
     
     private let selectedMessagesPromise = Promise<Set<MessageId>?>(nil)
     var selectedMessages: Set<MessageId>? {
@@ -981,6 +985,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
     
     deinit {
         self.interactiveEmojisDisposable?.dispose()
+        self.translateMyMessagesDisposable?.dispose()
         self.openStickersDisposable?.dispose()
         self.displayVideoUnmuteTipDisposable?.dispose()
         self.inputMediaNodeDataDisposable?.dispose()
@@ -4584,6 +4589,118 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
         }
     }
     
+    private func eahatGramBaseTranslationLanguageCode() -> String {
+        var languageCode = self.context.sharedContext.currentPresentationData.with { $0 }.strings.baseLanguageCode
+        let rawSuffix = "-raw"
+        if languageCode.hasSuffix(rawSuffix) {
+            languageCode = String(languageCode.dropLast(rawSuffix.count))
+        }
+        return normalizeTranslationLanguage(languageCode)
+    }
+
+    private func eahatGramResolvedTranslationLanguage(_ languageCode: String?) -> String {
+        return normalizeTranslationLanguage(languageCode ?? self.eahatGramBaseTranslationLanguageCode())
+    }
+
+    private func maybeTranslateMyMessageBeforeSending(
+        effectivePresentationInterfaceState: ChatPresentationInterfaceState,
+        textInputPanelNode: ChatTextInputPanelNode,
+        silentPosting: Bool?,
+        scheduleTime: Int32?,
+        repeatPeriod: Int32?,
+        postpone: Bool,
+        messageEffect: ChatSendMessageEffect?,
+        completion: @escaping () -> Void
+    ) -> Bool {
+        let experimentalSettings = self.context.sharedContext.immediateExperimentalUISettings
+        guard experimentalSettings.eahatGramTranslateMyMessagesEnabled else {
+            return false
+        }
+        if self.skipTranslateMyMessagesOnce {
+            self.skipTranslateMyMessagesOnce = false
+            return false
+        }
+        guard !self.translateMyMessagesInProgress else {
+            return true
+        }
+        guard effectivePresentationInterfaceState.interfaceState.editMessage == nil else {
+            return false
+        }
+        let effectiveInputText = expandedInputStateAttributedString(effectivePresentationInterfaceState.interfaceState.composeInputState.inputText)
+        let trimmedInputText = effectiveInputText.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedInputText.isEmpty else {
+            return false
+        }
+        let (_, detectedLanguage) = canTranslateText(context: self.context, text: trimmedInputText, showTranslate: true, ignoredLanguages: nil)
+        let targetLanguage = self.eahatGramResolvedTranslationLanguage(experimentalSettings.eahatGramTranslateMyMessagesLanguage)
+        if let detectedLanguage, normalizeTranslationLanguage(detectedLanguage) == targetLanguage {
+            return false
+        }
+
+        self.translateMyMessagesInProgress = true
+        self.translateMyMessagesDisposable?.dispose()
+
+        let translationSignal: Signal<(String, [MessageTextEntity])?, NoError>
+        if #available(iOS 18.0, *), let detectedLanguage, let engineExperimentalInternalTranslationService {
+            let key = AnyHashable(0)
+            translationSignal = engineExperimentalInternalTranslationService.translate(
+                texts: [key: effectiveInputText.string],
+                fromLang: normalizeTranslationLanguage(detectedLanguage),
+                toLang: targetLanguage
+            )
+            |> map { result in
+                guard let translatedText = result?[key], !translatedText.isEmpty else {
+                    return nil
+                }
+                return (translatedText, [])
+            }
+        } else {
+            let inputEntities = generateChatInputTextEntities(effectiveInputText, maxAnimatedEmojisInText: 0)
+            translationSignal = (
+                self.context.engine.messages.translate(
+                    text: effectiveInputText.string,
+                    toLang: targetLanguage,
+                    entities: inputEntities
+                )
+                |> `catch` { _ -> Signal<(String, [MessageTextEntity])?, NoError> in
+                    return .single(nil)
+                }
+            )
+        }
+
+        self.translateMyMessagesDisposable = (translationSignal
+        |> deliverOnMainQueue).startStrict(next: { [weak self] result in
+            guard let self else {
+                return
+            }
+            self.translateMyMessagesDisposable = nil
+            self.translateMyMessagesInProgress = false
+
+            if let result {
+                let translatedText = chatInputStateStringWithAppliedEntities(result.0, entities: result.1)
+                let selectionIndex = translatedText.length
+                let translatedState = ChatTextInputState(inputText: translatedText, selectionRange: selectionIndex ..< selectionIndex)
+                textInputPanelNode.updateInputTextState(translatedState)
+                self.chatPresentationInterfaceState = self.chatPresentationInterfaceState.updatedInterfaceState {
+                    $0.withUpdatedEffectiveInputState(translatedState)
+                }
+                self.requestUpdateChatInterfaceState(.immediate, true, { interfaceState in
+                    interfaceState.withUpdatedEffectiveInputState(translatedState)
+                })
+            }
+            self.skipTranslateMyMessagesOnce = true
+            self.sendCurrentMessage(
+                silentPosting: silentPosting,
+                scheduleTime: scheduleTime,
+                repeatPeriod: repeatPeriod,
+                postpone: postpone,
+                messageEffect: messageEffect,
+                completion: completion
+            )
+        })
+        return true
+    }
+
     func sendCurrentMessage(silentPosting: Bool? = nil, scheduleTime: Int32? = nil, repeatPeriod: Int32? = nil, postpone: Bool = false, messageEffect: ChatSendMessageEffect? = nil, completion: @escaping () -> Void = {}) {
         guard let textInputPanelNode = self.inputPanelNode as? ChatTextInputPanelNode else {
             return
@@ -4724,6 +4841,19 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                 }
             }
             
+            if self.maybeTranslateMyMessageBeforeSending(
+                effectivePresentationInterfaceState: effectivePresentationInterfaceState,
+                textInputPanelNode: textInputPanelNode,
+                silentPosting: silentPosting,
+                scheduleTime: scheduleTime,
+                repeatPeriod: repeatPeriod,
+                postpone: postpone,
+                messageEffect: messageEffect,
+                completion: completion
+            ) {
+                return
+            }
+
             let timestamp = CACurrentMediaTime()
             if self.lastSendTimestamp + 0.15 > timestamp {
                 return

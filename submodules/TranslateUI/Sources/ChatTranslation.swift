@@ -196,6 +196,12 @@ public func translateMessageIds(context: AccountContext, messageIds: [EngineMess
         default:
             break
         }
+        if #available(iOS 18.0, *) {
+            let experimentalSettings = context.sharedContext.immediateExperimentalUISettings
+            if experimentalSettings.enableLocalTranslation || experimentalSettings.eahatGramTranslatorEnabled {
+                enableLocalIfPossible = true
+            }
+        }
         return context.engine.messages.translateMessages(messageIds: messageIdsToTranslate, fromLang: fromLang, toLang: toLang, enableLocalIfPossible: enableLocalIfPossible)
         |> `catch` { _ -> Signal<Never, NoError> in
             return .complete()
@@ -226,10 +232,16 @@ public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id,
             |> map { sharedData -> TranslationSettings in
                 return sharedData.entries[ApplicationSpecificSharedDataKeys.translationSettings]?.get(TranslationSettings.self) ?? TranslationSettings.defaultSettings
             },
-            context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.AutoTranslateEnabled(id: peerId))
+            context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.AutoTranslateEnabled(id: peerId)),
+            context.sharedContext.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.experimentalUISettings])
+            |> map { sharedData -> ExperimentalUISettings in
+                return sharedData.entries[ApplicationSpecificSharedDataKeys.experimentalUISettings]?.get(ExperimentalUISettings.self) ?? .defaultSettings
+            }
         )
-        |> mapToSignal { settings, autoTranslateEnabled in
-            if !settings.translateChats && !autoTranslateEnabled {
+        |> mapToSignal { settings, autoTranslateEnabled, experimentalSettings in
+            let eahatGramTranslatorEnabled = experimentalSettings.eahatGramTranslatorEnabled
+            let forcedToLang = normalizeTranslationLanguage(experimentalSettings.eahatGramTranslatorLanguage ?? baseLang)
+            if !settings.translateChats && !autoTranslateEnabled && !eahatGramTranslatorEnabled {
                 return .single(nil)
             }
             
@@ -247,8 +259,14 @@ public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id,
             |> mapToSignal { cached in
                 let currentTime = Int32(CFAbsoluteTimeGetCurrent() + kCFAbsoluteTimeIntervalSince1970)
                 if let cached, let timestamp = cached.timestamp, cached.baseLang == baseLang && currentTime - timestamp < 60 * 60 {
-                    if !dontTranslateLanguages.contains(cached.fromLang) {
-                        return .single(cached)
+                    let effectiveState: ChatTranslationState
+                    if eahatGramTranslatorEnabled {
+                        effectiveState = cached.withToLang(forcedToLang).withIsEnabled(true)
+                    } else {
+                        effectiveState = cached
+                    }
+                    if !dontTranslateLanguages.contains(effectiveState.fromLang) {
+                        return .single(effectiveState)
                     } else {
                         return .single(nil)
                     }
@@ -341,13 +359,13 @@ public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id,
                                 Logger.shared.log("ChatTranslation", "Ended with: \(fromLang)")
                             }
                             
-                            let isEnabled: Bool
+                            let persistedIsEnabled: Bool
                             if let currentIsEnabled = cached?.isEnabled {
-                                isEnabled = currentIsEnabled
+                                persistedIsEnabled = currentIsEnabled
                             } else if autoTranslateEnabled {
-                                isEnabled = true
+                                persistedIsEnabled = true
                             } else {
-                                isEnabled = false
+                                persistedIsEnabled = false
                             }
                             
                             let state = ChatTranslationState(
@@ -355,11 +373,17 @@ public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id,
                                 fromLang: fromLang,
                                 timestamp: currentTime,
                                 toLang: cached?.toLang,
-                                isEnabled: isEnabled
+                                isEnabled: persistedIsEnabled
                             )
                             let _ = updateChatTranslationState(engine: context.engine, peerId: peerId, threadId: threadId, state: state).start()
+                            let effectiveState: ChatTranslationState
+                            if eahatGramTranslatorEnabled {
+                                effectiveState = state.withToLang(forcedToLang).withIsEnabled(true)
+                            } else {
+                                effectiveState = state
+                            }
                             if !dontTranslateLanguages.contains(fromLang) {
-                                return state
+                                return effectiveState
                             } else {
                                 return nil
                             }
