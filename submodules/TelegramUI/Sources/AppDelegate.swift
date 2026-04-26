@@ -1970,8 +1970,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         let _ = (self.sharedContextPromise.get()
         |> take(1)
         |> deliverOnMainQueue).start(next: { sharedApplicationContext in
-            let farmHasEnabledJobs = EahatGramFarmManager.shared.hasEnabledJobs()
-            let farmHasDueJobsSoon = EahatGramFarmManager.shared.hasDueJobs(leewaySeconds: 30)
+            let experimentalUISettings = sharedApplicationContext.sharedContext.immediateExperimentalUISettings
+            let farmHasEnabledJobs = experimentalUISettings.farmBackgroundEnabled && EahatGramFarmManager.shared.hasEnabledJobs()
+            let farmHasDueJobsSoon = experimentalUISettings.farmBackgroundEnabled && EahatGramFarmManager.shared.hasDueJobs(leewaySeconds: 30)
+            let fakeOnlineBackgroundEnabled = experimentalUISettings.fakeOnline && experimentalUISettings.fakeOnlineBackgroundEnabled
             var extendNow = false
             if #available(iOS 9.0, *) {
                 if !ProcessInfo.processInfo.isLowPowerModeEnabled {
@@ -1981,10 +1983,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             if !sharedApplicationContext.sharedContext.energyUsageSettings.extendBackgroundWork {
                 extendNow = false
             }
-            if farmHasDueJobsSoon {
+            if farmHasDueJobsSoon || fakeOnlineBackgroundEnabled {
                 extendNow = true
             }
-            sharedApplicationContext.wakeupManager.allowBackgroundTimeExtension(timeout: farmHasEnabledJobs ? 30.0 : 2.0, extendNow: extendNow)
+            sharedApplicationContext.wakeupManager.allowBackgroundTimeExtension(timeout: (farmHasEnabledJobs || fakeOnlineBackgroundEnabled) ? 600.0 : 2.0, extendNow: extendNow)
             
             let _ = (sharedApplicationContext.sharedContext.activeAccountContexts
              |> take(1)
@@ -2071,7 +2073,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: refreshTaskId)
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: processingTaskId)
         guard let nextRefreshDate = EahatGramFarmManager.shared.nextBackgroundRefreshDate() else {
-            Logger.shared.log("App \(self.episodeId)", "No enabled eahatGram farm jobs, cleared background refresh request")
+            Logger.shared.log("App \(self.episodeId)", "No enabled eahatGram farm background jobs, cleared background refresh request")
             return
         }
         do {
@@ -2116,6 +2118,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         sharedContextDisposable = (self.sharedContextPromise.get()
         |> take(1)
         |> deliverOnMainQueue).start(next: { sharedApplicationContext in
+            guard sharedApplicationContext.sharedContext.immediateExperimentalUISettings.farmBackgroundEnabled else {
+                completeTask(true)
+                return
+            }
             activeAccountsDisposable = (sharedApplicationContext.sharedContext.activeAccountContexts
             |> take(1)
             |> deliverOnMainQueue).start(next: { activeAccounts in

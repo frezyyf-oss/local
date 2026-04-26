@@ -257,6 +257,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var replyQuote: Bool
     public var ghostMode: Bool
     public var fakeOnline: Bool
+    public var fakeOnlineBackgroundEnabled: Bool
+    public var farmBackgroundEnabled: Bool
     public var saveDeletedMessages: Bool
     public var saveEditedMessages: Bool
     public var compressedEmojiCache: Bool
@@ -318,6 +320,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
             replyQuote: false,
             ghostMode: false,
             fakeOnline: false,
+            fakeOnlineBackgroundEnabled: false,
+            farmBackgroundEnabled: false,
             saveDeletedMessages: false,
             saveEditedMessages: false,
             compressedEmojiCache: false,
@@ -380,6 +384,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         replyQuote: Bool,
         ghostMode: Bool,
         fakeOnline: Bool,
+        fakeOnlineBackgroundEnabled: Bool,
+        farmBackgroundEnabled: Bool,
         saveDeletedMessages: Bool,
         saveEditedMessages: Bool,
         compressedEmojiCache: Bool,
@@ -439,6 +445,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.replyQuote = replyQuote
         self.ghostMode = ghostMode
         self.fakeOnline = fakeOnline
+        self.fakeOnlineBackgroundEnabled = fakeOnlineBackgroundEnabled
+        self.farmBackgroundEnabled = farmBackgroundEnabled
         self.saveDeletedMessages = saveDeletedMessages
         self.saveEditedMessages = saveEditedMessages
         self.compressedEmojiCache = compressedEmojiCache
@@ -502,6 +510,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.replyQuote = (try container.decodeIfPresent(Int32.self, forKey: "replyQuote") ?? 0) != 0
         self.ghostMode = (try container.decodeIfPresent(Int32.self, forKey: "ghostMode") ?? 0) != 0
         self.fakeOnline = (try container.decodeIfPresent(Int32.self, forKey: "fakeOnline") ?? 0) != 0
+        self.fakeOnlineBackgroundEnabled = (try container.decodeIfPresent(Int32.self, forKey: "fakeOnlineBackgroundEnabled") ?? 0) != 0
+        self.farmBackgroundEnabled = (try container.decodeIfPresent(Int32.self, forKey: "farmBackgroundEnabled") ?? 0) != 0
         self.saveDeletedMessages = (try container.decodeIfPresent(Int32.self, forKey: "saveDeletedMessages") ?? 0) != 0
         self.saveEditedMessages = (try container.decodeIfPresent(Int32.self, forKey: "saveEditedMessages") ?? 0) != 0
         self.compressedEmojiCache = (try container.decodeIfPresent(Int32.self, forKey: "compressedEmojiCache") ?? 0) != 0
@@ -565,6 +575,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encode((self.replyQuote ? 1 : 0) as Int32, forKey: "replyQuote")
         try container.encode((self.ghostMode ? 1 : 0) as Int32, forKey: "ghostMode")
         try container.encode((self.fakeOnline ? 1 : 0) as Int32, forKey: "fakeOnline")
+        try container.encode((self.fakeOnlineBackgroundEnabled ? 1 : 0) as Int32, forKey: "fakeOnlineBackgroundEnabled")
+        try container.encode((self.farmBackgroundEnabled ? 1 : 0) as Int32, forKey: "farmBackgroundEnabled")
         try container.encode((self.saveDeletedMessages ? 1 : 0) as Int32, forKey: "saveDeletedMessages")
         try container.encode((self.saveEditedMessages ? 1 : 0) as Int32, forKey: "saveEditedMessages")
         try container.encode((self.compressedEmojiCache ? 1 : 0) as Int32, forKey: "compressedEmojiCache")

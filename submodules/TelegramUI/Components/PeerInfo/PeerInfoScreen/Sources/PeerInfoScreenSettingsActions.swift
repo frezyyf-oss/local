@@ -86,6 +86,7 @@ public final class EahatGramFarmManager {
         self.queue.async {
             self.primaryContext = context
             self.updateTimer()
+            self.backgroundRefreshUpdater?()
         }
     }
 
@@ -105,6 +106,9 @@ public final class EahatGramFarmManager {
     }
 
     public func nextBackgroundRefreshDate() -> Date? {
+        guard self.isBackgroundRefreshEnabled() else {
+            return nil
+        }
         let now = Int32(Date().timeIntervalSince1970)
         guard let nextDueTimestamp = self.nextDueTimestamp(referenceTimestamp: now) else {
             return nil
@@ -116,11 +120,24 @@ public final class EahatGramFarmManager {
         return self.jobsValue.contains(where: { $0.isEnabled })
     }
 
+    public func isBackgroundRefreshEnabled() -> Bool {
+        guard let primaryContext = self.primaryContext else {
+            return false
+        }
+        return primaryContext.sharedContext.immediateExperimentalUISettings.farmBackgroundEnabled
+    }
+
     public func hasDueJobs(referenceTimestamp: Int32 = Int32(Date().timeIntervalSince1970), leewaySeconds: Int32 = 0) -> Bool {
         guard let nextDueTimestamp = self.nextDueTimestamp(referenceTimestamp: referenceTimestamp) else {
             return false
         }
         return nextDueTimestamp <= referenceTimestamp + max(0, leewaySeconds)
+    }
+
+    public func refreshBackgroundScheduling() {
+        self.queue.async {
+            self.backgroundRefreshUpdater?()
+        }
     }
 
     public func processDueJobsNow(context: AccountContext, completion: (() -> Void)? = nil) {
@@ -745,6 +762,7 @@ private final class EahatGramArguments {
     let updateReplyQuoteEnabled: (Bool) -> Void
     let updateGhostModeEnabled: (Bool) -> Void
     let updateFakeOnlineEnabled: (Bool) -> Void
+    let updateFakeOnlineBackgroundEnabled: (Bool) -> Void
     let updateSaveDeletedMessagesEnabled: (Bool) -> Void
     let updateSaveEditedMessagesEnabled: (Bool) -> Void
     let updateNoLagsEnabled: (Bool) -> Void
@@ -757,6 +775,7 @@ private final class EahatGramArguments {
     let updateFarmBotUsername: (String) -> Void
     let updateFarmCommand: (String) -> Void
     let updateFarmInterval: (String) -> Void
+    let updateFarmBackgroundEnabled: (Bool) -> Void
     let addFarmJob: () -> Void
     let updateFarmJobEnabled: (Int, Bool) -> Void
     let removeFarmJob: (Int) -> Void
@@ -801,6 +820,7 @@ private final class EahatGramArguments {
         updateReplyQuoteEnabled: @escaping (Bool) -> Void,
         updateGhostModeEnabled: @escaping (Bool) -> Void,
         updateFakeOnlineEnabled: @escaping (Bool) -> Void,
+        updateFakeOnlineBackgroundEnabled: @escaping (Bool) -> Void,
         updateSaveDeletedMessagesEnabled: @escaping (Bool) -> Void,
         updateSaveEditedMessagesEnabled: @escaping (Bool) -> Void,
         updateNoLagsEnabled: @escaping (Bool) -> Void,
@@ -813,6 +833,7 @@ private final class EahatGramArguments {
         updateFarmBotUsername: @escaping (String) -> Void,
         updateFarmCommand: @escaping (String) -> Void,
         updateFarmInterval: @escaping (String) -> Void,
+        updateFarmBackgroundEnabled: @escaping (Bool) -> Void,
         addFarmJob: @escaping () -> Void,
         updateFarmJobEnabled: @escaping (Int, Bool) -> Void,
         removeFarmJob: @escaping (Int) -> Void,
@@ -856,6 +877,7 @@ private final class EahatGramArguments {
         self.updateReplyQuoteEnabled = updateReplyQuoteEnabled
         self.updateGhostModeEnabled = updateGhostModeEnabled
         self.updateFakeOnlineEnabled = updateFakeOnlineEnabled
+        self.updateFakeOnlineBackgroundEnabled = updateFakeOnlineBackgroundEnabled
         self.updateSaveDeletedMessagesEnabled = updateSaveDeletedMessagesEnabled
         self.updateSaveEditedMessagesEnabled = updateSaveEditedMessagesEnabled
         self.updateNoLagsEnabled = updateNoLagsEnabled
@@ -868,6 +890,7 @@ private final class EahatGramArguments {
         self.updateFarmBotUsername = updateFarmBotUsername
         self.updateFarmCommand = updateFarmCommand
         self.updateFarmInterval = updateFarmInterval
+        self.updateFarmBackgroundEnabled = updateFarmBackgroundEnabled
         self.addFarmJob = addFarmJob
         self.updateFarmJobEnabled = updateFarmJobEnabled
         self.removeFarmJob = removeFarmJob
@@ -924,6 +947,7 @@ private struct EahatGramState: Equatable {
     var replyQuoteEnabled: Bool
     var ghostModeEnabled: Bool
     var fakeOnlineEnabled: Bool
+    var fakeOnlineBackgroundEnabled: Bool
     var saveDeletedMessagesEnabled: Bool
     var saveEditedMessagesEnabled: Bool
     var noLagsEnabled: Bool
@@ -935,6 +959,7 @@ private struct EahatGramState: Equatable {
     var farmBotUsernameText: String
     var farmCommandText: String
     var farmIntervalText: String
+    var farmBackgroundEnabled: Bool
     var voiceModEnabled: Bool
     var voiceModPreset: String
     var voiceModV2Enabled: Bool
@@ -965,7 +990,7 @@ private struct EahatGramState: Equatable {
     var functestDisableReloginTokensEnabled: Bool
     var responses: [String]
 
-    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, ghostModeEnabled: Bool, fakeOnlineEnabled: Bool, saveDeletedMessagesEnabled: Bool, saveEditedMessagesEnabled: Bool, noLagsEnabled: Bool, viewUnread2ReadEnabled: Bool, hasCurrentChainVisualization: Bool, experimentalSettings: ExperimentalUISettings) {
+    init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, ghostModeEnabled: Bool, fakeOnlineEnabled: Bool, fakeOnlineBackgroundEnabled: Bool, saveDeletedMessagesEnabled: Bool, saveEditedMessagesEnabled: Bool, noLagsEnabled: Bool, viewUnread2ReadEnabled: Bool, hasCurrentChainVisualization: Bool, experimentalSettings: ExperimentalUISettings) {
         self.selectedTab = .me
         self.selectedPeerId = nil
         self.selectedPeerTitle = ""
@@ -974,6 +999,7 @@ private struct EahatGramState: Equatable {
         self.replyQuoteEnabled = replyQuoteEnabled
         self.ghostModeEnabled = ghostModeEnabled
         self.fakeOnlineEnabled = fakeOnlineEnabled
+        self.fakeOnlineBackgroundEnabled = fakeOnlineBackgroundEnabled
         self.saveDeletedMessagesEnabled = saveDeletedMessagesEnabled
         self.saveEditedMessagesEnabled = saveEditedMessagesEnabled
         self.noLagsEnabled = noLagsEnabled
@@ -985,6 +1011,7 @@ private struct EahatGramState: Equatable {
         self.farmBotUsernameText = ""
         self.farmCommandText = ""
         self.farmIntervalText = "240"
+        self.farmBackgroundEnabled = experimentalSettings.farmBackgroundEnabled
         self.voiceModEnabled = EahatGramDebugSettings.voiceModEnabled.with { $0 }
         self.voiceModPreset = EahatGramDebugSettings.resolvedVoiceModPreset().title
         self.voiceModV2Enabled = EahatGramDebugSettings.voiceModV2Enabled.with { $0 }
@@ -1043,6 +1070,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case replyQuote(Bool)
     case ghostMode(Bool)
     case fakeOnline(Bool)
+    case fakeOnlineBackground(Bool)
     case saveDeletedMessages(Bool)
     case saveEditedMessages(Bool)
     case noLags(Bool)
@@ -1055,6 +1083,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case farmBotUsername(String)
     case farmCommand(String)
     case farmInterval(String)
+    case farmBackground(Bool)
     case addFarmJob
     case farmJobEnabled(Int, String, Bool)
     case farmJobInfo(Int, String)
@@ -1087,9 +1116,9 @@ private enum EahatGramEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .sendMode, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
+        case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .fakeOnlineBackground, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .sendMode, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
-        case .farmBotUsername, .farmCommand, .farmInterval, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
+        case .farmBotUsername, .farmCommand, .farmInterval, .farmBackground, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
         case .functestInfo, .functestToggle:
             return EahatGramSection.functest.rawValue
@@ -1162,6 +1191,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 7
         case .fakeOnline:
             return 8
+        case .fakeOnlineBackground:
+            return 34
         case .saveDeletedMessages:
             return 9
         case .saveEditedMessages:
@@ -1186,6 +1217,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 18
         case .farmInterval:
             return 19
+        case .farmBackground:
+            return 35
         case .addFarmJob:
             return 20
         case let .farmJobEnabled(index, _, _):
@@ -1399,6 +1432,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
+        case let .fakeOnlineBackground(lhsValue):
+            if case let .fakeOnlineBackground(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
         case let .saveDeletedMessages(lhsValue):
             if case let .saveDeletedMessages(rhsValue) = rhs {
                 return lhsValue == rhsValue
@@ -1468,6 +1507,12 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case let .farmInterval(lhsText):
             if case let .farmInterval(rhsText) = rhs {
                 return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .farmBackground(lhsValue):
+            if case let .farmBackground(rhsValue) = rhs {
+                return lhsValue == rhsValue
             } else {
                 return false
             }
@@ -1966,6 +2011,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateFakeOnlineEnabled(value)
                 }
             )
+        case let .fakeOnlineBackground(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Fake Online Background",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateFakeOnlineBackgroundEnabled(value)
+                }
+            )
         case let .saveDeletedMessages(value):
             return ItemListSwitchItem(
                 presentationData: presentationData,
@@ -2119,6 +2176,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.updateFarmInterval(value)
                 },
                 action: {}
+            )
+        case let .farmBackground(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Farm Background",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateFarmBackgroundEnabled(value)
+                }
             )
         case .addFarmJob:
             return ItemListActionItem(
@@ -2624,8 +2693,9 @@ private func eahatGramEntries(
         entries.append(.targetHud(state.targetHudEnabled))
         entries.append(.liquidGlass(state.liquidGlassEnabled))
         entries.append(.replyQuote(state.replyQuoteEnabled))
-            entries.append(.ghostMode(state.ghostModeEnabled))
-            entries.append(.fakeOnline(state.fakeOnlineEnabled))
+        entries.append(.ghostMode(state.ghostModeEnabled))
+        entries.append(.fakeOnline(state.fakeOnlineEnabled))
+        entries.append(.fakeOnlineBackground(state.fakeOnlineBackgroundEnabled))
         entries.append(.saveDeletedMessages(state.saveDeletedMessagesEnabled))
         entries.append(.saveEditedMessages(state.saveEditedMessagesEnabled))
         entries.append(.noLags(state.noLagsEnabled))
@@ -2686,6 +2756,7 @@ private func eahatGramEntries(
         entries.append(.runChainScan)
         entries.append(.chainStatus(state.chainStatusText))
     case .farm:
+        entries.append(.farmBackground(state.farmBackgroundEnabled))
         entries.append(.farmBotUsername(state.farmBotUsernameText))
         entries.append(.farmCommand(state.farmCommandText))
         entries.append(.farmInterval(state.farmIntervalText))
@@ -2728,6 +2799,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         replyQuoteEnabled: context.sharedContext.immediateExperimentalUISettings.replyQuote,
         ghostModeEnabled: context.sharedContext.immediateExperimentalUISettings.ghostMode,
         fakeOnlineEnabled: context.sharedContext.immediateExperimentalUISettings.fakeOnline,
+        fakeOnlineBackgroundEnabled: context.sharedContext.immediateExperimentalUISettings.fakeOnlineBackgroundEnabled,
         saveDeletedMessagesEnabled: context.sharedContext.immediateExperimentalUISettings.saveDeletedMessages,
         saveEditedMessagesEnabled: context.sharedContext.immediateExperimentalUISettings.saveEditedMessages,
         noLagsEnabled: context.sharedContext.immediateExperimentalUISettings.noLagsEnabled,
@@ -3121,6 +3193,19 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             }
             appendResponse("fakeOnline enabled=\(value)")
         },
+        updateFakeOnlineBackgroundEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.fakeOnlineBackgroundEnabled = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.fakeOnlineBackgroundEnabled = value
+                return current
+            }
+            appendResponse("fakeOnlineBackground enabled=\(value)")
+        },
         updateSaveDeletedMessagesEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
                 var settings = settings
@@ -3286,6 +3371,20 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 current.farmIntervalText = normalized
                 return current
             }
+        },
+        updateFarmBackgroundEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.farmBackgroundEnabled = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.farmBackgroundEnabled = value
+                return current
+            }
+            EahatGramFarmManager.shared.refreshBackgroundScheduling()
+            appendResponse("farmBackground enabled=\(value)")
         },
         addFarmJob: {
             let currentState = stateValue.with { $0 }
