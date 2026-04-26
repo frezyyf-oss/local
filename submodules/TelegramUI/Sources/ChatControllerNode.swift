@@ -4604,7 +4604,6 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
 
     private func maybeTranslateMyMessageBeforeSending(
         effectivePresentationInterfaceState: ChatPresentationInterfaceState,
-        textInputPanelNode: ChatTextInputPanelNode,
         silentPosting: Bool?,
         scheduleTime: Int32?,
         repeatPeriod: Int32?,
@@ -4676,18 +4675,6 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
             self.translateMyMessagesDisposable = nil
             self.translateMyMessagesInProgress = false
 
-            if let result {
-                let translatedText = chatInputStateStringWithAppliedEntities(result.0, entities: result.1)
-                let selectionIndex = translatedText.length
-                let translatedState = ChatTextInputState(inputText: translatedText, selectionRange: selectionIndex ..< selectionIndex)
-                textInputPanelNode.updateInputTextState(translatedState)
-                self.chatPresentationInterfaceState = self.chatPresentationInterfaceState.updatedInterfaceState {
-                    $0.withUpdatedEffectiveInputState(translatedState)
-                }
-                self.requestUpdateChatInterfaceState(.immediate, true, { interfaceState in
-                    interfaceState.withUpdatedEffectiveInputState(translatedState)
-                })
-            }
             self.skipTranslateMyMessagesOnce = true
             self.sendCurrentMessage(
                 silentPosting: silentPosting,
@@ -4695,13 +4682,20 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                 repeatPeriod: repeatPeriod,
                 postpone: postpone,
                 messageEffect: messageEffect,
+                forcedEffectiveInputText: result.flatMap { translated in
+                    if translated.0.isEmpty {
+                        return nil
+                    } else {
+                        return NSAttributedString(string: translated.0)
+                    }
+                },
                 completion: completion
             )
         })
         return true
     }
 
-    func sendCurrentMessage(silentPosting: Bool? = nil, scheduleTime: Int32? = nil, repeatPeriod: Int32? = nil, postpone: Bool = false, messageEffect: ChatSendMessageEffect? = nil, completion: @escaping () -> Void = {}) {
+    func sendCurrentMessage(silentPosting: Bool? = nil, scheduleTime: Int32? = nil, repeatPeriod: Int32? = nil, postpone: Bool = false, messageEffect: ChatSendMessageEffect? = nil, forcedEffectiveInputText: NSAttributedString? = nil, completion: @escaping () -> Void = {}) {
         guard let textInputPanelNode = self.inputPanelNode as? ChatTextInputPanelNode else {
             return
         }
@@ -4735,8 +4729,9 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
             var messages: [EnqueueMessage] = []
             
             let effectiveInputText: NSAttributedString
-            
-            if effectivePresentationInterfaceState.interfaceState.editMessage != nil && effectivePresentationInterfaceState.interfaceState.postSuggestionState != nil {
+            if let forcedEffectiveInputText {
+                effectiveInputText = forcedEffectiveInputText
+            } else if effectivePresentationInterfaceState.interfaceState.editMessage != nil && effectivePresentationInterfaceState.interfaceState.postSuggestionState != nil {
                 effectiveInputText = expandedInputStateAttributedString(effectivePresentationInterfaceState.interfaceState.effectiveInputState.inputText)
             } else {
                 effectiveInputText = expandedInputStateAttributedString(effectivePresentationInterfaceState.interfaceState.composeInputState.inputText)
@@ -4843,7 +4838,6 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
             
             if self.maybeTranslateMyMessageBeforeSending(
                 effectivePresentationInterfaceState: effectivePresentationInterfaceState,
-                textInputPanelNode: textInputPanelNode,
                 silentPosting: silentPosting,
                 scheduleTime: scheduleTime,
                 repeatPeriod: repeatPeriod,
