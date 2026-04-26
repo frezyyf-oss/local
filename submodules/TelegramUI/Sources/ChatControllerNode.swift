@@ -4602,6 +4602,60 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
         return normalizeTranslationLanguage(languageCode ?? self.eahatGramBaseTranslationLanguageCode())
     }
 
+    private func eahatGramTranslatableWordRanges(_ text: String) -> [(String, NSRange)] {
+        guard let regex = try? NSRegularExpression(pattern: "[\\p{L}\\p{M}\\p{N}]+", options: []) else {
+            return []
+        }
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        return regex.matches(in: text, options: [], range: fullRange).compactMap { match -> (String, NSRange)? in
+            guard match.range.location != NSNotFound, match.range.length > 0, match.range.upperBound <= nsText.length else {
+                return nil
+            }
+            let token = nsText.substring(with: match.range)
+            guard token.rangeOfCharacter(from: CharacterSet.letters) != nil else {
+                return nil
+            }
+            return (token, match.range)
+        }
+    }
+
+    private func eahatGramNormalizedTranslationToken(_ value: String) -> String {
+        return value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+    }
+
+    private func eahatGramFirstUntranslatedWordRange(sourceText: NSAttributedString, translatedText: String) -> NSRange? {
+        let translatedTokens = Set(self.eahatGramTranslatableWordRanges(translatedText).map { self.eahatGramNormalizedTranslationToken($0.0) })
+        for (token, range) in self.eahatGramTranslatableWordRanges(sourceText.string) {
+            let normalizedToken = self.eahatGramNormalizedTranslationToken(token)
+            if !normalizedToken.isEmpty && translatedTokens.contains(normalizedToken) {
+                return range
+            }
+        }
+        return nil
+    }
+
+    private func eahatGramFirstTranslatableWordRange(_ sourceText: NSAttributedString) -> NSRange? {
+        return self.eahatGramTranslatableWordRanges(sourceText.string).first?.1
+    }
+
+    private func eahatGramBlockTranslateMyMessage(inputText: NSAttributedString, failedRange: NSRange) {
+        guard failedRange.location != NSNotFound, failedRange.location >= 0, failedRange.length > 0, failedRange.upperBound <= inputText.length else {
+            return
+        }
+
+        let highlightedInputText = NSMutableAttributedString(attributedString: inputText)
+        highlightedInputText.removeAttribute(ChatTextInputAttributes.eahatGramTranslationFailure, range: NSRange(location: 0, length: highlightedInputText.length))
+        highlightedInputText.addAttribute(ChatTextInputAttributes.eahatGramTranslationFailure, value: true as NSNumber, range: failedRange)
+
+        let selectionRange = failedRange.location ..< failedRange.upperBound
+        self.controller?.updateChatPresentationInterfaceState(animated: true, interactive: false, { state in
+            return state.updatedInterfaceState { interfaceState in
+                return interfaceState.withUpdatedEffectiveInputState(ChatTextInputState(inputText: highlightedInputText, selectionRange: selectionRange))
+            }
+        })
+    }
+
     private func maybeTranslateMyMessageBeforeSending(
         effectivePresentationInterfaceState: ChatPresentationInterfaceState,
         silentPosting: Bool?,
@@ -4676,6 +4730,16 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
             }
             self.translateMyMessagesDisposable = nil
             self.translateMyMessagesInProgress = false
+
+            if let result, !result.0.isEmpty {
+                if let failedRange = self.eahatGramFirstUntranslatedWordRange(sourceText: effectiveInputText, translatedText: result.0) {
+                    self.eahatGramBlockTranslateMyMessage(inputText: effectiveInputText, failedRange: failedRange)
+                    return
+                }
+            } else if let failedRange = self.eahatGramFirstTranslatableWordRange(effectiveInputText) {
+                self.eahatGramBlockTranslateMyMessage(inputText: effectiveInputText, failedRange: failedRange)
+                return
+            }
 
             self.skipTranslateMyMessagesOnce = true
             self.sendCurrentMessage(

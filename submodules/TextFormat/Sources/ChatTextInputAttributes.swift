@@ -22,8 +22,9 @@ public struct ChatTextInputAttributes {
     public static let customEmoji = NSAttributedString.Key(rawValue: "Attribute__CustomEmoji")
     public static let block = NSAttributedString.Key(rawValue: "Attribute__Blockquote")
     public static let collapsedBlock = NSAttributedString.Key(rawValue: "Attribute__CollapsedBlockquote")
+    public static let eahatGramTranslationFailure = NSAttributedString.Key(rawValue: "Attribute__EahatGramTranslationFailure")
     
-    public static let allAttributes = [ChatTextInputAttributes.bold, ChatTextInputAttributes.italic, ChatTextInputAttributes.monospace, ChatTextInputAttributes.strikethrough, ChatTextInputAttributes.underline, ChatTextInputAttributes.textMention, ChatTextInputAttributes.textUrl, ChatTextInputAttributes.date, ChatTextInputAttributes.spoiler, ChatTextInputAttributes.customEmoji, ChatTextInputAttributes.block, ChatTextInputAttributes.collapsedBlock]
+    public static let allAttributes = [ChatTextInputAttributes.bold, ChatTextInputAttributes.italic, ChatTextInputAttributes.monospace, ChatTextInputAttributes.strikethrough, ChatTextInputAttributes.underline, ChatTextInputAttributes.textMention, ChatTextInputAttributes.textUrl, ChatTextInputAttributes.date, ChatTextInputAttributes.spoiler, ChatTextInputAttributes.customEmoji, ChatTextInputAttributes.block, ChatTextInputAttributes.collapsedBlock, ChatTextInputAttributes.eahatGramTranslationFailure]
 }
 
 public let originalTextAttributeKey = NSAttributedString.Key(rawValue: "Attribute__OriginalText")
@@ -269,6 +270,9 @@ public func textAttributedStringForStateText(context: AnyObject, stateText: NSAt
             } else if key == ChatTextInputAttributes.customEmoji {
                 result.addAttribute(key, value: value, range: range)
                 result.addAttribute(NSAttributedString.Key.foregroundColor, value: UIColor.clear, range: range)
+            } else if key == ChatTextInputAttributes.eahatGramTranslationFailure {
+                result.addAttribute(key, value: value, range: range)
+                result.addAttribute(NSAttributedString.Key.backgroundColor, value: UIColor(rgb: 0xff3b30, alpha: 0.25), range: range)
             } else if key == ChatTextInputAttributes.block, let value = value as? ChatTextInputTextQuoteAttribute {
                 switch value.kind {
                 case .quote:
@@ -859,6 +863,7 @@ public func refreshChatTextInputAttributes(context: AnyObject, textView: UITextV
         textView.textStorage.removeAttribute(ChatTextInputAttributes.spoiler, range: fullRange)
         textView.textStorage.removeAttribute(ChatTextInputAttributes.customEmoji, range: fullRange)
         textView.textStorage.removeAttribute(ChatTextInputAttributes.block, range: fullRange)
+        textView.textStorage.removeAttribute(ChatTextInputAttributes.eahatGramTranslationFailure, range: fullRange)
         
         textView.textStorage.addAttribute(NSAttributedString.Key.font, value: Font.regular(baseFontSize), range: fullRange)
         textView.textStorage.addAttribute(NSAttributedString.Key.foregroundColor, value: primaryTextColor, range: fullRange)
@@ -902,6 +907,9 @@ public func refreshChatTextInputAttributes(context: AnyObject, textView: UITextV
                 } else if key == ChatTextInputAttributes.customEmoji, let value = value as? ChatTextInputTextCustomEmojiAttribute {
                     textView.textStorage.addAttribute(key, value: value, range: range)
                     textView.textStorage.addAttribute(NSAttributedString.Key.foregroundColor, value: UIColor.clear, range: range)
+                } else if key == ChatTextInputAttributes.eahatGramTranslationFailure {
+                    textView.textStorage.addAttribute(key, value: value, range: range)
+                    textView.textStorage.addAttribute(NSAttributedString.Key.backgroundColor, value: UIColor(rgb: 0xff3b30, alpha: 0.25), range: range)
                 } else if key == ChatTextInputAttributes.block, let value = value as? ChatTextInputTextQuoteAttribute {
                     if !value.isCollapsed {
                         switch value.kind {
@@ -986,6 +994,7 @@ public func refreshGenericTextInputAttributes(context: AnyObject, textView: UITe
         textView.textStorage.removeAttribute(ChatTextInputAttributes.textUrl, range: fullRange)
         textView.textStorage.removeAttribute(ChatTextInputAttributes.date, range: fullRange)
         textView.textStorage.removeAttribute(ChatTextInputAttributes.spoiler, range: fullRange)
+        textView.textStorage.removeAttribute(ChatTextInputAttributes.eahatGramTranslationFailure, range: fullRange)
         
         textView.textStorage.addAttribute(NSAttributedString.Key.font, value: Font.regular(baseFontSize), range: fullRange)
         textView.textStorage.addAttribute(NSAttributedString.Key.foregroundColor, value: theme.chat.inputPanel.primaryTextColor, range: fullRange)
@@ -1023,6 +1032,9 @@ public func refreshGenericTextInputAttributes(context: AnyObject, textView: UITe
                     } else {
                         textView.textStorage.addAttribute(NSAttributedString.Key.foregroundColor, value: UIColor.clear, range: range)
                     }
+                } else if key == ChatTextInputAttributes.eahatGramTranslationFailure {
+                    textView.textStorage.addAttribute(key, value: value, range: range)
+                    textView.textStorage.addAttribute(NSAttributedString.Key.backgroundColor, value: UIColor(rgb: 0xff3b30, alpha: 0.25), range: range)
                 }
             }
                 
