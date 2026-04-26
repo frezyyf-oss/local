@@ -2067,7 +2067,6 @@ public final class ChatHistoryListNodeImpl: ListViewImpl, ChatHistoryNode, ChatH
                 }
                 
                 var audioTranscriptionProvidedByBoost = false
-                var autoTranslate = false
                 var isCopyProtectionEnabled: Bool = data.initialData?.peer?.isCopyProtectionEnabled ?? false
                 for entry in view.additionalData {
                     if case let .peer(_, maybePeer) = entry, let peer = maybePeer {
@@ -2075,7 +2074,6 @@ public final class ChatHistoryListNodeImpl: ListViewImpl, ChatHistoryNode, ChatH
                             isCopyProtectionEnabled = peer.isCopyProtectionEnabled
                         }
                         if let channel = peer as? TelegramChannel {
-                            autoTranslate = channel.flags.contains(.autoTranslateEnabled)
                             if let boostLevel = channel.approximateBoostLevel, boostLevel >= premiumConfiguration.minGroupAudioTranscriptionLevel {
                                 audioTranscriptionProvidedByBoost = true
                             }
