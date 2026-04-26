@@ -265,6 +265,9 @@ public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id,
                     } else {
                         effectiveState = cached
                     }
+                    if effectiveState.fromLang.isEmpty {
+                        return .single(nil)
+                    }
                     if !dontTranslateLanguages.contains(effectiveState.fromLang) {
                         return .single(effectiveState)
                     } else {
@@ -319,7 +322,7 @@ public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id,
                                             }
                                         }
                                         
-                                        if message.text.count < 10 {
+                                        if text.count < 10 {
                                             continue
                                         }
                                         
@@ -355,6 +358,9 @@ public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id,
                                 }
                             }
                             let fromLang = mostFrequent?.0 ?? ""
+                            if fromLang.isEmpty {
+                                return nil
+                            }
                             if loggingEnabled {
                                 Logger.shared.log("ChatTranslation", "Ended with: \(fromLang)")
                             }

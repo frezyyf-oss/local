@@ -222,7 +222,7 @@ private func _internal_translateMessagesByPeerId(account: Account, peerId: Engin
         if id.isEmpty {
             msgs = .single(nil)
         } else {
-            if enableLocalIfPossible, let engineExperimentalInternalTranslationService, let fromLang {
+            if enableLocalIfPossible, let engineExperimentalInternalTranslationService, let fromLang, !fromLang.isEmpty {
                 msgs = account.postbox.transaction { transaction -> [MessageId: String] in
                     var texts: [MessageId: String] = [:]
                     for messageId in messageIds {
