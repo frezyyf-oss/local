@@ -1523,6 +1523,30 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
+        case let .translator(lhsValue):
+            if case let .translator(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .translatorLanguage(lhsText):
+            if case let .translatorLanguage(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .translateMyMessages(lhsValue):
+            if case let .translateMyMessages(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .translateMyMessagesLanguage(lhsText):
+            if case let .translateMyMessagesLanguage(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
         case let .downFolder(lhsValue):
             if case let .downFolder(rhsValue) = rhs {
                 return lhsValue == rhsValue
