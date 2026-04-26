@@ -4667,8 +4667,10 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
             )
         }
 
+        let didReceiveTranslationResult = Atomic<Bool>(value: false)
         self.translateMyMessagesDisposable = (translationSignal
-        |> deliverOnMainQueue).startStrict(next: { [weak self] result in
+        |> deliverOnMainQueue).start(next: { [weak self] result in
+            let _ = didReceiveTranslationResult.swap(true)
             guard let self else {
                 return
             }
@@ -4689,6 +4691,21 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                         return NSAttributedString(string: translated.0)
                     }
                 },
+                completion: completion
+            )
+        }, completed: { [weak self] in
+            guard let self, !didReceiveTranslationResult.with({ $0 }) else {
+                return
+            }
+            self.translateMyMessagesDisposable = nil
+            self.translateMyMessagesInProgress = false
+            self.skipTranslateMyMessagesOnce = true
+            self.sendCurrentMessage(
+                silentPosting: silentPosting,
+                scheduleTime: scheduleTime,
+                repeatPeriod: repeatPeriod,
+                postpone: postpone,
+                messageEffect: messageEffect,
                 completion: completion
             )
         })

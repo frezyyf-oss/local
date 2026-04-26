@@ -655,6 +655,9 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                         }
 
                         let range = NSRange(location: entity.range.lowerBound, length: entity.range.upperBound - entity.range.lowerBound)
+                        guard range.location >= 0, range.length > 0, range.upperBound <= updatedString.length else {
+                            continue
+                        }
 
                         let currentDict = updatedString.attributes(at: range.lowerBound, effectiveRange: nil)
                         var updatedAttributes: [NSAttributedString.Key: Any] = currentDict
