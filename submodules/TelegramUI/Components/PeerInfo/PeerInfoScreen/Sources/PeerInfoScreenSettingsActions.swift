@@ -67,93 +67,6 @@ private func eahatGramTranslationLanguageLabel(_ strings: PresentationStrings, l
     return locale.localizedString(forLanguageCode: effectiveLanguageCode) ?? effectiveLanguageCode
 }
 
-private struct EahatGramAiAssistantMessage: Codable {
-    let role: String
-    let content: String
-}
-
-private struct EahatGramAiAssistantRequest: Encodable {
-    let model: String
-    let messages: [EahatGramAiAssistantMessage]
-}
-
-private struct EahatGramAiAssistantResponse: Decodable {
-    struct Choice: Decodable {
-        struct Message: Decodable {
-            let content: String
-        }
-
-        let message: Message
-    }
-
-    let choices: [Choice]
-}
-
-private enum EahatGramAiAssistantResult {
-    case success(String)
-    case failure(String)
-}
-
-@discardableResult
-private func eahatGramRequestAiAssistant(prompt: String, completion: @escaping (EahatGramAiAssistantResult) -> Void) -> URLSessionDataTask? {
-    guard let url = URL(string: "https://text.pollinations.ai/openai") else {
-        completion(.failure("BAD_URL"))
-        return nil
-    }
-
-    var request = URLRequest(url: url)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-    let body = EahatGramAiAssistantRequest(
-        model: "openai",
-        messages: [
-            EahatGramAiAssistantMessage(role: "system", content: "You are an AI assistant inside a Telegram chat. Reply in the user's language. Keep the answer concise."),
-            EahatGramAiAssistantMessage(role: "user", content: prompt)
-        ]
-    )
-
-    do {
-        request.httpBody = try JSONEncoder().encode(body)
-    } catch {
-        completion(.failure("ENCODE_ERROR"))
-        return nil
-    }
-
-    let task = URLSession.shared.dataTask(with: request) { data, response, error in
-        if let error = error as NSError? {
-            completion(.failure("NETWORK_ERROR code=\(error.code)"))
-            return
-        }
-        guard let httpResponse = response as? HTTPURLResponse else {
-            completion(.failure("NO_HTTP_RESPONSE"))
-            return
-        }
-        guard (200 ..< 300).contains(httpResponse.statusCode) else {
-            completion(.failure("HTTP_STATUS_\(httpResponse.statusCode)"))
-            return
-        }
-        guard let data else {
-            completion(.failure("DATA_NIL"))
-            return
-        }
-        do {
-            let decoded = try JSONDecoder().decode(EahatGramAiAssistantResponse.self, from: data)
-            let text = decoded.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if text.isEmpty {
-                completion(.failure("EMPTY_RESPONSE"))
-            } else {
-                completion(.success(text))
-            }
-        } catch {
-            completion(.failure("DECODE_ERROR"))
-        }
-    }
-    task.resume()
-    return task
-}
-
 struct EahatGramFarmJob: Codable, Equatable {
     let id: Int64
     var botUsername: String
@@ -877,9 +790,10 @@ private final class EahatGramArguments {
     let selectTranslatorLanguage: () -> Void
     let updateTranslateMyMessagesEnabled: (Bool) -> Void
     let selectTranslateMyMessagesLanguage: () -> Void
+    let updateAiAssistantEnabled: (Bool) -> Void
     let selectAiAssistantPeer: () -> Void
-    let updateAiAssistantPrompt: (String) -> Void
-    let sendAiAssistantPrompt: () -> Void
+    let updateAiAssistantTargetPeerEnabled: (Bool) -> Void
+    let updateAiAssistantTargetPeerId: (String) -> Void
     let updateDownFolderEnabled: (Bool) -> Void
     let openCustomUiTheme: () -> Void
     let updateViewUnread2ReadEnabled: (Bool) -> Void
@@ -942,9 +856,10 @@ private final class EahatGramArguments {
         selectTranslatorLanguage: @escaping () -> Void,
         updateTranslateMyMessagesEnabled: @escaping (Bool) -> Void,
         selectTranslateMyMessagesLanguage: @escaping () -> Void,
+        updateAiAssistantEnabled: @escaping (Bool) -> Void,
         selectAiAssistantPeer: @escaping () -> Void,
-        updateAiAssistantPrompt: @escaping (String) -> Void,
-        sendAiAssistantPrompt: @escaping () -> Void,
+        updateAiAssistantTargetPeerEnabled: @escaping (Bool) -> Void,
+        updateAiAssistantTargetPeerId: @escaping (String) -> Void,
         updateDownFolderEnabled: @escaping (Bool) -> Void,
         openCustomUiTheme: @escaping () -> Void,
         updateViewUnread2ReadEnabled: @escaping (Bool) -> Void,
@@ -1006,9 +921,10 @@ private final class EahatGramArguments {
         self.selectTranslatorLanguage = selectTranslatorLanguage
         self.updateTranslateMyMessagesEnabled = updateTranslateMyMessagesEnabled
         self.selectTranslateMyMessagesLanguage = selectTranslateMyMessagesLanguage
+        self.updateAiAssistantEnabled = updateAiAssistantEnabled
         self.selectAiAssistantPeer = selectAiAssistantPeer
-        self.updateAiAssistantPrompt = updateAiAssistantPrompt
-        self.sendAiAssistantPrompt = sendAiAssistantPrompt
+        self.updateAiAssistantTargetPeerEnabled = updateAiAssistantTargetPeerEnabled
+        self.updateAiAssistantTargetPeerId = updateAiAssistantTargetPeerId
         self.updateDownFolderEnabled = updateDownFolderEnabled
         self.openCustomUiTheme = openCustomUiTheme
         self.updateViewUnread2ReadEnabled = updateViewUnread2ReadEnabled
@@ -1085,11 +1001,12 @@ private struct EahatGramState: Equatable {
     var translatorLanguageCode: String?
     var translateMyMessagesEnabled: Bool
     var translateMyMessagesLanguageCode: String?
+    var aiAssistantEnabled: Bool
     var aiAssistantPeerId: EnginePeer.Id?
     var aiAssistantPeerTitle: String
-    var aiAssistantPromptText: String
+    var aiAssistantTargetPeerEnabled: Bool
+    var aiAssistantTargetPeerIdText: String
     var aiAssistantStatusText: String
-    var aiAssistantInProgress: Bool
     var downFolderEnabled: Bool
     var viewUnread2ReadEnabled: Bool
     var farmBotUsernameText: String
@@ -1146,11 +1063,20 @@ private struct EahatGramState: Equatable {
         self.translatorLanguageCode = experimentalSettings.eahatGramTranslatorLanguage
         self.translateMyMessagesEnabled = experimentalSettings.eahatGramTranslateMyMessagesEnabled
         self.translateMyMessagesLanguageCode = experimentalSettings.eahatGramTranslateMyMessagesLanguage
-        self.aiAssistantPeerId = nil
-        self.aiAssistantPeerTitle = ""
-        self.aiAssistantPromptText = ""
-        self.aiAssistantStatusText = "No AI request sent"
-        self.aiAssistantInProgress = false
+        self.aiAssistantEnabled = experimentalSettings.eahatGramAiAssistantEnabled
+        if let aiAssistantChatPeerId = experimentalSettings.eahatGramAiAssistantChatPeerId {
+            let peerId = EnginePeer.Id(aiAssistantChatPeerId)
+            self.aiAssistantPeerId = peerId
+            self.aiAssistantPeerTitle = "peerId=\(peerId.toInt64())"
+        } else {
+            self.aiAssistantPeerId = nil
+            self.aiAssistantPeerTitle = ""
+        }
+        self.aiAssistantTargetPeerEnabled = experimentalSettings.eahatGramAiAssistantTargetPeerEnabled
+        self.aiAssistantTargetPeerIdText = experimentalSettings.eahatGramAiAssistantTargetPeerId.flatMap { value in
+            return value > 0 ? "\(value)" : nil
+        } ?? ""
+        self.aiAssistantStatusText = experimentalSettings.eahatGramAiAssistantEnabled ? "Auto replies enabled" : "Auto replies disabled"
         self.downFolderEnabled = experimentalSettings.foldersTabAtBottom
         self.viewUnread2ReadEnabled = viewUnread2ReadEnabled
         self.farmBotUsernameText = ""
@@ -1226,9 +1152,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case translatorLanguage(String)
     case translateMyMessages(Bool)
     case translateMyMessagesLanguage(String)
+    case aiAssistantEnabled(Bool)
     case aiAssistantPeer(String)
-    case aiAssistantPrompt(String)
-    case aiAssistantSend(Bool)
+    case aiAssistantTargetPeer(Bool)
+    case aiAssistantTargetPeerId(String)
     case aiAssistantStatus(String)
     case downFolder(Bool)
     case customUiTheme
@@ -1271,7 +1198,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
         switch self {
         case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .fakeOnlineBackground, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .sendMode, .translator, .translatorLanguage, .translateMyMessages, .translateMyMessagesLanguage, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
-        case .aiAssistantPeer, .aiAssistantPrompt, .aiAssistantSend, .aiAssistantStatus:
+        case .aiAssistantEnabled, .aiAssistantPeer, .aiAssistantTargetPeer, .aiAssistantTargetPeerId, .aiAssistantStatus:
             return EahatGramSection.ai.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .farmBackground, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
@@ -1368,14 +1295,16 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 38
         case .translateMyMessagesLanguage:
             return 39
-        case .aiAssistantPeer:
+        case .aiAssistantEnabled:
             return 8000000
-        case .aiAssistantPrompt:
+        case .aiAssistantPeer:
             return 8000001
-        case .aiAssistantSend:
+        case .aiAssistantTargetPeer:
             return 8000002
-        case .aiAssistantStatus:
+        case .aiAssistantTargetPeerId:
             return 8000003
+        case .aiAssistantStatus:
+            return 8000004
         case .downFolder:
             return 29
         case .customUiTheme:
@@ -1669,21 +1598,27 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
+        case let .aiAssistantEnabled(lhsValue):
+            if case let .aiAssistantEnabled(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
         case let .aiAssistantPeer(lhsText):
             if case let .aiAssistantPeer(rhsText) = rhs {
                 return lhsText == rhsText
             } else {
                 return false
             }
-        case let .aiAssistantPrompt(lhsText):
-            if case let .aiAssistantPrompt(rhsText) = rhs {
-                return lhsText == rhsText
+        case let .aiAssistantTargetPeer(lhsValue):
+            if case let .aiAssistantTargetPeer(rhsValue) = rhs {
+                return lhsValue == rhsValue
             } else {
                 return false
             }
-        case let .aiAssistantSend(lhsValue):
-            if case let .aiAssistantSend(rhsValue) = rhs {
-                return lhsValue == rhsValue
+        case let .aiAssistantTargetPeerId(lhsText):
+            if case let .aiAssistantTargetPeerId(rhsText) = rhs {
+                return lhsText == rhsText
             } else {
                 return false
             }
@@ -2362,6 +2297,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.selectTranslateMyMessagesLanguage()
                 }
             )
+        case let .aiAssistantEnabled(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "AI Auto Reply",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateAiAssistantEnabled(value)
+                }
+            )
         case let .aiAssistantPeer(text):
             return ItemListDisclosureItem(
                 presentationData: presentationData,
@@ -2374,33 +2321,32 @@ private enum EahatGramEntry: ItemListNodeEntry {
                     arguments.selectAiAssistantPeer()
                 }
             )
-        case let .aiAssistantPrompt(text):
+        case let .aiAssistantTargetPeer(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Target Peer",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateAiAssistantTargetPeerEnabled(value)
+                }
+            )
+        case let .aiAssistantTargetPeerId(text):
             return ItemListSingleLineInputItem(
                 context: arguments.context,
                 presentationData: presentationData,
                 systemStyle: .glass,
-                title: eahatGramInputTitle(presentationData, "AI Prompt"),
+                title: eahatGramInputTitle(presentationData, "Target Peer ID"),
                 text: text,
-                placeholder: "Message for AI",
-                type: .regular(capitalization: true, autocorrection: true),
+                placeholder: "User peer id",
+                type: .number,
                 sectionId: self.section,
                 textUpdated: { value in
-                    arguments.updateAiAssistantPrompt(value)
+                    arguments.updateAiAssistantTargetPeerId(value)
                 },
                 action: {}
-            )
-        case let .aiAssistantSend(isRunning):
-            return ItemListActionItem(
-                presentationData: presentationData,
-                systemStyle: .glass,
-                title: isRunning ? "AI Sending..." : "Send AI Message",
-                kind: .generic,
-                alignment: .natural,
-                sectionId: self.section,
-                style: .blocks,
-                action: {
-                    arguments.sendAiAssistantPrompt()
-                }
             )
         case let .aiAssistantStatus(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
@@ -3070,9 +3016,12 @@ private func eahatGramEntries(
         entries.append(.runChainScan)
         entries.append(.chainStatus(state.chainStatusText))
     case .ai:
+        entries.append(.aiAssistantEnabled(state.aiAssistantEnabled))
         entries.append(.aiAssistantPeer(state.aiAssistantPeerTitle.isEmpty ? "Not selected" : state.aiAssistantPeerTitle))
-        entries.append(.aiAssistantPrompt(state.aiAssistantPromptText))
-        entries.append(.aiAssistantSend(state.aiAssistantInProgress))
+        entries.append(.aiAssistantTargetPeer(state.aiAssistantTargetPeerEnabled))
+        if state.aiAssistantTargetPeerEnabled {
+            entries.append(.aiAssistantTargetPeerId(state.aiAssistantTargetPeerIdText))
+        }
         entries.append(.aiAssistantStatus(state.aiAssistantStatusText))
     case .farm:
         entries.append(.farmBackground(state.farmBackgroundEnabled))
@@ -3704,9 +3653,28 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             pushControllerImpl?(controller)
             appendResponse("translateMyMessagesLanguage selector opened")
         },
+        updateAiAssistantEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.eahatGramAiAssistantEnabled = value
+                return settings
+            }).start()
+            updateState { current in
+                var current = current
+                current.aiAssistantEnabled = value
+                current.aiAssistantStatusText = value ? "Auto replies enabled" : "Auto replies disabled"
+                return current
+            }
+            appendResponse("aiAssistant enabled=\(value)")
+        },
         selectAiAssistantPeer: {
             let controller = context.sharedContext.makePeerSelectionController(PeerSelectionControllerParams(context: context, filter: [.onlyWriteable, .excludeDisabled]))
             controller.peerSelected = { peer, _ in
+                let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                    var settings = settings
+                    settings.eahatGramAiAssistantChatPeerId = peer.id.toInt64()
+                    return settings
+                }).start()
                 updateState { current in
                     var current = current
                     current.aiAssistantPeerId = peer.id
@@ -3719,84 +3687,37 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             }
             pushControllerImpl?(controller)
         },
-        updateAiAssistantPrompt: { value in
+        updateAiAssistantTargetPeerEnabled: { value in
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.eahatGramAiAssistantTargetPeerEnabled = value
+                return settings
+            }).start()
             updateState { current in
                 var current = current
-                current.aiAssistantPromptText = value
+                current.aiAssistantTargetPeerEnabled = value
+                current.aiAssistantStatusText = "Target peer enabled=\(value)"
                 return current
             }
+            appendResponse("aiAssistant targetPeer enabled=\(value)")
         },
-        sendAiAssistantPrompt: {
-            let currentState = stateValue.with { $0 }
-            guard let peerId = currentState.aiAssistantPeerId else {
-                appendResponse("aiAssistant failed reason=TARGET_PEER_NOT_SELECTED")
-                return
+        updateAiAssistantTargetPeerId: { value in
+            let normalized = eahatGramNormalizedNumericText(value, maxLength: 18)
+            let parsedPeerId = Int64(normalized).flatMap { value -> Int64? in
+                return value > 0 ? value : nil
             }
-            let prompt = currentState.aiAssistantPromptText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !prompt.isEmpty else {
-                appendResponse("aiAssistant failed reason=PROMPT_EMPTY")
-                return
-            }
-            guard !currentState.aiAssistantInProgress else {
-                appendResponse("aiAssistant failed reason=REQUEST_IN_PROGRESS")
-                return
-            }
-
-            let promptLength = (prompt as NSString).length
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.eahatGramAiAssistantTargetPeerId = parsedPeerId
+                return settings
+            }).start()
             updateState { current in
                 var current = current
-                current.aiAssistantInProgress = true
-                current.aiAssistantStatusText = "AI request started chars=\(promptLength)"
+                current.aiAssistantTargetPeerIdText = normalized
+                current.aiAssistantStatusText = parsedPeerId.map { "Target peerId=\($0)" } ?? "Target peerId=nil"
                 return current
             }
-            appendResponse("aiAssistant request started peerId=\(peerId.toInt64()) chars=\(promptLength)")
-
-            eahatGramRequestAiAssistant(prompt: prompt) { result in
-                Queue.mainQueue().async {
-                    switch result {
-                    case let .success(text):
-                        let responseLength = (text as NSString).length
-                        updateState { current in
-                            var current = current
-                            current.aiAssistantInProgress = false
-                            current.aiAssistantStatusText = "AI response received chars=\(responseLength)"
-                            return current
-                        }
-                        appendResponse("aiAssistant response received chars=\(responseLength)")
-
-                        let message: EnqueueMessage = .message(
-                            text: text,
-                            attributes: [],
-                            inlineStickers: [:],
-                            mediaReference: nil,
-                            threadId: nil,
-                            replyToMessageId: nil,
-                            replyToStoryId: nil,
-                            localGroupingKey: nil,
-                            correlationId: nil,
-                            bubbleUpEmojiOrStickersets: []
-                        )
-                        let _ = (enqueueMessages(account: context.account, peerId: peerId, messages: [message])
-                        |> deliverOnMainQueue).start(next: { messageIds in
-                            if let messageId = messageIds.compactMap({ $0 }).first {
-                                appendResponse("aiAssistant enqueued messageId=\(messageId.id) namespace=\(messageId.namespace) peerId=\(messageId.peerId.toInt64())")
-                            } else {
-                                appendResponse("aiAssistant enqueued but all messageIds are nil")
-                            }
-                        }, completed: {
-                            appendResponse("aiAssistant enqueue signal completed")
-                        })
-                    case let .failure(reason):
-                        updateState { current in
-                            var current = current
-                            current.aiAssistantInProgress = false
-                            current.aiAssistantStatusText = "AI request failed reason=\(reason)"
-                            return current
-                        }
-                        appendResponse("aiAssistant failed reason=\(reason)")
-                    }
-                }
-            }
+            appendResponse(parsedPeerId.map { "aiAssistant targetPeerId=\($0)" } ?? "aiAssistant targetPeerId=nil")
         },
         updateDownFolderEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
