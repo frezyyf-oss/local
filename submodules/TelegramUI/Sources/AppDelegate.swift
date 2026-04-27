@@ -1993,6 +1993,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
              |> deliverOnMainQueue).start(next: { activeAccounts in
                 if farmHasEnabledJobs, let farmContext = activeAccounts.primary ?? activeAccounts.accounts.first?.1 {
                     EahatGramFarmManager.shared.updatePrimaryContext(farmContext)
+                    EahatGramAiAutoReplyManager.shared.updatePrimaryContext(farmContext)
                     EahatGramFarmManager.shared.processDueJobsNow(context: farmContext)
                 }
                 for (_, context, _) in activeAccounts.accounts {
@@ -2130,6 +2131,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                     return
                 }
                 EahatGramFarmManager.shared.updatePrimaryContext(context)
+                EahatGramAiAutoReplyManager.shared.updatePrimaryContext(context)
                 EahatGramFarmManager.shared.processDueJobsNow(context: context, completion: {
                     completeTask(true)
                 })

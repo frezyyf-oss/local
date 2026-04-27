@@ -51,6 +51,256 @@ private func eahatGramPeerIdFromText(_ value: String) -> EnginePeer.Id? {
     return EnginePeer.Id(namespace: Namespaces.Peer.CloudUser, id: EnginePeer.Id.Id._internalFromInt64Value(parsed))
 }
 
+private struct EahatGramAutoReplyMessage: Codable {
+    let role: String
+    let content: String
+}
+
+private struct EahatGramAutoReplyRequest: Encodable {
+    let model: String
+    let messages: [EahatGramAutoReplyMessage]
+}
+
+private struct EahatGramAutoReplyResponse: Decodable {
+    struct Choice: Decodable {
+        struct Message: Decodable {
+            let content: String
+        }
+
+        let message: Message
+    }
+
+    let choices: [Choice]
+}
+
+private enum EahatGramAutoReplyResult {
+    case success(String)
+    case failure
+}
+
+private func eahatGramAutoReplyMessageKey(_ messageId: MessageId) -> String {
+    return "\(messageId.peerId.toInt64()):\(messageId.namespace):\(messageId.id)"
+}
+
+@discardableResult
+private func eahatGramRequestAutoReply(incomingText: String, completion: @escaping (EahatGramAutoReplyResult) -> Void) -> URLSessionDataTask? {
+    guard let url = URL(string: "https://text.pollinations.ai/openai") else {
+        completion(.failure)
+        return nil
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+    let body = EahatGramAutoReplyRequest(
+        model: "openai",
+        messages: [
+            EahatGramAutoReplyMessage(role: "system", content: "You are replying as the account owner in a Telegram chat. Reply to the incoming message in the same language. Keep the answer concise."),
+            EahatGramAutoReplyMessage(role: "user", content: incomingText)
+        ]
+    )
+
+    do {
+        request.httpBody = try JSONEncoder().encode(body)
+    } catch {
+        completion(.failure)
+        return nil
+    }
+
+    let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        if error != nil {
+            completion(.failure)
+            return
+        }
+        guard let httpResponse = response as? HTTPURLResponse, (200 ..< 300).contains(httpResponse.statusCode), let data else {
+            completion(.failure)
+            return
+        }
+        do {
+            let decoded = try JSONDecoder().decode(EahatGramAutoReplyResponse.self, from: data)
+            let text = decoded.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if text.isEmpty {
+                completion(.failure)
+            } else {
+                completion(.success(text))
+            }
+        } catch {
+            completion(.failure)
+        }
+    }
+    task.resume()
+    return task
+}
+
+public final class EahatGramAiAutoReplyManager {
+    public static let shared = EahatGramAiAutoReplyManager()
+
+    private let queue = Queue.mainQueue()
+    private let historyDisposable = MetaDisposable()
+    private weak var primaryContext: AccountContext?
+    private var observedPeerId: EnginePeer.Id?
+    private var observedAccountPeerId: EnginePeer.Id?
+    private var latestObservedIndex: MessageIndex?
+    private var hasLoadedInitialHistory = false
+    private var handledMessageIds = Set<String>()
+
+    private init() {
+    }
+
+    public func updatePrimaryContext(_ context: AccountContext?) {
+        self.queue.async {
+            self.primaryContext = context
+            self.refreshSubscription()
+        }
+    }
+
+    public func refresh() {
+        self.queue.async {
+            self.refreshSubscription()
+        }
+    }
+
+    private func clearSubscription() {
+        self.historyDisposable.set(nil)
+        self.observedPeerId = nil
+        self.observedAccountPeerId = nil
+        self.latestObservedIndex = nil
+        self.hasLoadedInitialHistory = false
+    }
+
+    private func refreshSubscription() {
+        guard let context = self.primaryContext else {
+            self.clearSubscription()
+            return
+        }
+
+        let settings = context.sharedContext.immediateExperimentalUISettings
+        guard settings.eahatGramAiAssistantEnabled, let configuredPeerId = settings.eahatGramAiAssistantChatPeerId else {
+            self.clearSubscription()
+            return
+        }
+
+        let peerId = EnginePeer.Id(configuredPeerId)
+        if self.observedPeerId == peerId, self.observedAccountPeerId == context.account.peerId {
+            return
+        }
+
+        self.observedPeerId = peerId
+        self.observedAccountPeerId = context.account.peerId
+        self.latestObservedIndex = nil
+        self.hasLoadedInitialHistory = false
+        self.historyDisposable.set((context.account.viewTracker.aroundMessageHistoryViewForLocation(.peer(peerId: peerId, threadId: nil), index: .upperBound, anchorIndex: .upperBound, count: 20, fixedCombinedReadStates: nil)
+        |> deliverOnMainQueue).start(next: { [weak self, weak context] view, _, _ in
+            guard let self, let context else {
+                return
+            }
+            self.processHistoryView(view, peerId: peerId, context: context)
+        }))
+    }
+
+    private func processHistoryView(_ view: MessageHistoryView, peerId: EnginePeer.Id, context: AccountContext) {
+        let settings = context.sharedContext.immediateExperimentalUISettings
+        guard settings.eahatGramAiAssistantEnabled, settings.eahatGramAiAssistantChatPeerId == peerId.toInt64() else {
+            self.clearSubscription()
+            return
+        }
+
+        var maxIndex: MessageIndex?
+        for entry in view.entries {
+            guard entry.message.id.namespace == Namespaces.Message.Cloud else {
+                continue
+            }
+            if let currentMaxIndex = maxIndex {
+                if currentMaxIndex < entry.message.index {
+                    maxIndex = entry.message.index
+                }
+            } else {
+                maxIndex = entry.message.index
+            }
+        }
+
+        let previousMaxIndex = self.latestObservedIndex
+        if !self.hasLoadedInitialHistory {
+            self.hasLoadedInitialHistory = true
+            self.latestObservedIndex = maxIndex
+            return
+        }
+        self.latestObservedIndex = maxIndex
+
+        let targetPeerId: Int64?
+        if settings.eahatGramAiAssistantTargetPeerEnabled {
+            guard let configuredTargetPeerId = settings.eahatGramAiAssistantTargetPeerId else {
+                return
+            }
+            targetPeerId = configuredTargetPeerId
+        } else {
+            targetPeerId = nil
+        }
+
+        for entry in view.entries {
+            let message = entry.message
+            guard message.id.namespace == Namespaces.Message.Cloud else {
+                continue
+            }
+            if let previousMaxIndex {
+                guard previousMaxIndex < message.index else {
+                    continue
+                }
+            }
+            guard message.effectivelyIncoming(context.account.peerId) else {
+                continue
+            }
+            if let targetPeerId = targetPeerId {
+                guard let authorPeerId = message.author?.id.toInt64(), authorPeerId == targetPeerId else {
+                    continue
+                }
+            }
+            let incomingText = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !incomingText.isEmpty else {
+                continue
+            }
+
+            let messageKey = eahatGramAutoReplyMessageKey(message.id)
+            guard !self.handledMessageIds.contains(messageKey) else {
+                continue
+            }
+            self.handledMessageIds.insert(messageKey)
+
+            let replySubject = EngineMessageReplySubject(messageId: message.id, quote: nil, innerSubject: nil)
+            eahatGramRequestAutoReply(incomingText: incomingText) { [weak context] result in
+                Queue.mainQueue().async {
+                    guard let context else {
+                        return
+                    }
+                    guard case let .success(text) = result else {
+                        return
+                    }
+                    let currentSettings = context.sharedContext.immediateExperimentalUISettings
+                    guard currentSettings.eahatGramAiAssistantEnabled, currentSettings.eahatGramAiAssistantChatPeerId == peerId.toInt64() else {
+                        return
+                    }
+                    let replyMessage: EnqueueMessage = .message(
+                        text: text,
+                        attributes: [],
+                        inlineStickers: [:],
+                        mediaReference: nil,
+                        threadId: message.threadId,
+                        replyToMessageId: replySubject,
+                        replyToStoryId: nil,
+                        localGroupingKey: nil,
+                        correlationId: nil,
+                        bubbleUpEmojiOrStickersets: []
+                    )
+                    let _ = (enqueueMessages(account: context.account, peerId: peerId, messages: [replyMessage])
+                    |> deliverOnMainQueue).start()
+                }
+            }
+        }
+    }
+}
+
 private func eahatGramBaseTranslationLanguageCode(_ strings: PresentationStrings) -> String {
     var languageCode = strings.baseLanguageCode
     let rawSuffix = "-raw"
@@ -3080,6 +3330,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
     let giftsPromise = ValuePromise([ProfileGiftsContext.State.StarGift](), ignoreRepeated: true)
     let currentGifts = Atomic(value: [ProfileGiftsContext.State.StarGift]())
     EahatGramFarmManager.shared.updatePrimaryContext(context)
+    EahatGramAiAutoReplyManager.shared.updatePrimaryContext(context)
     let currentFarmJobs = Atomic(value: EahatGramFarmManager.shared.jobsSnapshot())
     let probeDisposable = MetaDisposable()
     let chainBuildDisposable = MetaDisposable()
@@ -3658,7 +3909,9 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 var settings = settings
                 settings.eahatGramAiAssistantEnabled = value
                 return settings
-            }).start()
+            }).start(completed: {
+                EahatGramAiAutoReplyManager.shared.updatePrimaryContext(context)
+            })
             updateState { current in
                 var current = current
                 current.aiAssistantEnabled = value
@@ -3674,7 +3927,9 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                     var settings = settings
                     settings.eahatGramAiAssistantChatPeerId = peer.id.toInt64()
                     return settings
-                }).start()
+                }).start(completed: {
+                    EahatGramAiAutoReplyManager.shared.updatePrimaryContext(context)
+                })
                 updateState { current in
                     var current = current
                     current.aiAssistantPeerId = peer.id
@@ -3692,7 +3947,9 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 var settings = settings
                 settings.eahatGramAiAssistantTargetPeerEnabled = value
                 return settings
-            }).start()
+            }).start(completed: {
+                EahatGramAiAutoReplyManager.shared.refresh()
+            })
             updateState { current in
                 var current = current
                 current.aiAssistantTargetPeerEnabled = value
@@ -3710,7 +3967,9 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 var settings = settings
                 settings.eahatGramAiAssistantTargetPeerId = parsedPeerId
                 return settings
-            }).start()
+            }).start(completed: {
+                EahatGramAiAutoReplyManager.shared.refresh()
+            })
             updateState { current in
                 var current = current
                 current.aiAssistantTargetPeerIdText = normalized
