@@ -59,6 +59,8 @@ private struct EahatGramAutoReplyMessage: Codable {
 private struct EahatGramAutoReplyRequest: Encodable {
     let model: String
     let messages: [EahatGramAutoReplyMessage]
+    let temperature: Double
+    let max_tokens: Int
 }
 
 private struct EahatGramAutoReplyResponse: Decodable {
@@ -83,7 +85,7 @@ private func eahatGramAutoReplyMessageKey(_ messageId: MessageId) -> String {
 }
 
 @discardableResult
-private func eahatGramRequestAutoReply(incomingText: String, completion: @escaping (EahatGramAutoReplyResult) -> Void) -> URLSessionDataTask? {
+private func eahatGramRequestAutoReply(messages: [EahatGramAutoReplyMessage], completion: @escaping (EahatGramAutoReplyResult) -> Void) -> URLSessionDataTask? {
     guard let url = URL(string: "https://text.pollinations.ai/openai") else {
         completion(.failure)
         return nil
@@ -95,11 +97,10 @@ private func eahatGramRequestAutoReply(incomingText: String, completion: @escapi
     request.setValue("application/json", forHTTPHeaderField: "Accept")
 
     let body = EahatGramAutoReplyRequest(
-        model: "openai",
-        messages: [
-            EahatGramAutoReplyMessage(role: "system", content: "You are replying as the account owner in a Telegram chat. Reply to the incoming message in the same language. Keep the answer concise."),
-            EahatGramAutoReplyMessage(role: "user", content: incomingText)
-        ]
+        model: "openai-fast",
+        messages: messages,
+        temperature: 0.35,
+        max_tokens: 120
     )
 
     do {
@@ -132,6 +133,54 @@ private func eahatGramRequestAutoReply(incomingText: String, completion: @escapi
     }
     task.resume()
     return task
+}
+
+private func eahatGramAutoReplyMessages(view: MessageHistoryView, replyMessage: Message, accountPeerId: EnginePeer.Id) -> [EahatGramAutoReplyMessage] {
+    var result: [EahatGramAutoReplyMessage] = [
+        EahatGramAutoReplyMessage(role: "system", content: "You are writing the next Telegram reply as the account owner. Use the recent chat messages as context and answer only the last [other] message. Output only the reply text. Do not say that you are an AI. Do not start with a greeting unless the last incoming message is a greeting. Do not use generic canned greetings unless that is exactly the needed reply. Match the language, slang, capitalization, and tone of the last incoming message. Keep the answer natural, specific, and short. If the context does not contain the needed fact, ask one short clarifying question instead of inventing details. Do not repeat earlier [me] messages.")
+    ]
+
+    var contextMessages: [Message] = []
+    for entry in view.entries {
+        let message = entry.message
+        guard message.id.namespace == Namespaces.Message.Cloud else {
+            continue
+        }
+        guard message.index <= replyMessage.index else {
+            continue
+        }
+        let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            continue
+        }
+        contextMessages.append(message)
+    }
+
+    contextMessages.sort(by: { $0.index < $1.index })
+    if contextMessages.count > 14 {
+        contextMessages = Array(contextMessages.suffix(14))
+    }
+
+    var transcriptLines: [String] = []
+    for message in contextMessages {
+        let isIncoming = message.effectivelyIncoming(accountPeerId)
+        let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let marker: String
+        if isIncoming, let author = message.author {
+            marker = "other \(author.compactDisplayTitle)"
+        } else if isIncoming {
+            marker = "other"
+        } else {
+            marker = "me"
+        }
+        transcriptLines.append("[\(marker)] \(text)")
+    }
+
+    if !transcriptLines.isEmpty {
+        result.append(EahatGramAutoReplyMessage(role: "user", content: "Recent Telegram chat transcript:\n\(transcriptLines.joined(separator: "\n"))\n\nWrite my next reply to the last [other] message."))
+    }
+
+    return result
 }
 
 public final class EahatGramAiAutoReplyManager {
@@ -269,7 +318,8 @@ public final class EahatGramAiAutoReplyManager {
             self.handledMessageIds.insert(messageKey)
 
             let replySubject = EngineMessageReplySubject(messageId: message.id, quote: nil, innerSubject: nil)
-            eahatGramRequestAutoReply(incomingText: incomingText) { [weak context] result in
+            let requestMessages = eahatGramAutoReplyMessages(view: view, replyMessage: message, accountPeerId: context.account.peerId)
+            eahatGramRequestAutoReply(messages: requestMessages) { [weak context] result in
                 Queue.mainQueue().async {
                     guard let context else {
                         return
