@@ -167,7 +167,7 @@ private func eahatGramAutoReplyMessages(view: MessageHistoryView, replyMessage: 
         let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let marker: String
         if isIncoming, let author = message.author {
-            marker = "other \(author.compactDisplayTitle)"
+            marker = "other \(EnginePeer(author).compactDisplayTitle)"
         } else if isIncoming {
             marker = "other"
         } else {
