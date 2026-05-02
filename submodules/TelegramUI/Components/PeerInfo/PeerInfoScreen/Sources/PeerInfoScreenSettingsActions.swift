@@ -1691,11 +1691,6 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case .scamInfo, .scamChatLink, .scamAddChatLink, .scamSearchWord, .scamAddSearchWord, .scamMustIncludeEnabled, .scamMustIncludeWord, .scamAddMustIncludeWord, .scamMessageText, .scamMessageTextAfterConsent, .scamAddFileEnabled, .scamApiKey, .scamApkName, .scamApkPackage, .scamSelectAvatar, .scamStartStop, .scamStatus:
             return EahatGramSection.scam.rawValue
         }
-        case .noResponses, .response:
-            return EahatGramSection.responses.rawValue
-        case .otherMethod, .otherMethodInfo:
-            return EahatGramSection.other.rawValue
-        }
     }
 
     var stableId: Int {
