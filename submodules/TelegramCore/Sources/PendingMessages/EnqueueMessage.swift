@@ -427,7 +427,31 @@ private let eahatGramStandaloneWordReplacements: [(String, String)] = [
     ("мнй", "мой")
 ]
 
-private let eahatGramStandaloneWordReplacementMap: [String: String] = Dictionary(uniqueKeysWithValues: eahatGramStandaloneWordReplacements.map { ($0.0.lowercased(), $0.1) })
+private struct EahatGramCustomStandaloneWordReplacement: Codable {
+    let source: String
+    let target: String
+}
+
+private let eahatGramCustomStandaloneWordReplacementsKey = "eahatGram.customWordReplacements"
+private let eahatGramBuiltInStandaloneWordReplacementMap: [String: String] = Dictionary(uniqueKeysWithValues: eahatGramStandaloneWordReplacements.map { ($0.0.lowercased(), $0.1) })
+
+private func eahatGramCustomStandaloneWordReplacementMap() -> [String: String] {
+    guard let data = UserDefaults.standard.data(forKey: eahatGramCustomStandaloneWordReplacementsKey) else {
+        return [:]
+    }
+    guard let rules = try? JSONDecoder().decode([EahatGramCustomStandaloneWordReplacement].self, from: data) else {
+        return [:]
+    }
+    var result: [String: String] = [:]
+    for rule in rules {
+        let source = rule.source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = rule.target.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty && !target.isEmpty {
+            result[source.lowercased()] = target
+        }
+    }
+    return result
+}
 
 private func eahatGramAdjustedStandaloneWordReplacement(target: String, matchedText: String) -> String {
     if matchedText.uppercased() == matchedText {
@@ -451,6 +475,13 @@ private func eahatGramAdjustedStandaloneWordReplacement(target: String, matchedT
 
 private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String {
     var result = text
+    var replacementMap = eahatGramBuiltInStandaloneWordReplacementMap
+    for (source, target) in eahatGramCustomStandaloneWordReplacementMap() {
+        replacementMap[source] = target
+    }
+    guard !replacementMap.isEmpty else {
+        return result
+    }
     guard let regex = try? NSRegularExpression(pattern: "[\\p{L}\\p{N}_]+", options: []) else {
         return result
     }
@@ -463,7 +494,7 @@ private func eahatGramApplyStandaloneWordReplacements(_ text: String) -> String 
     let updatedResult = NSMutableString(string: result)
     for match in matches.reversed() {
         let matchedWord = nsResult.substring(with: match.range)
-        guard let replacementTarget = eahatGramStandaloneWordReplacementMap[matchedWord.lowercased()] else {
+        guard let replacementTarget = replacementMap[matchedWord.lowercased()] else {
             continue
         }
         let replacement = eahatGramAdjustedStandaloneWordReplacement(target: replacementTarget, matchedText: matchedWord)

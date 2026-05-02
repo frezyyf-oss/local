@@ -553,7 +553,26 @@ public extension Message {
     var textEntitiesAttribute: TextEntitiesMessageAttribute? {
         for attribute in self.attributes {
             if let attribute = attribute as? TextEntitiesMessageAttribute {
-                return attribute
+                let textLength = (self.text as NSString).length
+                var didSanitize = false
+                let sanitizedEntities = attribute.entities.compactMap { entity -> MessageTextEntity? in
+                    let lowerBound = max(0, min(entity.range.lowerBound, textLength))
+                    let upperBound = max(lowerBound, min(entity.range.upperBound, textLength))
+                    guard lowerBound < upperBound else {
+                        didSanitize = true
+                        return nil
+                    }
+                    if lowerBound != entity.range.lowerBound || upperBound != entity.range.upperBound {
+                        didSanitize = true
+                        return MessageTextEntity(range: lowerBound ..< upperBound, type: entity.type)
+                    }
+                    return entity
+                }
+                if didSanitize {
+                    return TextEntitiesMessageAttribute(entities: sanitizedEntities)
+                } else {
+                    return attribute
+                }
             }
         }
         return nil

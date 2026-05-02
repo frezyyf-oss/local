@@ -245,7 +245,12 @@ final class EahatGramDebugSettings {
         let normalizedPriceText = eahatGramNormalizedNftPriceText(priceText)
         let updatedRecords = self.nftUsernameTags.modify { current in
             var current = current
-            current.append(NftUsernameTagRecord(username: normalizedUsername, priceText: normalizedPriceText, purchaseDate: purchaseDate))
+            let normalizedCollectibleUsername = eahatGramNormalizedCollectibleUsername(normalizedUsername)
+            let existingRecord = current.first(where: { eahatGramNormalizedCollectibleUsername($0.username) == normalizedCollectibleUsername })
+            let resolvedPriceText = normalizedPriceText.isEmpty ? (existingRecord?.priceText ?? "") : normalizedPriceText
+            let resolvedPurchaseDate = purchaseDate ?? existingRecord?.purchaseDate
+            current.removeAll(where: { eahatGramNormalizedCollectibleUsername($0.username) == normalizedCollectibleUsername })
+            current.append(NftUsernameTagRecord(username: normalizedUsername, priceText: resolvedPriceText, purchaseDate: resolvedPurchaseDate))
             self.persistNftUsernameTags(current)
             return current
         }
@@ -435,8 +440,42 @@ func eahatGramNormalizedUsernameTag(_ value: String) -> String {
     }
 }
 
+private func eahatGramNormalizedWhitespace(_ value: String) -> String {
+    return value.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+}
+
 func eahatGramNormalizedNftPriceText(_ value: String) -> String {
-    return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    var text = eahatGramNormalizedWhitespace(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    guard !text.isEmpty else {
+        return ""
+    }
+    if text.hasPrefix("$") {
+        return text
+    }
+    let lowered = text.lowercased()
+    for suffix in [" usd", " dollars", " dollar"] {
+        if lowered.hasSuffix(suffix) {
+            text = String(text.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            break
+        }
+    }
+    text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if text.range(of: "^[0-9]+([\\.,][0-9]{1,2})?$", options: .regularExpression) != nil {
+        return "$\(text)"
+    }
+    if lowered.contains("usd") {
+        return "$\(text.replacingOccurrences(of: "USD", with: "").replacingOccurrences(of: "usd", with: "").trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+    return text
+}
+
+private func eahatGramFormattedVisualNftTag(_ record: EahatGramVisualCollectibleUsername) -> String {
+    let priceText = eahatGramNormalizedNftPriceText(record.priceText)
+    if priceText.isEmpty {
+        return "@\(record.username)"
+    } else {
+        return "@\(record.username) (\(priceText))"
+    }
 }
 
 func eahatGramDisplayedVisualCollectibleUsernames(mainUsername: String?, additionalActiveUsernames: [String], isMyProfile: Bool) -> [EahatGramVisualCollectibleUsername] {
@@ -577,7 +616,7 @@ func eahatGramDisplayedUsername(mainUsername: String?, additionalActiveUsernames
     let visualCollectibleUsernames = eahatGramDisplayedVisualCollectibleUsernames(mainUsername: mainUsername, additionalActiveUsernames: additionalActiveUsernames, isMyProfile: isMyProfile)
     if let visualCollectibleUsername = visualCollectibleUsernames.first {
         if let mainUsernameValue {
-            let visualAdditionalText = visualCollectibleUsernames.map { "@\($0.username)" }.joined(separator: ", ")
+            let visualAdditionalText = visualCollectibleUsernames.map(eahatGramFormattedVisualNftTag).joined(separator: ", ")
             return EahatGramDisplayedUsername(text: "@\(mainUsernameValue)", additionalText: visualAdditionalText, openValue: mainUsernameValue)
             #if false
             let additionalText: String
@@ -589,7 +628,8 @@ func eahatGramDisplayedUsername(mainUsername: String?, additionalActiveUsernames
             return EahatGramDisplayedUsername(text: "@\(mainUsernameValue)", additionalText: additionalText, openValue: mainUsernameValue)
             #endif
         } else {
-            return EahatGramDisplayedUsername(text: "@\(visualCollectibleUsername.username)", additionalText: nil, openValue: nil)
+            let priceText = eahatGramNormalizedNftPriceText(visualCollectibleUsername.priceText)
+            return EahatGramDisplayedUsername(text: "@\(visualCollectibleUsername.username)", additionalText: priceText.isEmpty ? nil : "(\(priceText))", openValue: nil)
         }
     }
     if let mainUsernameValue {

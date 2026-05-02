@@ -4686,7 +4686,11 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
         }
         let (_, detectedLanguage) = canTranslateText(context: self.context, text: trimmedInputText, showTranslate: true, ignoredLanguages: nil)
         let targetLanguage = self.eahatGramResolvedTranslationLanguage(experimentalSettings.eahatGramTranslateMyMessagesLanguage)
-        if let detectedLanguage, normalizeTranslationLanguage(detectedLanguage) == targetLanguage {
+        let normalizedDetectedLanguage = detectedLanguage.flatMap { languageCode -> String? in
+            let normalized = normalizeTranslationLanguage(languageCode)
+            return normalized.isEmpty ? nil : normalized
+        }
+        if let normalizedDetectedLanguage, normalizedDetectedLanguage == targetLanguage {
             return false
         }
 
@@ -4694,11 +4698,11 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
         self.translateMyMessagesDisposable?.dispose()
 
         let translationSignal: Signal<(String, [MessageTextEntity])?, NoError>
-        if #available(iOS 18.0, *), let detectedLanguage, let engineExperimentalInternalTranslationService {
+        if #available(iOS 18.0, *), let normalizedDetectedLanguage, let engineExperimentalInternalTranslationService {
             let key = AnyHashable(0)
             translationSignal = engineExperimentalInternalTranslationService.translate(
                 texts: [key: effectiveInputText.string],
-                fromLang: normalizeTranslationLanguage(detectedLanguage),
+                fromLang: normalizedDetectedLanguage,
                 toLang: targetLanguage
             )
             |> map { result in

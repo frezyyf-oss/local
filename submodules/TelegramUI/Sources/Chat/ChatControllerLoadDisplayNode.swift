@@ -852,15 +852,6 @@ extension ChatControllerImpl {
 
         self.reloadCachedData()
 
-        if self.context.sharedContext.immediateExperimentalUISettings.crashOnLongQueries {
-            let _ = (self.ready.get()
-            |> filter({ $0 })
-            |> take(1)
-            |> timeout(0.8, queue: .concurrentDefaultQueue(), alternate: Signal { _ in
-                preconditionFailure()
-            })).startStandalone()
-        }
-
         self.setupChatHistoryNode(historyNode: self.chatDisplayNode.historyNode)
 
         self.chatDisplayNode.requestLayout = { [weak self] transition in

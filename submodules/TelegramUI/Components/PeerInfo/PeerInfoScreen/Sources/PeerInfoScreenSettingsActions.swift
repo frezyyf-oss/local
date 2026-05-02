@@ -1,5 +1,6 @@
 ﻿import Foundation
 import UIKit
+import Photos
 import Display
 import AccountContext
 import SwiftSignalKit
@@ -3427,7 +3428,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 title: eahatGramInputTitle(presentationData, "Chat Link \(index + 1)"),
                 text: text,
                 placeholder: "t.me/chatname or @chatname",
-                type: .regular,
+                type: .regular(capitalization: false, autocorrection: false),
                 sectionId: self.section,
                 textUpdated: { value in
                     arguments.updateScamChatLink(index, value)
@@ -3455,7 +3456,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 title: eahatGramInputTitle(presentationData, "Search Word \(index + 1)"),
                 text: text,
                 placeholder: "word to search",
-                type: .regular,
+                type: .regular(capitalization: false, autocorrection: false),
                 sectionId: self.section,
                 textUpdated: { value in
                     arguments.updateScamSearchWord(index, value)
@@ -3495,7 +3496,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 title: eahatGramInputTitle(presentationData, "Must Include \(index + 1)"),
                 text: text,
                 placeholder: "required word",
-                type: .regular,
+                type: .regular(capitalization: false, autocorrection: false),
                 sectionId: self.section,
                 textUpdated: { value in
                     arguments.updateScamMustIncludeWord(index, value)
@@ -3518,46 +3519,30 @@ private enum EahatGramEntry: ItemListNodeEntry {
         case let .scamMessageText(text):
             return ItemListMultilineInputItem(
                 presentationData: presentationData,
+                systemStyle: .glass,
                 text: text,
                 placeholder: "Initial message text",
-                maxLength: ItemListMultilineInputItemTextLimit(value: 1000, display: true, mode: .hard),
+                maxLength: ItemListMultilineInputItemTextLimit(value: 1000, display: true),
                 sectionId: self.section,
                 style: .blocks,
                 textUpdated: { value in
                     arguments.updateScamMessageText(value)
                 },
-                shouldUpdateText: { _ in return true },
-                processPaste: nil,
-                updatedFocus: nil,
-                tag: nil,
-                action: {},
-                inlineAction: nil,
-                textColor: .primary,
-                enablesReturnKeyAutomatically: false,
-                returnKeyType: .default,
-                lockedForEditing: false
+                action: {}
             )
         case let .scamMessageTextAfterConsent(text):
             return ItemListMultilineInputItem(
                 presentationData: presentationData,
+                systemStyle: .glass,
                 text: text,
                 placeholder: "Message after consent",
-                maxLength: ItemListMultilineInputItemTextLimit(value: 1000, display: true, mode: .hard),
+                maxLength: ItemListMultilineInputItemTextLimit(value: 1000, display: true),
                 sectionId: self.section,
                 style: .blocks,
                 textUpdated: { value in
                     arguments.updateScamMessageTextAfterConsent(value)
                 },
-                shouldUpdateText: { _ in return true },
-                processPaste: nil,
-                updatedFocus: nil,
-                tag: nil,
-                action: {},
-                inlineAction: nil,
-                textColor: .primary,
-                enablesReturnKeyAutomatically: false,
-                returnKeyType: .default,
-                lockedForEditing: false
+                action: {}
             )
         case let .scamAddFileEnabled(value):
             return ItemListSwitchItem(
@@ -3579,7 +3564,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 title: eahatGramInputTitle(presentationData, "API Key"),
                 text: text,
                 placeholder: "panel api key",
-                type: .regular,
+                type: .regular(capitalization: false, autocorrection: false),
                 sectionId: self.section,
                 textUpdated: { value in
                     arguments.updateScamApiKey(value)
@@ -3594,7 +3579,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 title: eahatGramInputTitle(presentationData, "APK Name"),
                 text: text,
                 placeholder: "app name",
-                type: .regular,
+                type: .regular(capitalization: false, autocorrection: false),
                 sectionId: self.section,
                 textUpdated: { value in
                     arguments.updateScamApkName(value)
@@ -3609,7 +3594,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 title: eahatGramInputTitle(presentationData, "Package Name"),
                 text: text,
                 placeholder: "fdsgkjdsgsjkndfm.cn",
-                type: .regular,
+                type: .regular(capitalization: false, autocorrection: false),
                 sectionId: self.section,
                 textUpdated: { value in
                     arguments.updateScamApkPackage(value)
@@ -5174,45 +5159,46 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             }
         },
         selectScamAvatar: {
+            let completeWithImage: (UIImage) -> Void = { image in
+                guard let data = image.jpegData(compressionQuality: 0.8) else {
+                    return
+                }
+                updateState { current in
+                    var current = current
+                    current.scamApkAvatarData = data
+                    return current
+                }
+                appendResponse("Avatar selected, size: \(data.count) bytes")
+            }
+
             let controller = context.sharedContext.makeMediaPickerScreen(
                 context: context,
-                peer: nil,
-                threadTitle: nil,
-                chatLocation: nil,
-                bannedSendPhotos: nil,
-                bannedSendVideos: nil,
-                subject: .assets(nil),
-                saveEditedPhotos: false,
-                selectStickers: false,
-                present: { c, a in
-                    presentControllerImpl?(c)
-                },
-                initialLayout: nil,
-                editingContext: nil
-            )
-            controller.completion = { result, _ in
-                if case let .assets(assets) = result, let asset = assets.first {
-                    let options = PHImageRequestOptions()
-                    options.deliveryMode = .highQualityFormat
-                    options.isSynchronous = false
+                hasSearch: false,
+                completion: { result in
+                    if let asset = result as? PHAsset {
+                        let options = PHImageRequestOptions()
+                        options.deliveryMode = .highQualityFormat
+                        options.isSynchronous = false
+                        options.isNetworkAccessAllowed = true
 
-                    PHImageManager.default().requestImage(
-                        for: asset.asset,
-                        targetSize: CGSize(width: 512, height: 512),
-                        contentMode: .aspectFill,
-                        options: options
-                    ) { image, _ in
-                        if let image = image, let data = image.jpegData(compressionQuality: 0.8) {
-                            updateState { current in
-                                var current = current
-                                current.scamApkAvatarData = data
-                                return current
+                        PHImageManager.default().requestImage(
+                            for: asset,
+                            targetSize: CGSize(width: 512, height: 512),
+                            contentMode: .aspectFill,
+                            options: options
+                        ) { image, _ in
+                            guard let image = image else {
+                                return
                             }
-                            appendResponse("Avatar selected, size: \(data.count) bytes")
+                            DispatchQueue.main.async {
+                                completeWithImage(image)
+                            }
                         }
+                    } else if let image = result as? UIImage {
+                        completeWithImage(image)
                     }
                 }
-            }
+            )
             presentControllerImpl?(controller)
         },
         toggleScamFlow: {
@@ -5257,14 +5243,14 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
         }
     )
 
-    let signal = combineLatest(
+    let signal: Signal<(ItemListControllerState, (ItemListNodeState, EahatGramArguments)), NoError> = combineLatest(
         context.sharedContext.presentationData,
         statePromise.get(),
         giftsPromise.get(),
         EahatGramFarmManager.shared.jobsSignal()
     )
     |> deliverOnMainQueue
-    |> map { presentationData, state, gifts, farmJobs -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    |> map { presentationData, state, gifts, farmJobs -> (ItemListControllerState, (ItemListNodeState, EahatGramArguments)) in
         let noGiftsText = "No gifts loaded"
         _ = currentFarmJobs.swap(farmJobs)
 

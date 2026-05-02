@@ -431,7 +431,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
 
                     for attribute in item.message.attributes {
                         if let attribute = attribute as? TextEntitiesMessageAttribute {
-                            messageEntities = attribute.entities
+                            messageEntities = item.message.textEntitiesAttribute?.entities ?? attribute.entities
                         } else if mediaDuration == nil, let attribute = attribute as? ReplyMessageAttribute {
                             if let replyMessage = item.message.associatedMessages[attribute.messageId] {
                                 for media in replyMessage.media {
@@ -475,6 +475,21 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                                 }
                             }
                         }
+                    }
+                }
+
+                if let entities = messageEntities {
+                    let textLength = (rawText as NSString).length
+                    messageEntities = entities.compactMap { entity -> MessageTextEntity? in
+                        let lowerBound = max(0, min(entity.range.lowerBound, textLength))
+                        let upperBound = max(lowerBound, min(entity.range.upperBound, textLength))
+                        guard lowerBound < upperBound else {
+                            return nil
+                        }
+                        if lowerBound != entity.range.lowerBound || upperBound != entity.range.upperBound {
+                            return MessageTextEntity(range: lowerBound ..< upperBound, type: entity.type)
+                        }
+                        return entity
                     }
                 }
 

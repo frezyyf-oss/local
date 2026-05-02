@@ -149,6 +149,23 @@ private struct EahatGramAddGiftState: Equatable {
     var statusText: String
 }
 
+private func eahatGramParsedUsdCents(_ value: String) -> Int64? {
+    var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else {
+        return nil
+    }
+    text = text.replacingOccurrences(of: "$", with: "")
+    text = text.replacingOccurrences(of: "USD", with: "")
+    text = text.replacingOccurrences(of: "usd", with: "")
+    text = text.replacingOccurrences(of: " ", with: "")
+    text = text.replacingOccurrences(of: ",", with: ".")
+    guard let parsed = Double(text), parsed > 0.0 else {
+        return nil
+    }
+    let cents = Int64((parsed * 100.0).rounded())
+    return cents > 0 ? cents : nil
+}
+
 private enum EahatGramAddGiftEntry: ItemListNodeEntry {
     case baseGift(String)
     case model(String)
@@ -1010,10 +1027,10 @@ extension EahatGramAddGiftEntry {
                 context: arguments.context,
                 presentationData: presentationData,
                 systemStyle: .glass,
-                title: NSAttributedString(string: "Custom Price", textColor: titleColor),
+                title: NSAttributedString(string: "Custom Price $", textColor: titleColor),
                 text: text,
-                placeholder: "25",
-                type: .number,
+                placeholder: "25 USD",
+                type: .regular(capitalization: false, autocorrection: false),
                 sectionId: self.section,
                 textUpdated: { value in
                     arguments.updateCustomPrice(value)
@@ -1463,6 +1480,7 @@ func eahatGramAddGiftToProfileScreen(
         let customTitle = eahatGramResolvedComment(state.draft.customTitleText)
         let title = customTitle ?? baseGift.title ?? "Gift \(baseGift.id)"
         let customPrice = Int64(state.draft.customPriceText).flatMap { $0 > 0 ? $0 : nil }
+        let customUsdAmount = eahatGramParsedUsdCents(state.draft.customPriceText)
         let commentText = state.draft.advancedEnabled ? eahatGramResolvedComment(state.draft.commentText) : nil
         let fromPeer = state.draft.advancedEnabled ? eahatGramResolvedFromPeer(state.draft.fromTagText) : nil
 
@@ -1481,9 +1499,11 @@ func eahatGramAddGiftToProfileScreen(
         }
 
         let resellAmounts = realUniqueGift?.resellAmounts ?? customPrice.map { [CurrencyAmount(amount: StarsAmount(value: $0, nanos: 0), currency: .stars)] }
-        let valueAmount = realUniqueGift?.valueAmount ?? valueInfo?.value
-        let valueCurrency = realUniqueGift?.valueCurrency ?? valueInfo?.currency
-        let valueUsdAmount = realUniqueGift?.valueUsdAmount
+        let valueInfoCurrency = valueInfo?.currency
+        let valueInfoUsdAmount = (valueInfoCurrency?.uppercased() == "USD") ? valueInfo?.value : nil
+        let valueAmount = realUniqueGift?.valueAmount ?? valueInfo?.value ?? customUsdAmount
+        let valueCurrency = realUniqueGift?.valueCurrency ?? valueInfoCurrency ?? (customUsdAmount != nil ? "USD" : nil)
+        let valueUsdAmount = realUniqueGift?.valueUsdAmount ?? valueInfoUsdAmount ?? customUsdAmount
         let giftAddress = realUniqueGift?.giftAddress
         let resellForTonOnly = realUniqueGift?.resellForTonOnly ?? false
         let releasedBy = realUniqueGift?.releasedBy ?? baseGift.releasedBy
@@ -1589,7 +1609,7 @@ func eahatGramAddGiftToProfileScreen(
         let fallbackRemoteSignal: Signal<(TelegramCore.StarGift.UniqueGift?, TelegramCore.StarGift.UniqueGift.ValueInfo?), NoError> = .single((nil, nil))
 
         return combineLatest(uniqueGiftSignal, valueInfoSignal)
-        |> timeout(1.5, queue: Queue.mainQueue(), alternate: fallbackRemoteSignal)
+        |> timeout(4.0, queue: Queue.mainQueue(), alternate: fallbackRemoteSignal)
         |> map { realUniqueGift, valueInfo in
             return makeInsertedGift(
                 baseGift: baseGift,
