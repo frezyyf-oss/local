@@ -470,12 +470,7 @@ func eahatGramNormalizedNftPriceText(_ value: String) -> String {
 }
 
 private func eahatGramFormattedVisualNftTag(_ record: EahatGramVisualCollectibleUsername) -> String {
-    let priceText = eahatGramNormalizedNftPriceText(record.priceText)
-    if priceText.isEmpty {
-        return "@\(record.username)"
-    } else {
-        return "@\(record.username) (\(priceText))"
-    }
+    return "@\(record.username)"
 }
 
 func eahatGramDisplayedVisualCollectibleUsernames(mainUsername: String?, additionalActiveUsernames: [String], isMyProfile: Bool) -> [EahatGramVisualCollectibleUsername] {
@@ -628,8 +623,7 @@ func eahatGramDisplayedUsername(mainUsername: String?, additionalActiveUsernames
             return EahatGramDisplayedUsername(text: "@\(mainUsernameValue)", additionalText: additionalText, openValue: mainUsernameValue)
             #endif
         } else {
-            let priceText = eahatGramNormalizedNftPriceText(visualCollectibleUsername.priceText)
-            return EahatGramDisplayedUsername(text: "@\(visualCollectibleUsername.username)", additionalText: priceText.isEmpty ? nil : "(\(priceText))", openValue: nil)
+            return EahatGramDisplayedUsername(text: "@\(visualCollectibleUsername.username)", additionalText: nil, openValue: nil)
         }
     }
     if let mainUsernameValue {

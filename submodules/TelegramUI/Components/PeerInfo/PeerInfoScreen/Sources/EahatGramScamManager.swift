@@ -85,9 +85,15 @@ public final class EahatGramScamManager {
         // Step 1: Search users in chats
         searchUsersInChats { [weak self] users in
             guard let self = self else { return }
-            self.matchedUsers = Dictionary(uniqueKeysWithValues: users.map { ($0.userId, $0) })
+            var deduplicatedUsers: [Int64: MatchedUser] = [:]
+            for user in users {
+                if deduplicatedUsers[user.userId] == nil {
+                    deduplicatedUsers[user.userId] = user
+                }
+            }
+            self.matchedUsers = deduplicatedUsers
             
-            print("[EahatGram Scam] Found \(users.count) matched users")
+            print("[EahatGram Scam] Found \(self.matchedUsers.count) matched users")
             
             // Step 2: Send initial messages
             self.sendInitialMessages()

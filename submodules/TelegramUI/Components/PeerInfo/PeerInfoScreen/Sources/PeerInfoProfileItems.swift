@@ -38,10 +38,7 @@ private func eahatGramParsedVisualCollectibleTonAmount(_ value: String) -> Int64
     return NSDecimalNumber(decimal: nanosDecimal).int64Value
 }
 
-private func eahatGramVisualCollectibleInitialData(context: AccountContext, user: TelegramUser, mainUsername: String?, additionalActiveUsernames: [String], isMyProfile: Bool) -> CollectibleItemInfoScreenInitialData? {
-    guard let visualCollectible = eahatGramDisplayedVisualCollectibleUsername(mainUsername: mainUsername, additionalActiveUsernames: additionalActiveUsernames, isMyProfile: isMyProfile) else {
-        return nil
-    }
+private func eahatGramVisualCollectibleInitialData(context: AccountContext, user: TelegramUser, visualCollectible: EahatGramVisualCollectibleUsername) -> CollectibleItemInfoScreenInitialData {
     let purchaseDate = visualCollectible.purchaseDate ?? Int32(Date().timeIntervalSince1970)
     let cryptoCurrencyAmount = eahatGramParsedVisualCollectibleTonAmount(visualCollectible.priceText) ?? 0
     let tonUsdRate = StarsSubscriptionConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 }).tonUsdRate
@@ -56,6 +53,13 @@ private func eahatGramVisualCollectibleInitialData(context: AccountContext, user
         url: "https://fragment.com/username/\(visualCollectible.username)"
     )
     return context.sharedContext.makeCollectibleItemInfoScreenVisualInitialData(peer: EnginePeer(user), subject: .username(visualCollectible.username), info: info)
+}
+
+private func eahatGramVisualCollectibleInitialData(context: AccountContext, user: TelegramUser, mainUsername: String?, additionalActiveUsernames: [String], isMyProfile: Bool) -> CollectibleItemInfoScreenInitialData? {
+    guard let visualCollectible = eahatGramDisplayedVisualCollectibleUsername(mainUsername: mainUsername, additionalActiveUsernames: additionalActiveUsernames, isMyProfile: isMyProfile) else {
+        return nil
+    }
+    return eahatGramVisualCollectibleInitialData(context: context, user: user, visualCollectible: visualCollectible)
 }
 
 enum InfoSection: Int, CaseIterable {
@@ -197,7 +201,7 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
         }
         let displayedUsername = eahatGramDisplayedUsername(mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: isMyProfile)
         let visualCollectibleInitialData = eahatGramVisualCollectibleInitialData(context: context, user: user, mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: isMyProfile)
-        let visualCollectibleUsername = eahatGramDisplayedVisualCollectibleUsername(mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: isMyProfile)
+        let visualCollectibleUsernames = eahatGramDisplayedVisualCollectibleUsernames(mainUsername: user.addressName, additionalActiveUsernames: activeAdditionalUsernames, isMyProfile: isMyProfile)
         if let usernameText = displayedUsername.text {
             var additionalUsernames: String?
             if !activeAdditionalUsernames.isEmpty {
@@ -231,9 +235,9 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
                         if case .tap = type {
                             if case let .mention(username) = item {
                                 let mentionValue = String(username[username.index(username.startIndex, offsetBy: 1)...])
-                                if let visualCollectibleInitialData, let visualCollectibleUsername, eahatGramNormalizedCollectibleUsername(mentionValue) == eahatGramNormalizedCollectibleUsername(visualCollectibleUsername.username), let controller = interaction.getController() {
+                                if let visualCollectibleUsername = visualCollectibleUsernames.first(where: { eahatGramNormalizedCollectibleUsername($0.username) == eahatGramNormalizedCollectibleUsername(mentionValue) }), let controller = interaction.getController() {
                                     controller.view.endEditing(true)
-                                    controller.push(context.sharedContext.makeCollectibleItemInfoScreen(context: context, initialData: visualCollectibleInitialData))
+                                    controller.push(context.sharedContext.makeCollectibleItemInfoScreen(context: context, initialData: eahatGramVisualCollectibleInitialData(context: context, user: user, visualCollectible: visualCollectibleUsername)))
                                 } else {
                                     interaction.openUsername(mentionValue, false, progress)
                                 }
