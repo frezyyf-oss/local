@@ -191,6 +191,7 @@ public final class EahatGramScamManager {
             state: nil,
             limit: 100
         )
+        |> take(1)
         |> deliverOnMainQueue).start(next: { [weak self] result, _ in
             guard let self = self else {
                 completion([])

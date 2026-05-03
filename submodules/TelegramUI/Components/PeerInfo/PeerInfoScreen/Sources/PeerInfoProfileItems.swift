@@ -25,6 +25,19 @@ private func eahatGramNormalizedCollectibleUsername(_ username: String) -> Strin
     return username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 }
 
+private func eahatGramMentionUsernameValue(_ mention: String) -> String? {
+    let trimmedMention = mention.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedMention.isEmpty else {
+        return nil
+    }
+    if trimmedMention.hasPrefix("@") {
+        let usernameValue = String(trimmedMention.dropFirst())
+        return usernameValue.isEmpty ? nil : usernameValue
+    } else {
+        return trimmedMention
+    }
+}
+
 private func eahatGramParsedVisualCollectibleTonAmount(_ value: String) -> Int64? {
     let filtered = value.filter { $0.isNumber || $0 == "." || $0 == "," }
     guard !filtered.isEmpty else {
@@ -233,8 +246,7 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
                         }
                     }, linkItemAction: { type, item, _, _, progress in
                         if case .tap = type {
-                            if case let .mention(username) = item {
-                                let mentionValue = String(username[username.index(username.startIndex, offsetBy: 1)...])
+                            if case let .mention(username) = item, let mentionValue = eahatGramMentionUsernameValue(username) {
                                 if let visualCollectibleUsername = visualCollectibleUsernames.first(where: { eahatGramNormalizedCollectibleUsername($0.username) == eahatGramNormalizedCollectibleUsername(mentionValue) }), let controller = interaction.getController() {
                                     controller.view.endEditing(true)
                                     controller.push(context.sharedContext.makeCollectibleItemInfoScreen(context: context, initialData: eahatGramVisualCollectibleInitialData(context: context, user: user, visualCollectible: visualCollectibleUsername)))
@@ -660,8 +672,8 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
                         interaction.openPeerInfoContextMenu(.link(customLink: linkText), sourceNode, nil)
                     }, linkItemAction: { type, item, _, _, progress in
                         if case .tap = type {
-                            if case let .mention(username) = item {
-                                interaction.openUsername(String(username.suffix(from: username.index(username.startIndex, offsetBy: 1))), false, progress)
+                            if case let .mention(username) = item, let usernameValue = eahatGramMentionUsernameValue(username) {
+                                interaction.openUsername(usernameValue, false, progress)
                             }
                         }
                     }, iconAction: {
@@ -725,8 +737,8 @@ func infoItems(data: PeerInfoScreenData?, context: AccountContext, presentationD
                             interaction.openPeerInfoContextMenu(.link(customLink: nil), sourceNode, nil)
                         }, linkItemAction: { type, item, sourceNode, sourceRect, progress in
                             if case .tap = type {
-                                if case let .mention(username) = item {
-                                    interaction.openUsername(String(username.suffix(from: username.index(username.startIndex, offsetBy: 1))), false, progress)
+                                if case let .mention(username) = item, let usernameValue = eahatGramMentionUsernameValue(username) {
+                                    interaction.openUsername(usernameValue, false, progress)
                                 }
                             } else if case .longTap = type {
                                 if case let .mention(username) = item {
