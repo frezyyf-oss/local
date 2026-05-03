@@ -5206,12 +5206,21 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                 strongSelf.liquidGlassView = liquidGlassView
                 strongSelf.mainContextSourceNode.contentNode.view.insertSubview(liquidGlassView, belowSubview: strongSelf.clippingNode.view)
             }
+            let bubbleFillColor: UIColor
+            if let currentBackgroundColor = strongSelf.backgroundNode.backgroundColor {
+                bubbleFillColor = currentBackgroundColor
+            } else {
+                let bubbleColors = incoming
+                    ? (item.presentationData.theme.wallpaper.hasWallpaper ? item.presentationData.theme.theme.chat.message.incoming.bubble.withWallpaper.fill : item.presentationData.theme.theme.chat.message.incoming.bubble.withoutWallpaper.fill)
+                    : (item.presentationData.theme.wallpaper.hasWallpaper ? item.presentationData.theme.theme.chat.message.outgoing.bubble.withWallpaper.fill : item.presentationData.theme.theme.chat.message.outgoing.bubble.withoutWallpaper.fill)
+                bubbleFillColor = bubbleColors.first ?? UIColor.white
+            }
             liquidGlassView.frame = backgroundFrame
             liquidGlassView.update(
                 size: backgroundFrame.size,
                 cornerRadius: min(18.0, floor(min(backgroundFrame.width, backgroundFrame.height) * 0.2)),
                 isDark: item.presentationData.theme.theme.overallDarkAppearance,
-                tintColor: .init(kind: .clear),
+                tintColor: .init(kind: .custom(style: .default, color: bubbleFillColor)),
                 transition: ComponentTransition(legacyTransition)
             )
             strongSelf.backgroundWallpaperNode.alpha = 0.0

@@ -5159,7 +5159,13 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         }
                         let liquidGlassFrame = CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: CGSize(width: layout.contentSize.width, height: itemHeight))
                         componentTransition.setFrame(view: liquidGlassView, frame: liquidGlassFrame)
-                        liquidGlassView.update(size: liquidGlassFrame.size, cornerRadius: 0.0, isDark: item.presentationData.theme.overallDarkAppearance, tintColor: .init(kind: .clear), transition: componentTransition)
+                        liquidGlassView.update(
+                            size: liquidGlassFrame.size,
+                            cornerRadius: 0.0,
+                            isDark: item.presentationData.theme.overallDarkAppearance,
+                            tintColor: .init(kind: .custom(style: .default, color: backgroundColor)),
+                            transition: componentTransition
+                        )
                     } else if let liquidGlassView = strongSelf.liquidGlassView {
                         strongSelf.liquidGlassView = nil
                         liquidGlassView.removeFromSuperview()
