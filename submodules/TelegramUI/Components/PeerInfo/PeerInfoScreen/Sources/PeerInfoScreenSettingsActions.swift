@@ -108,6 +108,7 @@ private struct EahatGramAutoReplyRequest: Encodable {
     let messages: [EahatGramAutoReplyMessage]
     let temperature: Double
     let max_tokens: Int
+    let stream: Bool
 }
 
 private struct EahatGramAutoReplyResponse: Decodable {
@@ -131,6 +132,66 @@ private func eahatGramAutoReplyMessageKey(_ messageId: MessageId) -> String {
     return "\(messageId.peerId.toInt64()):\(messageId.namespace):\(messageId.id)"
 }
 
+private let eahatGramAutoReplyURLSession: URLSession = {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = 5.5
+    configuration.timeoutIntervalForResource = 7.0
+    configuration.waitsForConnectivity = false
+    configuration.httpMaximumConnectionsPerHost = 2
+    configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+    return URLSession(configuration: configuration)
+}()
+
+private func eahatGramAutoReplyContextText(_ value: String, maxLength: Int = 280) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.count > maxLength else {
+        return trimmed
+    }
+    return String(trimmed.prefix(maxLength))
+}
+
+private func eahatGramSanitizedAutoReplyText(_ value: String) -> String? {
+    var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    while text.hasPrefix("\"") || text.hasPrefix("'") || text.hasPrefix("`") {
+        text.removeFirst()
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    while text.hasSuffix("\"") || text.hasSuffix("'") || text.hasSuffix("`") {
+        text.removeLast()
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    let prefixes = [
+        "[me]", "me:", "assistant:", "reply:", "answer:", "bot:", "ai:", "telegram reply:"
+    ]
+    var removedPrefix = true
+    while removedPrefix {
+        removedPrefix = false
+        let lowercased = text.lowercased()
+        for prefix in prefixes {
+            if lowercased.hasPrefix(prefix) {
+                text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                removedPrefix = true
+                break
+            }
+        }
+    }
+
+    let lines = text
+        .split(whereSeparator: { $0.isNewline })
+        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { line in
+            let lowercased = line.lowercased()
+            return !line.isEmpty && !lowercased.hasPrefix("[other]") && !lowercased.hasPrefix("other:")
+        }
+    text = lines.joined(separator: "\n")
+
+    if text.count > 420 {
+        text = String(text.prefix(420)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return text.isEmpty ? nil : text
+}
+
 @discardableResult
 private func eahatGramRequestAutoReply(messages: [EahatGramAutoReplyMessage], completion: @escaping (EahatGramAutoReplyResult) -> Void) -> URLSessionDataTask? {
     guard let url = URL(string: "https://text.pollinations.ai/openai") else {
@@ -147,8 +208,9 @@ private func eahatGramRequestAutoReply(messages: [EahatGramAutoReplyMessage], co
     let body = EahatGramAutoReplyRequest(
         model: "openai-fast",
         messages: messages,
-        temperature: 0.35,
-        max_tokens: 80
+        temperature: 0.25,
+        max_tokens: 64,
+        stream: false
     )
 
     do {
@@ -158,7 +220,7 @@ private func eahatGramRequestAutoReply(messages: [EahatGramAutoReplyMessage], co
         return nil
     }
 
-    let task = URLSession.shared.dataTask(with: request) { data, response, error in
+    let task = eahatGramAutoReplyURLSession.dataTask(with: request) { data, response, error in
         if error != nil {
             completion(.failure)
             return
@@ -169,12 +231,11 @@ private func eahatGramRequestAutoReply(messages: [EahatGramAutoReplyMessage], co
         }
         do {
             let decoded = try JSONDecoder().decode(EahatGramAutoReplyResponse.self, from: data)
-            let text = decoded.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if text.isEmpty {
+            guard let text = eahatGramSanitizedAutoReplyText(decoded.choices.first?.message.content ?? "") else {
                 completion(.failure)
-            } else {
-                completion(.success(text))
+                return
             }
+            completion(.success(text))
         } catch {
             completion(.failure)
         }
@@ -185,7 +246,7 @@ private func eahatGramRequestAutoReply(messages: [EahatGramAutoReplyMessage], co
 
 private func eahatGramAutoReplyMessages(view: MessageHistoryView, replyMessage: Message, accountPeerId: EnginePeer.Id) -> [EahatGramAutoReplyMessage] {
     var result: [EahatGramAutoReplyMessage] = [
-        EahatGramAutoReplyMessage(role: "system", content: "You are writing the next Telegram reply as the account owner. Use the recent chat messages as context and answer only the last [other] message. Output only the reply text. Do not say that you are an AI. Do not start with a greeting unless the last incoming message is a greeting. Do not use generic canned greetings unless that is exactly the needed reply. Match the language, slang, capitalization, and tone of the last incoming message. Keep the answer natural, specific, and short. If the context does not contain the needed fact, ask one short clarifying question instead of inventing details. Do not repeat earlier [me] messages.")
+        EahatGramAutoReplyMessage(role: "system", content: "Write only my next Telegram reply. Answer the latest [other] message using the transcript. Same language and tone, short and specific. No prefixes, quotes, markdown, greetings unless needed, or AI disclaimers. If unsure, ask one short clarifying question.")
     ]
 
     var contextMessages: [Message] = []
@@ -205,14 +266,14 @@ private func eahatGramAutoReplyMessages(view: MessageHistoryView, replyMessage: 
     }
 
     contextMessages.sort(by: { $0.index < $1.index })
-    if contextMessages.count > 8 {
-        contextMessages = Array(contextMessages.suffix(8))
+    if contextMessages.count > 5 {
+        contextMessages = Array(contextMessages.suffix(5))
     }
 
     var transcriptLines: [String] = []
     for message in contextMessages {
         let isIncoming = message.effectivelyIncoming(accountPeerId)
-        let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = eahatGramAutoReplyContextText(message.text)
         let marker: String
         if isIncoming, let author = message.author {
             marker = "other \(EnginePeer(author).compactDisplayTitle)"
@@ -231,6 +292,14 @@ private func eahatGramAutoReplyMessages(view: MessageHistoryView, replyMessage: 
     return result
 }
 
+private struct EahatGramAiAutoReplyPendingRequest {
+    let generation: Int
+    let peerId: EnginePeer.Id
+    let message: Message
+    let messageKey: String
+    let messages: [EahatGramAutoReplyMessage]
+}
+
 public final class EahatGramAiAutoReplyManager {
     public static let shared = EahatGramAiAutoReplyManager()
 
@@ -242,6 +311,11 @@ public final class EahatGramAiAutoReplyManager {
     private var latestObservedIndex: MessageIndex?
     private var hasLoadedInitialHistory = false
     private var handledMessageIds = Set<String>()
+    private var handledMessageIdOrder: [String] = []
+    private var pendingReplyTimer: SwiftSignalKit.Timer?
+    private var pendingReplyRequest: EahatGramAiAutoReplyPendingRequest?
+    private var inFlightTask: URLSessionDataTask?
+    private var requestGeneration = 0
 
     private init() {
     }
@@ -261,10 +335,35 @@ public final class EahatGramAiAutoReplyManager {
 
     private func clearSubscription() {
         self.historyDisposable.set(nil)
+        self.pendingReplyTimer?.invalidate()
+        self.pendingReplyTimer = nil
+        self.inFlightTask?.cancel()
+        self.inFlightTask = nil
+        self.pendingReplyRequest = nil
+        self.requestGeneration += 1
         self.observedPeerId = nil
         self.observedAccountPeerId = nil
         self.latestObservedIndex = nil
         self.hasLoadedInitialHistory = false
+        self.handledMessageIds.removeAll()
+        self.handledMessageIdOrder.removeAll()
+    }
+
+    private func markMessageHandled(_ messageKey: String) -> Bool {
+        if self.handledMessageIds.contains(messageKey) {
+            return false
+        }
+        self.handledMessageIds.insert(messageKey)
+        self.handledMessageIdOrder.append(messageKey)
+        if self.handledMessageIdOrder.count > 256 {
+            let removeCount = self.handledMessageIdOrder.count - 256
+            let removed = self.handledMessageIdOrder.prefix(removeCount)
+            for key in removed {
+                self.handledMessageIds.remove(key)
+            }
+            self.handledMessageIdOrder.removeFirst(removeCount)
+        }
+        return true
     }
 
     private func refreshSubscription() {
@@ -288,7 +387,7 @@ public final class EahatGramAiAutoReplyManager {
         self.observedAccountPeerId = context.account.peerId
         self.latestObservedIndex = nil
         self.hasLoadedInitialHistory = false
-        self.historyDisposable.set((context.account.viewTracker.aroundMessageHistoryViewForLocation(.peer(peerId: peerId, threadId: nil), index: .upperBound, anchorIndex: .upperBound, count: 20, fixedCombinedReadStates: nil)
+        self.historyDisposable.set((context.account.viewTracker.aroundMessageHistoryViewForLocation(.peer(peerId: peerId, threadId: nil), index: .upperBound, anchorIndex: .upperBound, count: 10, fixedCombinedReadStates: nil)
         |> deliverOnMainQueue).start(next: { [weak self, weak context] view, _, _ in
             guard let self, let context else {
                 return
@@ -336,6 +435,7 @@ public final class EahatGramAiAutoReplyManager {
             targetPeerId = nil
         }
 
+        var latestIncomingMessage: Message?
         for entry in view.entries {
             let message = entry.message
             guard message.id.namespace == Namespaces.Message.Cloud else {
@@ -363,37 +463,103 @@ public final class EahatGramAiAutoReplyManager {
             guard !self.handledMessageIds.contains(messageKey) else {
                 continue
             }
-            self.handledMessageIds.insert(messageKey)
-
-            let replySubject = EngineMessageReplySubject(messageId: message.id, quote: nil, innerSubject: nil)
-            let requestMessages = eahatGramAutoReplyMessages(view: view, replyMessage: message, accountPeerId: context.account.peerId)
-            eahatGramRequestAutoReply(messages: requestMessages) { [weak context] result in
-                Queue.mainQueue().async {
-                    guard let context else {
-                        return
-                    }
-                    guard case let .success(text) = result else {
-                        return
-                    }
-                    let currentSettings = context.sharedContext.immediateExperimentalUISettings
-                    guard currentSettings.eahatGramAiAssistantEnabled, currentSettings.eahatGramAiAssistantChatPeerId == peerId.toInt64() else {
-                        return
-                    }
-                    let replyMessage: EnqueueMessage = .message(
-                        text: text,
-                        attributes: [],
-                        inlineStickers: [:],
-                        mediaReference: nil,
-                        threadId: message.threadId,
-                        replyToMessageId: replySubject,
-                        replyToStoryId: nil,
-                        localGroupingKey: nil,
-                        correlationId: nil,
-                        bubbleUpEmojiOrStickersets: []
-                    )
-                    let _ = (enqueueMessages(account: context.account, peerId: peerId, messages: [replyMessage])
-                    |> deliverOnMainQueue).start()
+            if let currentLatest = latestIncomingMessage {
+                if currentLatest.index < message.index {
+                    latestIncomingMessage = message
                 }
+            } else {
+                latestIncomingMessage = message
+            }
+        }
+
+        guard let message = latestIncomingMessage else {
+            return
+        }
+        let messageKey = eahatGramAutoReplyMessageKey(message.id)
+        guard self.markMessageHandled(messageKey) else {
+            return
+        }
+        self.scheduleAutoReply(peerId: peerId, message: message, messageKey: messageKey, view: view, context: context)
+    }
+
+    private func scheduleAutoReply(peerId: EnginePeer.Id, message: Message, messageKey: String, view: MessageHistoryView, context: AccountContext) {
+        self.pendingReplyTimer?.invalidate()
+        self.pendingReplyTimer = nil
+        self.inFlightTask?.cancel()
+        self.inFlightTask = nil
+        self.requestGeneration += 1
+
+        let generation = self.requestGeneration
+        self.pendingReplyRequest = EahatGramAiAutoReplyPendingRequest(
+            generation: generation,
+            peerId: peerId,
+            message: message,
+            messageKey: messageKey,
+            messages: eahatGramAutoReplyMessages(view: view, replyMessage: message, accountPeerId: context.account.peerId)
+        )
+
+        let timer = SwiftSignalKit.Timer(timeout: 0.35, repeat: false, completion: { [weak self, weak context] in
+            guard let self, let context else {
+                return
+            }
+            self.pendingReplyTimer = nil
+            self.startAutoReplyRequest(generation: generation, context: context)
+        }, queue: self.queue)
+        self.pendingReplyTimer = timer
+        timer.start()
+    }
+
+    private func startAutoReplyRequest(generation: Int, context: AccountContext) {
+        guard let pendingRequest = self.pendingReplyRequest, pendingRequest.generation == generation else {
+            return
+        }
+        let settings = context.sharedContext.immediateExperimentalUISettings
+        guard settings.eahatGramAiAssistantEnabled, settings.eahatGramAiAssistantChatPeerId == pendingRequest.peerId.toInt64() else {
+            return
+        }
+        if settings.eahatGramAiAssistantTargetPeerEnabled {
+            guard let targetPeerId = settings.eahatGramAiAssistantTargetPeerId, pendingRequest.message.author?.id.toInt64() == targetPeerId else {
+                return
+            }
+        }
+
+        self.inFlightTask = eahatGramRequestAutoReply(messages: pendingRequest.messages) { [weak self, weak context] result in
+            Queue.mainQueue().async {
+                guard let self, let context else {
+                    return
+                }
+                guard let currentPendingRequest = self.pendingReplyRequest, currentPendingRequest.generation == generation, currentPendingRequest.messageKey == pendingRequest.messageKey else {
+                    return
+                }
+                self.inFlightTask = nil
+                self.pendingReplyRequest = nil
+                guard case let .success(text) = result else {
+                    return
+                }
+                let currentSettings = context.sharedContext.immediateExperimentalUISettings
+                guard currentSettings.eahatGramAiAssistantEnabled, currentSettings.eahatGramAiAssistantChatPeerId == pendingRequest.peerId.toInt64() else {
+                    return
+                }
+                if currentSettings.eahatGramAiAssistantTargetPeerEnabled {
+                    guard let targetPeerId = currentSettings.eahatGramAiAssistantTargetPeerId, pendingRequest.message.author?.id.toInt64() == targetPeerId else {
+                        return
+                    }
+                }
+                let replySubject = EngineMessageReplySubject(messageId: pendingRequest.message.id, quote: nil, innerSubject: nil)
+                let replyMessage: EnqueueMessage = .message(
+                    text: text,
+                    attributes: [],
+                    inlineStickers: [:],
+                    mediaReference: nil,
+                    threadId: pendingRequest.message.threadId,
+                    replyToMessageId: replySubject,
+                    replyToStoryId: nil,
+                    localGroupingKey: nil,
+                    correlationId: nil,
+                    bubbleUpEmojiOrStickersets: []
+                )
+                let _ = (enqueueMessages(account: context.account, peerId: pendingRequest.peerId, messages: [replyMessage])
+                |> deliverOnMainQueue).start()
             }
         }
     }
