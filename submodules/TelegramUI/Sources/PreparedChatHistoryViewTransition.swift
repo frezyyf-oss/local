@@ -211,7 +211,14 @@ func preparedChatHistoryViewTransition(from fromView: ChatHistoryView?, to toVie
     for messageId in currentMessageIds {
         savedChatState.deletedEntries.removeValue(forKey: messageId)
     }
-    if saveDeletedMessages, let fromView {
+    let canCaptureDeletedMessages: Bool
+    if saveDeletedMessages, case .InteractiveChanges = reason, !toView.originalView.isLoading, let fromView, fromView.id == toView.id {
+        canCaptureDeletedMessages = true
+    } else {
+        canCaptureDeletedMessages = false
+    }
+
+    if canCaptureDeletedMessages, let fromView {
         for previousEntry in fromView.filteredEntries {
             switch previousEntry {
             case let .MessageEntry(message, presentationData, read, _, _, attributes):

