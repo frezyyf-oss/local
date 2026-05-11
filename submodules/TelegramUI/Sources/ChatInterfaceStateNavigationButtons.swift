@@ -271,6 +271,17 @@ func secondaryRightNavigationButtonForChatInterfaceState(context: AccountContext
         return nil
     }
     if case .standard(.default) = presentationInterfaceState.mode {
+        if case .peer = presentationInterfaceState.chatLocation, presentationInterfaceState.subject == nil, let peer = presentationInterfaceState.renderedPeer?.peer as? TelegramUser, peer.id != context.account.peerId {
+            if let currentButton = currentButton, currentButton.action == .eahatGramShot {
+                return currentButton
+            } else {
+                let buttonItem = UIBarButtonItem(title: "shot", style: .plain, target: target, action: selector)
+                buttonItem.accessibilityLabel = "shot"
+                return ChatNavigationButton(action: .eahatGramShot, buttonItem: buttonItem)
+            }
+        }
+    }
+    if case .standard(.default) = presentationInterfaceState.mode {
         if case .peer(context.account.peerId) = presentationInterfaceState.chatLocation, presentationInterfaceState.subject != .scheduledMessages, presentationInterfaceState.hasSavedChats {
             return moreInfoNavigationButton
         }

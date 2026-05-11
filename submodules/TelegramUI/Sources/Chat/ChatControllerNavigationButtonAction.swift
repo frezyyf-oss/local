@@ -500,6 +500,8 @@ extension ChatControllerImpl {
             })
         case .search:
             self.interfaceInteraction?.beginMessageSearch(.everything, "")
+        case .eahatGramShot:
+            self.eahatGramMakeShot()
         case .dismiss:
             if self.attemptNavigation({}) {
                 self.dismiss()
