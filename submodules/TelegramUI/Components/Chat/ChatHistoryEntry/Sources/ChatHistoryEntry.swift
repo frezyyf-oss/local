@@ -97,7 +97,7 @@ public enum ChatHistoryEntry: Identifiable, Comparable {
         case let .MessageEntry(message, _, _, _, _, _):
             return message.index
         case let .MessageGroupEntry(_, messages, _):
-            return messages[messages.count - 1].0.index
+            return messages.last?.0.index ?? MessageIndex.absoluteLowerBound()
         case let .UnreadEntry(index, _):
             return index
         case let .ReplyCountEntry(index, _, _, _):
@@ -117,7 +117,7 @@ public enum ChatHistoryEntry: Identifiable, Comparable {
             case let .MessageEntry(message, _, _, _, _, _):
                 return message.index
             case let .MessageGroupEntry(_, messages, _):
-                return messages[0].0.index
+                return messages.first?.0.index ?? MessageIndex.absoluteLowerBound()
             case let .UnreadEntry(index, _):
                 return index
             case let .ReplyCountEntry(index, _, _, _):
@@ -137,7 +137,7 @@ public enum ChatHistoryEntry: Identifiable, Comparable {
         case let .MessageEntry(message, _, _, _, _, _):
             return message.timestamp
         case let .MessageGroupEntry(_, messages, _):
-            return messages[0].0.timestamp
+            return messages.first?.0.timestamp
         default:
             return nil
         }

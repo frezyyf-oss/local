@@ -306,6 +306,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var eahatGramTranslateMyMessagesLanguage: String?
     public var eahatGramAiAssistantEnabled: Bool
     public var eahatGramAiAssistantChatPeerId: Int64?
+    public var eahatGramAiAssistantAPI: Int32
+    public var eahatGramAiAssistantGigaChatKey: String?
     public var eahatGramAiAssistantTargetPeerEnabled: Bool
     public var eahatGramAiAssistantTargetPeerId: Int64?
     public var chatListCustomTheme: ChatListCustomThemeSettings
@@ -377,6 +379,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
             eahatGramTranslateMyMessagesLanguage: nil,
             eahatGramAiAssistantEnabled: false,
             eahatGramAiAssistantChatPeerId: nil,
+            eahatGramAiAssistantAPI: 0,
+            eahatGramAiAssistantGigaChatKey: nil,
             eahatGramAiAssistantTargetPeerEnabled: false,
             eahatGramAiAssistantTargetPeerId: nil,
             chatListCustomTheme: .defaultValue
@@ -449,6 +453,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         eahatGramTranslateMyMessagesLanguage: String?,
         eahatGramAiAssistantEnabled: Bool,
         eahatGramAiAssistantChatPeerId: Int64?,
+        eahatGramAiAssistantAPI: Int32,
+        eahatGramAiAssistantGigaChatKey: String?,
         eahatGramAiAssistantTargetPeerEnabled: Bool,
         eahatGramAiAssistantTargetPeerId: Int64?,
         chatListCustomTheme: ChatListCustomThemeSettings
@@ -518,6 +524,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.eahatGramTranslateMyMessagesLanguage = eahatGramTranslateMyMessagesLanguage
         self.eahatGramAiAssistantEnabled = eahatGramAiAssistantEnabled
         self.eahatGramAiAssistantChatPeerId = eahatGramAiAssistantChatPeerId
+        self.eahatGramAiAssistantAPI = eahatGramAiAssistantAPI
+        self.eahatGramAiAssistantGigaChatKey = eahatGramAiAssistantGigaChatKey
         self.eahatGramAiAssistantTargetPeerEnabled = eahatGramAiAssistantTargetPeerEnabled
         self.eahatGramAiAssistantTargetPeerId = eahatGramAiAssistantTargetPeerId
         self.chatListCustomTheme = chatListCustomTheme
@@ -591,6 +599,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.eahatGramTranslateMyMessagesLanguage = try container.decodeIfPresent(String.self, forKey: "eahatGramTranslateMyMessagesLanguage")
         self.eahatGramAiAssistantEnabled = try container.decodeIfPresent(Bool.self, forKey: "eahatGramAiAssistantEnabled") ?? false
         self.eahatGramAiAssistantChatPeerId = try container.decodeIfPresent(Int64.self, forKey: "eahatGramAiAssistantChatPeerId")
+        self.eahatGramAiAssistantAPI = try container.decodeIfPresent(Int32.self, forKey: "eahatGramAiAssistantAPI") ?? 0
+        self.eahatGramAiAssistantGigaChatKey = try container.decodeIfPresent(String.self, forKey: "eahatGramAiAssistantGigaChatKey")
         self.eahatGramAiAssistantTargetPeerEnabled = try container.decodeIfPresent(Bool.self, forKey: "eahatGramAiAssistantTargetPeerEnabled") ?? false
         self.eahatGramAiAssistantTargetPeerId = try container.decodeIfPresent(Int64.self, forKey: "eahatGramAiAssistantTargetPeerId")
         self.chatListCustomTheme = try container.decodeIfPresent(ChatListCustomThemeSettings.self, forKey: "chatListCustomTheme") ?? .defaultValue
@@ -664,6 +674,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encodeIfPresent(self.eahatGramTranslateMyMessagesLanguage, forKey: "eahatGramTranslateMyMessagesLanguage")
         try container.encodeIfPresent(self.eahatGramAiAssistantEnabled, forKey: "eahatGramAiAssistantEnabled")
         try container.encodeIfPresent(self.eahatGramAiAssistantChatPeerId, forKey: "eahatGramAiAssistantChatPeerId")
+        try container.encodeIfPresent(self.eahatGramAiAssistantAPI, forKey: "eahatGramAiAssistantAPI")
+        try container.encodeIfPresent(self.eahatGramAiAssistantGigaChatKey, forKey: "eahatGramAiAssistantGigaChatKey")
         try container.encodeIfPresent(self.eahatGramAiAssistantTargetPeerEnabled, forKey: "eahatGramAiAssistantTargetPeerEnabled")
         try container.encodeIfPresent(self.eahatGramAiAssistantTargetPeerId, forKey: "eahatGramAiAssistantTargetPeerId")
         try container.encodeIfPresent(self.chatListCustomTheme, forKey: "chatListCustomTheme")

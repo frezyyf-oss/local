@@ -123,10 +123,45 @@ private struct EahatGramAutoReplyResponse: Decodable {
     let choices: [Choice]
 }
 
+private struct EahatGramGigaChatOAuthResponse: Decodable {
+    let access_token: String
+    let expires_at: Int64?
+}
+
 private enum EahatGramAutoReplyResult {
     case success(String)
     case failure
 }
+
+private enum EahatGramAiAssistantAPI: Int32, Equatable {
+    case pollinations = 0
+    case gigaChat = 1
+
+    init(settingsValue: Int32) {
+        self = EahatGramAiAssistantAPI(rawValue: settingsValue) ?? .pollinations
+    }
+
+    var title: String {
+        switch self {
+        case .pollinations:
+            return "Pollinations"
+        case .gigaChat:
+            return "GigaChat"
+        }
+    }
+}
+
+private func eahatGramAiAssistantStatusText(enabled: Bool, api: EahatGramAiAssistantAPI) -> String {
+    return enabled ? "Auto replies enabled via \(api.title)" : "Auto replies disabled"
+}
+
+private struct EahatGramGigaChatTokenCache {
+    let authorizationKey: String
+    let accessToken: String
+    let expiresAt: Int64
+}
+
+private let eahatGramGigaChatTokenCache = Atomic<EahatGramGigaChatTokenCache?>(value: nil)
 
 private func eahatGramAutoReplyMessageKey(_ messageId: MessageId) -> String {
     return "\(messageId.peerId.toInt64()):\(messageId.namespace):\(messageId.id)"
@@ -193,7 +228,7 @@ private func eahatGramSanitizedAutoReplyText(_ value: String) -> String? {
 }
 
 @discardableResult
-private func eahatGramRequestAutoReply(messages: [EahatGramAutoReplyMessage], completion: @escaping (EahatGramAutoReplyResult) -> Void) -> URLSessionDataTask? {
+private func eahatGramRequestPollinationsAutoReply(messages: [EahatGramAutoReplyMessage], completion: @escaping (EahatGramAutoReplyResult) -> Void) -> URLSessionDataTask? {
     guard let url = URL(string: "https://text.pollinations.ai/openai") else {
         completion(.failure)
         return nil
@@ -242,6 +277,136 @@ private func eahatGramRequestAutoReply(messages: [EahatGramAutoReplyMessage], co
     }
     task.resume()
     return task
+}
+
+private func eahatGramGigaChatCachedToken(authorizationKey: String) -> String? {
+    let currentTime = Int64(Date().timeIntervalSince1970 * 1000.0)
+    return eahatGramGigaChatTokenCache.with { cache in
+        guard let cache, cache.authorizationKey == authorizationKey, cache.expiresAt - 60_000 > currentTime else {
+            return nil
+        }
+        return cache.accessToken
+    }
+}
+
+private func eahatGramGigaChatExpiryMilliseconds(_ expiresAt: Int64?) -> Int64 {
+    let fallbackExpiry = Int64(Date().addingTimeInterval(25.0 * 60.0).timeIntervalSince1970 * 1000.0)
+    guard let expiresAt else {
+        return fallbackExpiry
+    }
+    return expiresAt > 10_000_000_000 ? expiresAt : expiresAt * 1000
+}
+
+private func eahatGramRequestGigaChatCompletion(accessToken: String, messages: [EahatGramAutoReplyMessage], completion: @escaping (EahatGramAutoReplyResult) -> Void) -> URLSessionDataTask? {
+    guard let url = URL(string: "https://gigachat.devices.sberbank.ru/api/v1/chat/completions") else {
+        completion(.failure)
+        return nil
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 7.0
+
+    let body = EahatGramAutoReplyRequest(
+        model: "GigaChat-2",
+        messages: messages,
+        temperature: 0.25,
+        max_tokens: 64,
+        stream: false
+    )
+
+    do {
+        request.httpBody = try JSONEncoder().encode(body)
+    } catch {
+        completion(.failure)
+        return nil
+    }
+
+    let task = eahatGramAutoReplyURLSession.dataTask(with: request) { data, response, error in
+        if error != nil {
+            completion(.failure)
+            return
+        }
+        guard let httpResponse = response as? HTTPURLResponse, (200 ..< 300).contains(httpResponse.statusCode), let data else {
+            completion(.failure)
+            return
+        }
+        do {
+            let decoded = try JSONDecoder().decode(EahatGramAutoReplyResponse.self, from: data)
+            guard let text = eahatGramSanitizedAutoReplyText(decoded.choices.first?.message.content ?? "") else {
+                completion(.failure)
+                return
+            }
+            completion(.success(text))
+        } catch {
+            completion(.failure)
+        }
+    }
+    task.resume()
+    return task
+}
+
+@discardableResult
+private func eahatGramRequestGigaChatAutoReply(authorizationKey: String, messages: [EahatGramAutoReplyMessage], completion: @escaping (EahatGramAutoReplyResult) -> Void) -> URLSessionDataTask? {
+    let authorizationKey = authorizationKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !authorizationKey.isEmpty else {
+        completion(.failure)
+        return nil
+    }
+    if let cachedToken = eahatGramGigaChatCachedToken(authorizationKey: authorizationKey) {
+        return eahatGramRequestGigaChatCompletion(accessToken: cachedToken, messages: messages, completion: completion)
+    }
+    guard let url = URL(string: "https://ngw.devices.sberbank.ru:9443/api/v2/oauth") else {
+        completion(.failure)
+        return nil
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.setValue(UUID().uuidString, forHTTPHeaderField: "RqUID")
+    request.setValue("Basic \(authorizationKey)", forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 7.0
+    request.httpBody = "scope=GIGACHAT_API_PERS".data(using: .utf8)
+
+    let task = eahatGramAutoReplyURLSession.dataTask(with: request) { data, response, error in
+        if error != nil {
+            completion(.failure)
+            return
+        }
+        guard let httpResponse = response as? HTTPURLResponse, (200 ..< 300).contains(httpResponse.statusCode), let data else {
+            completion(.failure)
+            return
+        }
+        do {
+            let decoded = try JSONDecoder().decode(EahatGramGigaChatOAuthResponse.self, from: data)
+            guard !decoded.access_token.isEmpty else {
+                completion(.failure)
+                return
+            }
+            let expiresAt = eahatGramGigaChatExpiryMilliseconds(decoded.expires_at)
+            let _ = eahatGramGigaChatTokenCache.swap(EahatGramGigaChatTokenCache(authorizationKey: authorizationKey, accessToken: decoded.access_token, expiresAt: expiresAt))
+            let _ = eahatGramRequestGigaChatCompletion(accessToken: decoded.access_token, messages: messages, completion: completion)
+        } catch {
+            completion(.failure)
+        }
+    }
+    task.resume()
+    return task
+}
+
+@discardableResult
+private func eahatGramRequestAutoReply(api: EahatGramAiAssistantAPI, gigaChatKey: String?, messages: [EahatGramAutoReplyMessage], completion: @escaping (EahatGramAutoReplyResult) -> Void) -> URLSessionDataTask? {
+    switch api {
+    case .pollinations:
+        return eahatGramRequestPollinationsAutoReply(messages: messages, completion: completion)
+    case .gigaChat:
+        return eahatGramRequestGigaChatAutoReply(authorizationKey: gigaChatKey ?? "", messages: messages, completion: completion)
+    }
 }
 
 private func eahatGramAutoReplyMessages(view: MessageHistoryView, replyMessage: Message, accountPeerId: EnginePeer.Id) -> [EahatGramAutoReplyMessage] {
@@ -297,6 +462,8 @@ private struct EahatGramAiAutoReplyPendingRequest {
     let peerId: EnginePeer.Id
     let message: Message
     let messageKey: String
+    let api: EahatGramAiAssistantAPI
+    let gigaChatKey: String?
     let messages: [EahatGramAutoReplyMessage]
 }
 
@@ -313,7 +480,8 @@ public final class EahatGramAiAutoReplyManager {
     private var handledMessageIds = Set<String>()
     private var handledMessageIdOrder: [String] = []
     private var pendingReplyTimer: SwiftSignalKit.Timer?
-    private var pendingReplyRequest: EahatGramAiAutoReplyPendingRequest?
+    private var pendingReplyQueue: [EahatGramAiAutoReplyPendingRequest] = []
+    private var activeReplyRequest: EahatGramAiAutoReplyPendingRequest?
     private var inFlightTask: URLSessionDataTask?
     private var requestGeneration = 0
 
@@ -339,7 +507,8 @@ public final class EahatGramAiAutoReplyManager {
         self.pendingReplyTimer = nil
         self.inFlightTask?.cancel()
         self.inFlightTask = nil
-        self.pendingReplyRequest = nil
+        self.pendingReplyQueue.removeAll()
+        self.activeReplyRequest = nil
         self.requestGeneration += 1
         self.observedPeerId = nil
         self.observedAccountPeerId = nil
@@ -435,7 +604,7 @@ public final class EahatGramAiAutoReplyManager {
             targetPeerId = nil
         }
 
-        var latestIncomingMessage: Message?
+        var pendingIncomingMessages: [Message] = []
         for entry in view.entries {
             let message = entry.message
             guard message.id.namespace == Namespaces.Message.Cloud else {
@@ -463,85 +632,102 @@ public final class EahatGramAiAutoReplyManager {
             guard !self.handledMessageIds.contains(messageKey) else {
                 continue
             }
-            if let currentLatest = latestIncomingMessage {
-                if currentLatest.index < message.index {
-                    latestIncomingMessage = message
-                }
-            } else {
-                latestIncomingMessage = message
-            }
+            pendingIncomingMessages.append(message)
         }
 
-        guard let message = latestIncomingMessage else {
+        if pendingIncomingMessages.isEmpty {
             return
         }
-        let messageKey = eahatGramAutoReplyMessageKey(message.id)
-        guard self.markMessageHandled(messageKey) else {
-            return
+        pendingIncomingMessages.sort(by: { $0.index < $1.index })
+        for message in pendingIncomingMessages {
+            let messageKey = eahatGramAutoReplyMessageKey(message.id)
+            guard self.markMessageHandled(messageKey) else {
+                continue
+            }
+            self.enqueueAutoReply(peerId: peerId, message: message, messageKey: messageKey, view: view, context: context)
         }
-        self.scheduleAutoReply(peerId: peerId, message: message, messageKey: messageKey, view: view, context: context)
     }
 
-    private func scheduleAutoReply(peerId: EnginePeer.Id, message: Message, messageKey: String, view: MessageHistoryView, context: AccountContext) {
-        self.pendingReplyTimer?.invalidate()
-        self.pendingReplyTimer = nil
-        self.inFlightTask?.cancel()
-        self.inFlightTask = nil
+    private func enqueueAutoReply(peerId: EnginePeer.Id, message: Message, messageKey: String, view: MessageHistoryView, context: AccountContext) {
+        let settings = context.sharedContext.immediateExperimentalUISettings
         self.requestGeneration += 1
 
-        let generation = self.requestGeneration
-        self.pendingReplyRequest = EahatGramAiAutoReplyPendingRequest(
-            generation: generation,
+        self.pendingReplyQueue.append(EahatGramAiAutoReplyPendingRequest(
+            generation: self.requestGeneration,
             peerId: peerId,
             message: message,
             messageKey: messageKey,
+            api: EahatGramAiAssistantAPI(settingsValue: settings.eahatGramAiAssistantAPI),
+            gigaChatKey: settings.eahatGramAiAssistantGigaChatKey,
             messages: eahatGramAutoReplyMessages(view: view, replyMessage: message, accountPeerId: context.account.peerId)
-        )
+        ))
+        if self.pendingReplyQueue.count > 16 {
+            self.pendingReplyQueue.removeFirst(self.pendingReplyQueue.count - 16)
+        }
+        self.scheduleNextAutoReply(context: context, delay: 0.25)
+    }
 
-        let timer = SwiftSignalKit.Timer(timeout: 0.35, repeat: false, completion: { [weak self, weak context] in
+    private func scheduleNextAutoReply(context: AccountContext, delay: Double) {
+        guard self.inFlightTask == nil, self.activeReplyRequest == nil, self.pendingReplyTimer == nil, !self.pendingReplyQueue.isEmpty else {
+            return
+        }
+
+        let timer = SwiftSignalKit.Timer(timeout: delay, repeat: false, completion: { [weak self, weak context] in
             guard let self, let context else {
                 return
             }
             self.pendingReplyTimer = nil
-            self.startAutoReplyRequest(generation: generation, context: context)
+            self.startNextAutoReplyRequest(context: context)
         }, queue: self.queue)
         self.pendingReplyTimer = timer
         timer.start()
     }
 
-    private func startAutoReplyRequest(generation: Int, context: AccountContext) {
-        guard let pendingRequest = self.pendingReplyRequest, pendingRequest.generation == generation else {
+    private func finishActiveAutoReply(context: AccountContext) {
+        self.inFlightTask = nil
+        self.activeReplyRequest = nil
+        self.scheduleNextAutoReply(context: context, delay: 0.2)
+    }
+
+    private func startNextAutoReplyRequest(context: AccountContext) {
+        guard self.inFlightTask == nil, self.activeReplyRequest == nil, !self.pendingReplyQueue.isEmpty else {
             return
         }
+        let pendingRequest = self.pendingReplyQueue.removeFirst()
+        self.activeReplyRequest = pendingRequest
+
         let settings = context.sharedContext.immediateExperimentalUISettings
         guard settings.eahatGramAiAssistantEnabled, settings.eahatGramAiAssistantChatPeerId == pendingRequest.peerId.toInt64() else {
+            self.finishActiveAutoReply(context: context)
             return
         }
         if settings.eahatGramAiAssistantTargetPeerEnabled {
             guard let targetPeerId = settings.eahatGramAiAssistantTargetPeerId, pendingRequest.message.author?.id.toInt64() == targetPeerId else {
+                self.finishActiveAutoReply(context: context)
                 return
             }
         }
 
-        self.inFlightTask = eahatGramRequestAutoReply(messages: pendingRequest.messages) { [weak self, weak context] result in
+        self.inFlightTask = eahatGramRequestAutoReply(api: pendingRequest.api, gigaChatKey: pendingRequest.gigaChatKey, messages: pendingRequest.messages) { [weak self, weak context] result in
             Queue.mainQueue().async {
                 guard let self, let context else {
                     return
                 }
-                guard let currentPendingRequest = self.pendingReplyRequest, currentPendingRequest.generation == generation, currentPendingRequest.messageKey == pendingRequest.messageKey else {
+                guard let activeReplyRequest = self.activeReplyRequest, activeReplyRequest.generation == pendingRequest.generation, activeReplyRequest.messageKey == pendingRequest.messageKey else {
                     return
                 }
-                self.inFlightTask = nil
-                self.pendingReplyRequest = nil
                 guard case let .success(text) = result else {
+                    self.finishActiveAutoReply(context: context)
                     return
                 }
                 let currentSettings = context.sharedContext.immediateExperimentalUISettings
                 guard currentSettings.eahatGramAiAssistantEnabled, currentSettings.eahatGramAiAssistantChatPeerId == pendingRequest.peerId.toInt64() else {
+                    self.finishActiveAutoReply(context: context)
                     return
                 }
                 if currentSettings.eahatGramAiAssistantTargetPeerEnabled {
                     guard let targetPeerId = currentSettings.eahatGramAiAssistantTargetPeerId, pendingRequest.message.author?.id.toInt64() == targetPeerId else {
+                        self.finishActiveAutoReply(context: context)
                         return
                     }
                 }
@@ -560,7 +746,11 @@ public final class EahatGramAiAutoReplyManager {
                 )
                 let _ = (enqueueMessages(account: context.account, peerId: pendingRequest.peerId, messages: [replyMessage])
                 |> deliverOnMainQueue).start()
+                self.finishActiveAutoReply(context: context)
             }
+        }
+        if self.inFlightTask == nil {
+            self.finishActiveAutoReply(context: context)
         }
     }
 }
@@ -1310,6 +1500,8 @@ private final class EahatGramArguments {
     let selectTranslateMyMessagesLanguage: () -> Void
     let updateAiAssistantEnabled: (Bool) -> Void
     let selectAiAssistantPeer: () -> Void
+    let toggleAiAssistantAPI: () -> Void
+    let updateAiAssistantGigaChatKey: (String) -> Void
     let updateAiAssistantTargetPeerEnabled: (Bool) -> Void
     let updateAiAssistantTargetPeerId: (String) -> Void
     let updateDownFolderEnabled: (Bool) -> Void
@@ -1397,6 +1589,8 @@ private final class EahatGramArguments {
         selectTranslateMyMessagesLanguage: @escaping () -> Void,
         updateAiAssistantEnabled: @escaping (Bool) -> Void,
         selectAiAssistantPeer: @escaping () -> Void,
+        toggleAiAssistantAPI: @escaping () -> Void,
+        updateAiAssistantGigaChatKey: @escaping (String) -> Void,
         updateAiAssistantTargetPeerEnabled: @escaping (Bool) -> Void,
         updateAiAssistantTargetPeerId: @escaping (String) -> Void,
         updateDownFolderEnabled: @escaping (Bool) -> Void,
@@ -1481,6 +1675,8 @@ private final class EahatGramArguments {
         self.selectTranslateMyMessagesLanguage = selectTranslateMyMessagesLanguage
         self.updateAiAssistantEnabled = updateAiAssistantEnabled
         self.selectAiAssistantPeer = selectAiAssistantPeer
+        self.toggleAiAssistantAPI = toggleAiAssistantAPI
+        self.updateAiAssistantGigaChatKey = updateAiAssistantGigaChatKey
         self.updateAiAssistantTargetPeerEnabled = updateAiAssistantTargetPeerEnabled
         self.updateAiAssistantTargetPeerId = updateAiAssistantTargetPeerId
         self.updateDownFolderEnabled = updateDownFolderEnabled
@@ -1583,6 +1779,8 @@ private struct EahatGramState: Equatable {
     var aiAssistantEnabled: Bool
     var aiAssistantPeerId: EnginePeer.Id?
     var aiAssistantPeerTitle: String
+    var aiAssistantAPI: Int32
+    var aiAssistantGigaChatKeyText: String
     var aiAssistantTargetPeerEnabled: Bool
     var aiAssistantTargetPeerIdText: String
     var aiAssistantStatusText: String
@@ -1668,11 +1866,13 @@ private struct EahatGramState: Equatable {
             self.aiAssistantPeerId = nil
             self.aiAssistantPeerTitle = ""
         }
+        self.aiAssistantAPI = experimentalSettings.eahatGramAiAssistantAPI
+        self.aiAssistantGigaChatKeyText = experimentalSettings.eahatGramAiAssistantGigaChatKey ?? ""
         self.aiAssistantTargetPeerEnabled = experimentalSettings.eahatGramAiAssistantTargetPeerEnabled
         self.aiAssistantTargetPeerIdText = experimentalSettings.eahatGramAiAssistantTargetPeerId.flatMap { value in
             return value > 0 ? "\(value)" : nil
         } ?? ""
-        self.aiAssistantStatusText = experimentalSettings.eahatGramAiAssistantEnabled ? "Auto replies enabled" : "Auto replies disabled"
+        self.aiAssistantStatusText = eahatGramAiAssistantStatusText(enabled: experimentalSettings.eahatGramAiAssistantEnabled, api: EahatGramAiAssistantAPI(settingsValue: experimentalSettings.eahatGramAiAssistantAPI))
         self.downFolderEnabled = experimentalSettings.foldersTabAtBottom
         self.viewUnread2ReadEnabled = viewUnread2ReadEnabled
         self.farmBotUsernameText = ""
@@ -1772,6 +1972,8 @@ private enum EahatGramEntry: ItemListNodeEntry {
     case translateMyMessagesLanguage(String)
     case aiAssistantEnabled(Bool)
     case aiAssistantPeer(String)
+    case aiAssistantAPI(String)
+    case aiAssistantGigaChatKey(String)
     case aiAssistantTargetPeer(Bool)
     case aiAssistantTargetPeerId(String)
     case aiAssistantStatus(String)
@@ -1835,7 +2037,7 @@ private enum EahatGramEntry: ItemListNodeEntry {
         switch self {
         case .selectPeer, .crasher, .crasherDirect, .addGiftToProfile, .clearGifts, .removeAllContacts, .removeAllCalls, .nftUsernameTag, .nftUsernamePrice, .addNftUsernameTag, .fakePhoneNumber, .fakeRate, .fakeRateLevel, .fakeVerify, .targetHud, .liquidGlass, .replyQuote, .ghostMode, .fakeOnline, .fakeOnlineBackground, .saveDeletedMessages, .saveEditedMessages, .noLags, .bogatiUi, .noWarning, .sendMode, .translator, .translatorLanguage, .translateMyMessages, .translateMyMessagesLanguage, .downFolder, .customUiTheme, .viewUnread2Read, .voiceMod, .voiceModPreset, .voiceModV2, .voiceModV2Voice, .useDirectRpc, .refreshResponses:
             return EahatGramSection.controls.rawValue
-        case .aiAssistantEnabled, .aiAssistantPeer, .aiAssistantTargetPeer, .aiAssistantTargetPeerId, .aiAssistantStatus:
+        case .aiAssistantEnabled, .aiAssistantPeer, .aiAssistantAPI, .aiAssistantGigaChatKey, .aiAssistantTargetPeer, .aiAssistantTargetPeerId, .aiAssistantStatus:
             return EahatGramSection.ai.rawValue
         case .farmBotUsername, .farmCommand, .farmInterval, .farmBackground, .addFarmJob, .farmJobEnabled, .farmJobInfo, .removeFarmJob:
             return EahatGramSection.farm.rawValue
@@ -1948,6 +2150,10 @@ private enum EahatGramEntry: ItemListNodeEntry {
             return 8000000
         case .aiAssistantPeer:
             return 8000001
+        case .aiAssistantAPI:
+            return 8000005
+        case .aiAssistantGigaChatKey:
+            return 8000006
         case .aiAssistantTargetPeer:
             return 8000002
         case .aiAssistantTargetPeerId:
@@ -2321,6 +2527,18 @@ private enum EahatGramEntry: ItemListNodeEntry {
             }
         case let .aiAssistantPeer(lhsText):
             if case let .aiAssistantPeer(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .aiAssistantAPI(lhsText):
+            if case let .aiAssistantAPI(rhsText) = rhs {
+                return lhsText == rhsText
+            } else {
+                return false
+            }
+        case let .aiAssistantGigaChatKey(lhsText):
+            if case let .aiAssistantGigaChatKey(rhsText) = rhs {
                 return lhsText == rhsText
             } else {
                 return false
@@ -3197,6 +3415,33 @@ private enum EahatGramEntry: ItemListNodeEntry {
                 action: {
                     arguments.selectAiAssistantPeer()
                 }
+            )
+        case let .aiAssistantAPI(text):
+            return ItemListDisclosureItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "AI API",
+                label: text,
+                sectionId: self.section,
+                style: .blocks,
+                action: {
+                    arguments.toggleAiAssistantAPI()
+                }
+            )
+        case let .aiAssistantGigaChatKey(text):
+            return ItemListSingleLineInputItem(
+                context: arguments.context,
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: eahatGramInputTitle(presentationData, "GigaChat Key"),
+                text: text,
+                placeholder: "Basic authorization key",
+                type: .password,
+                sectionId: self.section,
+                textUpdated: { value in
+                    arguments.updateAiAssistantGigaChatKey(value)
+                },
+                action: {}
             )
         case let .aiAssistantTargetPeer(value):
             return ItemListSwitchItem(
@@ -4108,6 +4353,11 @@ private func eahatGramEntries(
     case .ai:
         entries.append(.aiAssistantEnabled(state.aiAssistantEnabled))
         entries.append(.aiAssistantPeer(state.aiAssistantPeerTitle.isEmpty ? "Not selected" : state.aiAssistantPeerTitle))
+        let aiAPI = EahatGramAiAssistantAPI(settingsValue: state.aiAssistantAPI)
+        entries.append(.aiAssistantAPI(aiAPI.title))
+        if aiAPI == .gigaChat {
+            entries.append(.aiAssistantGigaChatKey(state.aiAssistantGigaChatKeyText))
+        }
         entries.append(.aiAssistantTargetPeer(state.aiAssistantTargetPeerEnabled))
         if state.aiAssistantTargetPeerEnabled {
             entries.append(.aiAssistantTargetPeerId(state.aiAssistantTargetPeerIdText))
@@ -4826,7 +5076,7 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
             updateState { current in
                 var current = current
                 current.aiAssistantEnabled = value
-                current.aiAssistantStatusText = value ? "Auto replies enabled" : "Auto replies disabled"
+                current.aiAssistantStatusText = eahatGramAiAssistantStatusText(enabled: value, api: EahatGramAiAssistantAPI(settingsValue: current.aiAssistantAPI))
                 return current
             }
             appendResponse("aiAssistant enabled=\(value)")
@@ -4852,6 +5102,39 @@ private func eahatGramScreen(context: AccountContext, starsContext: StarsContext
                 controller.dismiss()
             }
             pushControllerImpl?(controller)
+        },
+        toggleAiAssistantAPI: {
+            let currentAPI = EahatGramAiAssistantAPI(settingsValue: stateValue.with { $0.aiAssistantAPI })
+            let nextAPI: EahatGramAiAssistantAPI = currentAPI == .gigaChat ? .pollinations : .gigaChat
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.eahatGramAiAssistantAPI = nextAPI.rawValue
+                return settings
+            }).start(completed: {
+                EahatGramAiAutoReplyManager.shared.refresh()
+            })
+            updateState { current in
+                var current = current
+                current.aiAssistantAPI = nextAPI.rawValue
+                current.aiAssistantStatusText = eahatGramAiAssistantStatusText(enabled: current.aiAssistantEnabled, api: nextAPI)
+                return current
+            }
+            appendResponse("aiAssistant api=\(nextAPI.title)")
+        },
+        updateAiAssistantGigaChatKey: { value in
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
+                var settings = settings
+                settings.eahatGramAiAssistantGigaChatKey = normalized.isEmpty ? nil : normalized
+                return settings
+            }).start(completed: {
+                EahatGramAiAutoReplyManager.shared.refresh()
+            })
+            updateState { current in
+                var current = current
+                current.aiAssistantGigaChatKeyText = normalized
+                return current
+            }
         },
         updateAiAssistantTargetPeerEnabled: { value in
             let _ = updateExperimentalUISettingsInteractively(accountManager: context.sharedContext.accountManager, { settings in
