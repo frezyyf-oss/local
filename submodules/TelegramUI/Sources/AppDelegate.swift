@@ -282,16 +282,16 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     private let firebaseRequestVerificationSecretStream = Promise<[String: String]>([:])
     
     private var urlSessions: [URLSession] = []
+    private var backgroundUrlSessionSharedContainerIdentifier: String?
     private func urlSession(identifier: String) -> URLSession {
         if let existingSession = self.urlSessions.first(where: { $0.configuration.identifier == identifier }) {
             return existingSession
         }
-        
-        let baseAppBundleId = Bundle.main.bundleIdentifier!
-        let appGroupName = "group.\(baseAppBundleId)"
 
         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
-        configuration.sharedContainerIdentifier = appGroupName
+        if let sharedContainerIdentifier = self.backgroundUrlSessionSharedContainerIdentifier {
+            configuration.sharedContainerIdentifier = sharedContainerIdentifier
+        }
         configuration.isDiscretionary = false
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
         self.urlSessions.append(session)
@@ -536,6 +536,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         if let maybeAppGroupUrl = maybeAppGroupUrl {
             appGroupUrl = maybeAppGroupUrl
             isUsingAppGroupContainer = true
+            self.backgroundUrlSessionSharedContainerIdentifier = appGroupName
         } else {
             let applicationSupportUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: NSTemporaryDirectory())
@@ -543,6 +544,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             let _ = try? FileManager.default.createDirectory(at: standaloneUrl, withIntermediateDirectories: true, attributes: nil)
             appGroupUrl = standaloneUrl
             isUsingAppGroupContainer = false
+            self.backgroundUrlSessionSharedContainerIdentifier = nil
             print("Application: app group \(appGroupName) is unavailable, using standalone container \(standaloneUrl.path)")
         }
         
