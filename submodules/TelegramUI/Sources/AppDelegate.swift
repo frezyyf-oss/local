@@ -1065,12 +1065,16 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             return true
         }
 
-        let pushRegistry = PKPushRegistry(queue: .main)
-        if #available(iOS 9.0, *) {
-            pushRegistry.desiredPushTypes = Set([.voIP])
+        if isUsingAppGroupContainer {
+            let pushRegistry = PKPushRegistry(queue: .main)
+            if #available(iOS 9.0, *) {
+                pushRegistry.desiredPushTypes = Set([.voIP])
+            }
+            self.pushRegistry = pushRegistry
+            pushRegistry.delegate = self
+        } else {
+            Logger.shared.log("App \(self.episodeId)", "skipping PushKit registration in standalone container")
         }
-        self.pushRegistry = pushRegistry
-        pushRegistry.delegate = self
 
         self.accountManagerState = extractAccountManagerState(records: accountManager._internalAccountRecordsSync())
         let _ = (accountManager.accountRecords()

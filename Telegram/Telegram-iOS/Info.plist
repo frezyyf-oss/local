@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).refresh</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).cleanup</string>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).eahatgram-farm</string>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).eahatgram-farm-processing</string>
 	</array>
