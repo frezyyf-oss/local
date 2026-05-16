@@ -531,6 +531,20 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         let baseAppBundleId = Bundle.main.bundleIdentifier!
         let appGroupName = "group.\(baseAppBundleId)"
         let maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
+        let appGroupUrl: URL
+        let isUsingAppGroupContainer: Bool
+        if let maybeAppGroupUrl = maybeAppGroupUrl {
+            appGroupUrl = maybeAppGroupUrl
+            isUsingAppGroupContainer = true
+        } else {
+            let applicationSupportUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: NSTemporaryDirectory())
+            let standaloneUrl = applicationSupportUrl.appendingPathComponent("TelegramStandalone", isDirectory: true)
+            let _ = try? FileManager.default.createDirectory(at: standaloneUrl, withIntermediateDirectories: true, attributes: nil)
+            appGroupUrl = standaloneUrl
+            isUsingAppGroupContainer = false
+            print("Application: app group \(appGroupName) is unavailable, using standalone container \(standaloneUrl.path)")
+        }
         
         let buildConfig = BuildConfig(baseAppBundleId: baseAppBundleId)
         self.buildConfig = buildConfig
@@ -642,11 +656,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             isICloudEnabled: buildConfig.isICloudEnabled
         )
         
-        guard let appGroupUrl = maybeAppGroupUrl else {
-            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
-            return true
-        }
-        
         var isDebugConfiguration = false
         #if DEBUG
         isDebugConfiguration = true
@@ -739,6 +748,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             for url in contents {
                 Logger.shared.log("App \(self.episodeId)", "metadata: \(url.path)")
             }
+        }
+        if !isUsingAppGroupContainer {
+            Logger.shared.log("App \(self.episodeId)", "app group \(appGroupName) unavailable, using standalone container \(appGroupUrl.path)")
         }
         
         if let contents = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: rootPath), includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants]) {
