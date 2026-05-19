@@ -8,6 +8,7 @@
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).cleanup</string>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).eahatgram-farm</string>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).eahatgram-farm-processing</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).upload.*</string>
 	</array>
 	<key>CFBundleAllowMixedLocalizations</key>
 	<true/>

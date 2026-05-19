@@ -283,6 +283,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     
     private var urlSessions: [URLSession] = []
     private var backgroundUrlSessionSharedContainerIdentifier: String?
+    private var canUseEntitlementBackedServices = false
     private func urlSession(identifier: String) -> URLSession {
         if let existingSession = self.urlSessions.first(where: { $0.configuration.identifier == identifier }) {
             return existingSession
@@ -536,6 +537,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         if let maybeAppGroupUrl = maybeAppGroupUrl {
             appGroupUrl = maybeAppGroupUrl
             isUsingAppGroupContainer = true
+            self.canUseEntitlementBackedServices = true
             self.backgroundUrlSessionSharedContainerIdentifier = appGroupName
         } else {
             let applicationSupportUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -544,6 +546,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             let _ = try? FileManager.default.createDirectory(at: standaloneUrl, withIntermediateDirectories: true, attributes: nil)
             appGroupUrl = standaloneUrl
             isUsingAppGroupContainer = false
+            self.canUseEntitlementBackedServices = false
             self.backgroundUrlSessionSharedContainerIdentifier = nil
             print("Application: app group \(appGroupName) is unavailable, using standalone container \(standaloneUrl.path)")
         }
@@ -1582,7 +1585,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }
         #endif
         
-        if #available(iOS 13.0, *) {
+        if #available(iOS 13.0, *), self.canUseEntitlementBackedServices {
             let cleanupTaskId = "\(baseAppBundleId).cleanup"
             let eahatGramFarmTaskId = "\(baseAppBundleId).eahatgram-farm"
             let eahatGramFarmProcessingTaskId = "\(baseAppBundleId).eahatgram-farm-processing"
@@ -1640,6 +1643,8 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 }
                 self.eahatGramUpdateFarmBackgroundTaskRequest()
             })
+        } else if #available(iOS 13.0, *) {
+            Logger.shared.log("App \(self.episodeId)", "skipping BGTaskScheduler registration in standalone container")
         }
         
         let timestamp = Int(CFAbsoluteTimeGetCurrent())
@@ -1654,8 +1659,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             })
         }
         
-        if #available(iOS 12.0, *) {
+        if #available(iOS 12.0, *), self.canUseEntitlementBackedServices {
             UIApplication.shared.registerForRemoteNotifications()
+        } else if #available(iOS 12.0, *) {
+            Logger.shared.log("App \(self.episodeId)", "skipping remote notification registration in standalone container")
         }
         
         let _ = self.urlSession(identifier: "\(baseAppBundleId).backroundSession")
@@ -2088,6 +2095,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
 
     @available(iOS 13.0, *)
     private func eahatGramUpdateFarmBackgroundTaskRequest() {
+        guard self.canUseEntitlementBackedServices else {
+            Logger.shared.log("App \(self.episodeId)", "Skipping eahatGram farm background scheduling in standalone container")
+            return
+        }
         let refreshTaskId = self.eahatGramFarmTaskIdentifier()
         let processingTaskId = self.eahatGramFarmProcessingTaskIdentifier()
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: refreshTaskId)
@@ -3086,6 +3097,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     }
     
     func requestNotificationTokenInvalidation() {
+        guard self.canUseEntitlementBackedServices else {
+            Logger.shared.log("App \(self.episodeId)", "Skipping notification token invalidation in standalone container")
+            return
+        }
         UIApplication.shared.unregisterForRemoteNotifications()
         DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 1.0, execute: {
             UIApplication.shared.registerForRemoteNotifications()
@@ -3104,6 +3119,11 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     }
 
     private func registerForNotifications(replyString: String, messagePlaceholderString: String, hiddenContentString: String, hiddenReactionContentString: String, hiddenStoryContentString: String, hiddenStoryReactionContentString: String, includeNames: Bool, authorize: Bool = true, completion: @escaping (Bool) -> Void = { _ in }) {
+        guard self.canUseEntitlementBackedServices else {
+            Logger.shared.log("App \(self.episodeId)", "Skipping notification registration in standalone container")
+            completion(false)
+            return
+        }
         let notificationCenter = UNUserNotificationCenter.current()
         Logger.shared.log("App \(self.episodeId)", "register for notifications: get settings (authorize: \(authorize))")
         notificationCenter.getNotificationSettings(completionHandler: { settings in
