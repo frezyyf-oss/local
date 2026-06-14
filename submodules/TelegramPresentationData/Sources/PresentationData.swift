@@ -505,21 +505,7 @@ private func automaticThemeShouldSwitchNow(_ parameters: AutomaticThemeSwitchPar
 }
 
 private func getMainScreenBrightness() -> CGFloat {
-    if #available(iOS 26.0, *) {
-        if let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap({ $0.windows })
-            .first(where: { $0.isKeyWindow }) ?? UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap({ $0.windows })
-            .first {
-            return window.screen.brightness
-        }
-        return 0.5
-    } else {
-        return UIScreen.main.brightness
-    }
-}
+    return UIScreen.main.brightness
 }
 
 public func automaticThemeShouldSwitchNow(settings: AutomaticThemeSwitchSetting, systemUserInterfaceStyle: WindowUserInterfaceStyle) -> Bool {
