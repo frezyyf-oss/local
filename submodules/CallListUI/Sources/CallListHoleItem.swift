@@ -56,20 +56,7 @@ class CallListHoleItem: ListViewItem {
 }
 
 private func getMainScreenScale() -> CGFloat {
-    if #available(iOS 26.0, *) {
-        if let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap({ $0.windows })
-            .first(where: { $0.isKeyWindow }) ?? UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap({ $0.windows })
-            .first {
-            return window.screen.scale
-        }
-        return UITraitCollection.current.displayScale
-    } else {
-        return UIScreen.main.scale
-    }
+    return UIScreen.main.scale
 }
 
 private let separatorHeight = 1.0 / getMainScreenScale()
