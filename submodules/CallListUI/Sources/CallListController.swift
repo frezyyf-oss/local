@@ -18,6 +18,10 @@ import UndoUI
 import TelegramCallsUI
 import TelegramUIPreferences
 
+private func getMainScreenBounds() -> CGRect {
+    return UIScreen.main.bounds
+}
+
 public enum CallListControllerMode {
     case tab
     case navigation
