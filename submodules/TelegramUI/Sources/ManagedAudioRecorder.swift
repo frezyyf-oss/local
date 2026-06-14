@@ -1,0 +1,1112 @@
+import Foundation
+import SwiftSignalKit
+import CoreMedia
+import AVFoundation
+import TelegramCore
+import TelegramAudio
+import UniversalMediaPlayer
+import AccountContext
+import OpusBinding
+import ChatPresentationInterfaceState
+import AudioWaveform
+import FFMpegBinding
+
+private let kOutputBus: UInt32 = 0
+private let kInputBus: UInt32 = 1
+
+private func audioRecorderNativeStreamDescription(sampleRate: Float64) -> AudioStreamBasicDescription {
+    var canonicalBasicStreamDescription = AudioStreamBasicDescription()
+    canonicalBasicStreamDescription.mSampleRate = sampleRate
+    canonicalBasicStreamDescription.mFormatID = kAudioFormatLinearPCM
+    canonicalBasicStreamDescription.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked
+    canonicalBasicStreamDescription.mFramesPerPacket = 1
+    canonicalBasicStreamDescription.mChannelsPerFrame = 1
+    canonicalBasicStreamDescription.mBitsPerChannel = 16
+    canonicalBasicStreamDescription.mBytesPerPacket = 2
+    canonicalBasicStreamDescription.mBytesPerFrame = 2
+    return canonicalBasicStreamDescription
+}
+
+private var nextRecorderContextId: Int32 = 0
+private func getNextRecorderContextId() -> Int32 {
+    return OSAtomicIncrement32(&nextRecorderContextId)
+}
+
+private func eahatGramClampedAudioSample(_ value: Int32) -> Int16 {
+    return Int16(clamping: max(Int32(Int16.min), min(Int32(Int16.max), value)))
+}
+
+private func eahatGramInterpolatedAudioSample(_ input: [Int16], position: Double) -> Int16 {
+    guard !input.isEmpty else {
+        return 0
+    }
+    let lowerIndex = max(0, min(input.count - 1, Int(position.rounded(.down))))
+    let upperIndex = max(0, min(input.count - 1, lowerIndex + 1))
+    if lowerIndex == upperIndex {
+        return input[lowerIndex]
+    }
+    let fraction = position - Double(lowerIndex)
+    let lowerValue = Double(input[lowerIndex])
+    let upperValue = Double(input[upperIndex])
+    let value = lowerValue + (upperValue - lowerValue) * fraction
+    return eahatGramClampedAudioSample(Int32(value.rounded()))
+}
+
+private func eahatGramResampledAudioPacket(_ input: [Int16], rate: Double) -> [Int16] {
+    guard input.count > 1, rate > 0.0 else {
+        return input
+    }
+    var output = [Int16](repeating: 0, count: input.count)
+    let maxPosition = Double(input.count - 1)
+    for index in 0 ..< input.count {
+        let sourcePosition = min(maxPosition, Double(index) * rate)
+        output[index] = eahatGramInterpolatedAudioSample(input, position: sourcePosition)
+    }
+    return output
+}
+
+private func eahatGramRobotizedAudioPacket(_ input: [Int16]) -> [Int16] {
+    guard !input.isEmpty else {
+        return input
+    }
+    var output = [Int16](repeating: 0, count: input.count)
+    let modulationPeriod = 24.0
+    let quantizationStep: Int32 = 512
+    for index in 0 ..< input.count {
+        let phase = sin((Double(index) / modulationPeriod) * Double.pi * 2.0)
+        let modulated = Int32((Double(input[index]) * (0.6 + 0.4 * phase)).rounded())
+        let quantized = (modulated / quantizationStep) * quantizationStep
+        output[index] = eahatGramClampedAudioSample(quantized)
+    }
+    return output
+}
+
+private func eahatGramBitcrushedAudioPacket(_ input: [Int16], step: Int32, gain: Double) -> [Int16] {
+    guard step > 0 else {
+        return input
+    }
+    var output = [Int16](repeating: 0, count: input.count)
+    for index in 0 ..< input.count {
+        let amplified = Int32((Double(input[index]) * gain).rounded())
+        let quantized = (amplified / step) * step
+        output[index] = eahatGramClampedAudioSample(quantized)
+    }
+    return output
+}
+
+private func eahatGramTremoloAudioPacket(_ input: [Int16], depth: Double, period: Double) -> [Int16] {
+    guard period > 0.0 else {
+        return input
+    }
+    let clampedDepth = max(0.0, min(1.0, depth))
+    var output = [Int16](repeating: 0, count: input.count)
+    for index in 0 ..< input.count {
+        let wave = 0.5 + 0.5 * sin((Double(index) / period) * Double.pi * 2.0)
+        let multiplier = 1.0 - clampedDepth + clampedDepth * wave
+        output[index] = eahatGramClampedAudioSample(Int32((Double(input[index]) * multiplier).rounded()))
+    }
+    return output
+}
+
+private func eahatGramHighPassAudioPacket(_ input: [Int16], gain: Double) -> [Int16] {
+    guard !input.isEmpty else {
+        return input
+    }
+    var output = [Int16](repeating: 0, count: input.count)
+    var previous: Int32 = Int32(input[0])
+    for index in 0 ..< input.count {
+        let current = Int32(input[index])
+        let filtered = Int32((Double(current - previous) * gain).rounded())
+        output[index] = eahatGramClampedAudioSample(filtered)
+        previous = current
+    }
+    return output
+}
+
+private func eahatGramAmplifiedAudioPacket(_ input: [Int16], gain: Double) -> [Int16] {
+    guard !input.isEmpty else {
+        return input
+    }
+    return input.map { sample in
+        eahatGramClampedAudioSample(Int32((Double(sample) * gain).rounded()))
+    }
+}
+
+private func eahatGramSmoothedAudioPacket(_ input: [Int16], radius: Int) -> [Int16] {
+    guard !input.isEmpty, radius > 0 else {
+        return input
+    }
+    var output = [Int16](repeating: 0, count: input.count)
+    for index in 0 ..< input.count {
+        let lowerBound = max(0, index - radius)
+        let upperBound = min(input.count - 1, index + radius)
+        var sum: Int64 = 0
+        for currentIndex in lowerBound ... upperBound {
+            sum += Int64(input[currentIndex])
+        }
+        let count = Int64(upperBound - lowerBound + 1)
+        output[index] = eahatGramClampedAudioSample(Int32(sum / count))
+    }
+    return output
+}
+
+private func eahatGramPolishedPitchAudioPacket(_ input: [Int16], rate: Double, gain: Double, smoothingRadius: Int) -> [Int16] {
+    let shifted = eahatGramResampledAudioPacket(input, rate: rate)
+    let smoothed = eahatGramSmoothedAudioPacket(shifted, radius: smoothingRadius)
+    return eahatGramAmplifiedAudioPacket(smoothed, gain: gain)
+}
+
+private func eahatGramEchoAudioPacket(_ input: [Int16], delay: Int, decay: Double) -> [Int16] {
+    guard delay > 0, input.count > delay else {
+        return input
+    }
+    var output = input
+    for index in delay ..< input.count {
+        let mixed = Int32(input[index]) + Int32((Double(output[index - delay]) * decay).rounded())
+        output[index] = eahatGramClampedAudioSample(mixed)
+    }
+    return output
+}
+
+private func eahatGramAlienAudioPacket(_ input: [Int16]) -> [Int16] {
+    let shifted = eahatGramResampledAudioPacket(input, rate: 1.08)
+    let robotized = eahatGramRobotizedAudioPacket(shifted)
+    return eahatGramTremoloAudioPacket(robotized, depth: 0.46, period: 16.0)
+}
+
+private func eahatGramMegaphoneAudioPacket(_ input: [Int16]) -> [Int16] {
+    let filtered = eahatGramHighPassAudioPacket(input, gain: 1.35)
+    let crushed = eahatGramBitcrushedAudioPacket(filtered, step: 192, gain: 1.08)
+    let smoothed = eahatGramSmoothedAudioPacket(crushed, radius: 1)
+    return eahatGramAmplifiedAudioPacket(smoothed, gain: 1.06)
+}
+
+private enum EahatGramManagedAudioVoiceModPreset: String {
+    case chipmunk
+    case deep
+    case robot
+    case helium
+    case giant
+    case alien
+    case monster
+    case radio
+    case megaphone
+    case whisper
+    case tremolo
+    case echo
+}
+
+private let eahatGramVoiceModEnabledDefaultsKey = "eahatGram.voiceModEnabled"
+private let eahatGramVoiceModPresetDefaultsKey = "eahatGram.voiceModPreset"
+private let eahatGramVoiceModV2EnabledDefaultsKey = "eahatGram.voiceModV2Enabled"
+
+private func eahatGramManagedAudioVoiceModEnabled() -> Bool {
+    return UserDefaults.standard.object(forKey: eahatGramVoiceModEnabledDefaultsKey) as? Bool ?? false
+}
+
+private func eahatGramManagedAudioVoiceModV2Enabled() -> Bool {
+    return UserDefaults.standard.object(forKey: eahatGramVoiceModV2EnabledDefaultsKey) as? Bool ?? false
+}
+
+private func eahatGramManagedAudioVoiceModPreset() -> EahatGramManagedAudioVoiceModPreset {
+    return EahatGramManagedAudioVoiceModPreset(rawValue: UserDefaults.standard.string(forKey: eahatGramVoiceModPresetDefaultsKey) ?? EahatGramManagedAudioVoiceModPreset.chipmunk.rawValue) ?? .chipmunk
+}
+
+private func eahatGramApplyVoiceMod(samples: UnsafeMutablePointer<Int16>, count: Int) {
+    guard count > 1, eahatGramManagedAudioVoiceModEnabled(), !eahatGramManagedAudioVoiceModV2Enabled() else {
+        return
+    }
+    let input = Array(UnsafeBufferPointer(start: samples, count: count))
+    let output: [Int16]
+    switch eahatGramManagedAudioVoiceModPreset() {
+    case .chipmunk:
+        output = eahatGramPolishedPitchAudioPacket(input, rate: 1.28, gain: 1.06, smoothingRadius: 1)
+    case .deep:
+        output = eahatGramPolishedPitchAudioPacket(input, rate: 0.78, gain: 1.08, smoothingRadius: 2)
+    case .robot:
+        output = eahatGramRobotizedAudioPacket(input)
+    case .helium:
+        output = eahatGramPolishedPitchAudioPacket(input, rate: 1.42, gain: 1.04, smoothingRadius: 1)
+    case .giant:
+        output = eahatGramPolishedPitchAudioPacket(input, rate: 0.64, gain: 1.12, smoothingRadius: 2)
+    case .alien:
+        output = eahatGramAlienAudioPacket(input)
+    case .monster:
+        output = eahatGramAmplifiedAudioPacket(
+            eahatGramSmoothedAudioPacket(
+                eahatGramBitcrushedAudioPacket(eahatGramResampledAudioPacket(input, rate: 0.72), step: 640, gain: 1.12),
+                radius: 1
+            ),
+            gain: 1.08
+        )
+    case .radio:
+        output = eahatGramSmoothedAudioPacket(
+            eahatGramBitcrushedAudioPacket(
+                eahatGramHighPassAudioPacket(input, gain: 1.1),
+                step: 320,
+                gain: 1.02
+            ),
+            radius: 1
+        )
+    case .megaphone:
+        output = eahatGramMegaphoneAudioPacket(input)
+    case .whisper:
+        output = eahatGramAmplifiedAudioPacket(
+            eahatGramSmoothedAudioPacket(
+                eahatGramHighPassAudioPacket(input, gain: 1.2),
+                radius: 1
+            ),
+            gain: 0.92
+        )
+    case .tremolo:
+        output = eahatGramTremoloAudioPacket(input, depth: 0.72, period: 22.0)
+    case .echo:
+        output = eahatGramEchoAudioPacket(input, delay: 96, decay: 0.42)
+    }
+    output.withUnsafeBufferPointer { buffer in
+        guard let baseAddress = buffer.baseAddress else {
+            return
+        }
+        memcpy(samples, baseAddress, count * MemoryLayout<Int16>.size)
+    }
+}
+
+private final class RecorderContextHolder {
+    weak var context: ManagedAudioRecorderContext?
+
+    init(context: ManagedAudioRecorderContext?) {
+        self.context = context
+    }
+}
+
+private final class AudioUnitHolder {
+    let queue: Queue
+    let audioUnit: Atomic<AudioUnit?>
+
+    init(queue: Queue, audioUnit: Atomic<AudioUnit?>) {
+        self.queue = queue
+        self.audioUnit = audioUnit
+    }
+}
+
+private var audioRecorderContexts: [Int32: RecorderContextHolder] = [:]
+private var audioUnitHolders = Atomic<[Int32: AudioUnitHolder]>(value: [:])
+
+private func addAudioRecorderContext(_ id: Int32, _ context: ManagedAudioRecorderContext) {
+    audioRecorderContexts[id] = RecorderContextHolder(context: context)
+}
+
+private func removeAudioRecorderContext(_ id: Int32) {
+    audioRecorderContexts.removeValue(forKey: id)
+}
+
+private func addAudioUnitHolder(_ id: Int32, _ queue: Queue, _ audioUnit: Atomic<AudioUnit?>) {
+    let _ = audioUnitHolders.modify { dict in
+        var dict = dict
+        dict[id] = AudioUnitHolder(queue: queue, audioUnit: audioUnit)
+        return dict
+    }
+}
+
+private func removeAudioUnitHolder(_ id: Int32) {
+    let _ = audioUnitHolders.modify { dict in
+        var dict = dict
+        dict.removeValue(forKey: id)
+        return dict
+    }
+}
+
+private func withAudioRecorderContext(_ id: Int32, _ f: (ManagedAudioRecorderContext?) -> Void) {
+    if let holder = audioRecorderContexts[id], let context = holder.context {
+        f(context)
+    } else {
+        f(nil)
+    }
+}
+
+private func withAudioUnitHolder(_ id: Int32, _ f: (Atomic<AudioUnit?>, Queue) -> Void) {
+    let audioUnitAndQueue = audioUnitHolders.with { dict -> (Atomic<AudioUnit?>, Queue)? in
+        if let record = dict[id] {
+            return (record.audioUnit, record.queue)
+        } else {
+            return nil
+        }
+    }
+    if let (audioUnit, queue) = audioUnitAndQueue {
+        f(audioUnit, queue)
+    }
+}
+
+private func rendererInputProc(refCon: UnsafeMutableRawPointer, ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>, inTimeStamp: UnsafePointer<AudioTimeStamp>, inBusNumber: UInt32, inNumberFrames: UInt32, ioData: UnsafeMutablePointer<AudioBufferList>?) -> OSStatus {
+    let id = Int32(intptr_t(bitPattern: refCon))
+
+    withAudioUnitHolder(id, { (holder, queue) in
+        var buffer = AudioBuffer()
+        buffer.mNumberChannels = 1;
+        buffer.mDataByteSize = inNumberFrames * 2;
+        buffer.mData = malloc(Int(inNumberFrames) * 2)
+
+        var bufferList = AudioBufferList(mNumberBuffers: 1, mBuffers: buffer)
+
+        var status = noErr
+        holder.with { audioUnit in
+            if let audioUnit = audioUnit {
+                status = AudioUnitRender(audioUnit, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, &bufferList)
+            } else {
+                status = kAudioUnitErr_FailedInitialization
+            }
+        }
+
+        if status == noErr {
+            queue.async {
+                withAudioRecorderContext(id, { context in
+                    if let context = context {
+                        context.processAndDisposeAudioBuffer(buffer)
+                    } else {
+                        free(buffer.mData)
+                    }
+                })
+            }
+        } else {
+            free(buffer.mData)
+            Logger.shared.log("ManagedAudioRecorder", "AudioUnitRender returned \(status)")
+        }
+    })
+
+    return noErr
+}
+
+private let beginToneData: TonePlayerData? = {
+    guard let url = Bundle.main.url(forResource: "begin_record", withExtension: "mp3") else {
+        return nil
+    }
+    return loadTonePlayerData(path: url.path)
+}()
+
+final class ManagedAudioRecorderContext {
+    private let id: Int32
+    private let micLevel: ValuePromise<Float>
+    private let recordingState: ValuePromise<AudioRecordingState>
+    private let previewState: ValuePromise<AudioPreviewState>
+
+    private let beginWithTone: Bool
+    private let beganWithTone: (Bool) -> Void
+
+    private var trimRange: Range<Double>?
+
+    private var paused = true
+
+    private let queue: Queue
+    private let mediaManager: MediaManager
+    private var oggWriter: TGOggOpusWriter
+    private var dataItem: TGDataItem
+    private var audioBuffer = Data()
+
+    private let audioUnit = Atomic<AudioUnit?>(value: nil)
+
+    private var compressedWaveformSamples = Data()
+    private var currentPeak: Int64 = 0
+    private var currentPeakCount: Int = 0
+    private var peakCompressionFactor: Int = 1
+
+    private var micLevelPeak: Int16 = 0
+    private var micLevelPeakCount: Int = 0
+    private var audioLevelPeakUpdate: Double = 0.0
+
+    private var recordingStateUpdateTimestamp: Double?
+
+    private var hasAudioSession = false
+    private var audioSessionDisposable: Disposable?
+
+    //private var tonePlayer: TonePlayer?
+    private var toneRenderer: MediaPlayerAudioRenderer?
+    private var toneRendererAudioSession: MediaPlayerAudioSessionCustomControl?
+    private var toneRendererAudioSessionActivated = false
+
+    private var processSamples = false
+
+    private var toneTimer: SwiftSignalKit.Timer?
+    private var idleTimerExtensionDisposable: Disposable?
+
+    init(
+        queue: Queue,
+        mediaManager: MediaManager,
+        resumeData: AudioRecorderResumeData?,
+        pushIdleTimerExtension: @escaping () -> Disposable,
+        micLevel: ValuePromise<Float>,
+        recordingState: ValuePromise<AudioRecordingState>,
+        previewState: ValuePromise<AudioPreviewState>,
+        beginWithTone: Bool,
+        beganWithTone: @escaping (Bool) -> Void
+    ) {
+        assert(queue.isCurrent())
+
+        self.id = getNextRecorderContextId()
+        self.micLevel = micLevel
+        self.beginWithTone = beginWithTone
+        self.beganWithTone = beganWithTone
+
+        self.recordingState = recordingState
+        self.previewState = previewState
+
+        self.queue = queue
+        self.mediaManager = mediaManager
+        self.oggWriter = TGOggOpusWriter()
+
+        if let resumeData {
+            self.dataItem = TGDataItem(data: resumeData.compressedData)
+        } else {
+            self.dataItem = TGDataItem()
+        }
+
+        if beginWithTone, let toneData = audioRecordingToneData {
+            self.processSamples = false
+            let toneRenderer = MediaPlayerAudioRenderer(audioSession: .custom({ [weak self] control in
+                queue.async {
+                    if let strongSelf = self {
+                        strongSelf.toneRendererAudioSession = control
+                        if !strongSelf.paused && strongSelf.hasAudioSession {
+                            strongSelf.toneRendererAudioSessionActivated = true
+                            control.activate()
+                        }
+                    }
+                }
+                return ActionDisposable {
+                }
+            }), playAndRecord: true, soundMuted: false, ambient: false, mixWithOthers: false, forceAudioToSpeaker: false, baseRate: 1.0, audioLevelPipe: ValuePipe<Float>(), updatedRate: {
+            }, audioPaused: {})
+            self.toneRenderer = toneRenderer
+
+            let toneDataOffset = Atomic<Int>(value: 0)
+            toneRenderer.beginRequestingFrames(queue: DispatchQueue.global(), takeFrame: {
+                let frameSize = 44100
+
+                var takeRange: Range<Int>?
+                let _ = toneDataOffset.modify { current in
+                    let count = min(toneData.count - current, frameSize)
+                    if count > 0 {
+                        takeRange = current ..< (current + count)
+                    }
+                    return current + count
+                }
+
+                if let takeRange = takeRange {
+                    var blockBuffer: CMBlockBuffer?
+
+                    let bytes = malloc(takeRange.count)!
+                    toneData.withUnsafeBytes { rawDataBytes -> Void in
+                        let dataBytes = rawDataBytes.baseAddress!.assumingMemoryBound(to: UInt8.self)
+
+                        memcpy(bytes, dataBytes.advanced(by: takeRange.lowerBound), takeRange.count)
+                    }
+                    let status = CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: bytes, blockLength: takeRange.count, blockAllocator: nil, customBlockSource: nil, offsetToData: 0, dataLength: takeRange.count, flags: 0, blockBufferOut: &blockBuffer)
+                    if status != noErr {
+                        return .finished
+                    }
+
+                    let sampleCount = takeRange.count / 2
+
+                    let pts = CMTime(value: Int64(takeRange.lowerBound / 2), timescale: 44100)
+                    var timingInfo = CMSampleTimingInfo(duration: CMTime(value: Int64(sampleCount), timescale: 44100), presentationTimeStamp: pts, decodeTimeStamp: pts)
+                    var sampleBuffer: CMSampleBuffer?
+                    var sampleSize = takeRange.count
+                    guard CMSampleBufferCreate(allocator: nil, dataBuffer: blockBuffer, dataReady: true, makeDataReadyCallback: nil, refcon: nil, formatDescription: nil, sampleCount: 1, sampleTimingEntryCount: 1, sampleTimingArray: &timingInfo, sampleSizeEntryCount: 1, sampleSizeArray: &sampleSize, sampleBufferOut: &sampleBuffer) == noErr else {
+                        return .finished
+                    }
+
+                    if let sampleBuffer = sampleBuffer {
+                        return .frame(MediaTrackFrame(type: .audio, sampleBuffer: sampleBuffer, resetDecoder: false, decoded: true))
+                    } else {
+                        return .finished
+                    }
+                } else {
+                    return .finished
+                }
+            })
+            toneRenderer.start()
+            let toneTimer = SwiftSignalKit.Timer(timeout: 0.05, repeat: true, completion: { [weak self] in
+                if let strongSelf = self {
+                    var wait = false
+
+                    if let toneRenderer = strongSelf.toneRenderer {
+                        let toneTime = CMTimebaseGetTime(toneRenderer.audioTimebase)
+                        let endTime = CMTime(value: Int64(toneData.count / 2), timescale: 44100)
+                        if CMTimeCompare(toneTime, endTime) >= 0 {
+                            strongSelf.processSamples = true
+                        } else {
+                            wait = true
+                        }
+                    }
+
+                    if !wait {
+                        strongSelf.toneTimer?.invalidate()
+                    }
+                }
+                }, queue: queue)
+            self.toneTimer = toneTimer
+            toneTimer.start()
+        } else {
+            self.processSamples = true
+        }
+
+        /*if beginWithTone, let beginToneData = beginToneData {
+         self.tonePlayer = TonePlayer()
+         self.tonePlayer?.play(data: beginToneData, completed: { [weak self] in
+         queue.async {
+         guard let strongSelf = self else {
+         return
+         }
+         let toneTimer = SwiftSignalKit.Timer(timeout: 0.3, repeat: false, completion: { [weak self] in
+         guard let strongSelf = self else {
+         return
+         }
+         strongSelf.processSamples = true
+         }, queue: queue)
+         strongSelf.toneTimer = toneTimer
+         toneTimer.start()
+         }
+         })
+         } else {
+         self.processSamples = true
+         }*/
+
+        addAudioRecorderContext(self.id, self)
+        addAudioUnitHolder(self.id, queue, self.audioUnit)
+
+        if let resumeData {
+            guard let stateDict = try? JSONSerialization.jsonObject(with: resumeData.resumeData, options: []) as? [String: Any] else {
+                Logger.shared.log("ManagedAudioRecorder", "Failed to deserialize JSON")
+                return
+            }
+            let success = self.oggWriter.resume(with: self.dataItem, encoderState: stateDict)
+            if !success {
+                Logger.shared.log("ManagedAudioRecorder", "Failed to resume OggWriter")
+                return
+            }
+        } else {
+            self.oggWriter.begin(with: self.dataItem)
+        }
+
+        self.idleTimerExtensionDisposable = (Signal<Void, NoError> { subscriber in
+            return pushIdleTimerExtension()
+        } |> delay(5.0, queue: queue)).start()
+    }
+
+    deinit {
+        assert(self.queue.isCurrent())
+
+        self.idleTimerExtensionDisposable?.dispose()
+
+        removeAudioRecorderContext(self.id)
+        removeAudioUnitHolder(self.id)
+
+        self.stop()
+
+        self.audioSessionDisposable?.dispose()
+
+        self.toneRenderer?.stop()
+        self.toneTimer?.invalidate()
+    }
+
+    private func setupAudioUnit() {
+        guard self.audioUnit.with({ $0 }) == nil else {
+            return
+        }
+        var desc = AudioComponentDescription()
+        desc.componentType = kAudioUnitType_Output
+        desc.componentSubType = kAudioUnitSubType_RemoteIO
+        desc.componentFlags = 0
+        desc.componentFlagsMask = 0
+        desc.componentManufacturer = kAudioUnitManufacturer_Apple
+        guard let inputComponent = AudioComponentFindNext(nil, &desc) else {
+            return
+        }
+        var maybeAudioUnit: AudioUnit? = nil
+        AudioComponentInstanceNew(inputComponent, &maybeAudioUnit)
+
+        guard let audioUnit = maybeAudioUnit else {
+            return
+        }
+
+        var one: UInt32 = 1
+        guard AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &one, 4) == noErr else {
+            AudioComponentInstanceDispose(audioUnit)
+            return
+        }
+
+        var audioStreamDescription = audioRecorderNativeStreamDescription(sampleRate: 48000)
+        guard AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &audioStreamDescription, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)) == noErr else {
+            AudioComponentInstanceDispose(audioUnit)
+            return
+        }
+
+        guard AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &audioStreamDescription, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)) == noErr else {
+            AudioComponentInstanceDispose(audioUnit)
+            return
+        }
+
+        var callbackStruct = AURenderCallbackStruct()
+        callbackStruct.inputProc = rendererInputProc
+        callbackStruct.inputProcRefCon = UnsafeMutableRawPointer(bitPattern: intptr_t(self.id))
+        guard AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0, &callbackStruct, UInt32(MemoryLayout<AURenderCallbackStruct>.size)) == noErr else {
+            AudioComponentInstanceDispose(audioUnit)
+            return
+        }
+
+        var zero: UInt32 = 1
+        guard AudioUnitSetProperty(audioUnit, kAudioUnitProperty_ShouldAllocateBuffer, kAudioUnitScope_Output, 0, &zero, 4) == noErr else {
+            AudioComponentInstanceDispose(audioUnit)
+            return
+        }
+
+        let _ = AudioUnitSetProperty(audioUnit, kAUVoiceIOProperty_MuteOutput, kAudioUnitScope_Global, 0, &zero, 4)
+
+        guard AudioUnitInitialize(audioUnit) == noErr else {
+            AudioComponentInstanceDispose(audioUnit)
+            return
+        }
+
+        let _ = self.audioUnit.swap(audioUnit)
+    }
+
+    func start() {
+        assert(self.queue.isCurrent())
+
+        self.paused = false
+
+        if self.audioSessionDisposable == nil {
+            let queue = self.queue
+            self.audioSessionDisposable = self.mediaManager.audioSession.push(audioSessionType: .record(speaker: self.beginWithTone, video: false, withOthers: false), activate: { [weak self] state in
+                queue.async {
+                    if let strongSelf = self, !strongSelf.paused {
+                        strongSelf.hasAudioSession = true
+                        strongSelf.setupAudioUnit()
+                        strongSelf.audioSessionAcquired(headset: state.isHeadsetConnected)
+                    }
+                }
+            }, deactivate: { [weak self] _ in
+                return Signal { subscriber in
+                    queue.async {
+                        if let strongSelf = self {
+                            strongSelf.hasAudioSession = false
+                            strongSelf.stop()
+                            strongSelf.recordingState.set(.stopped)
+                            subscriber.putCompletion()
+                        }
+                    }
+
+                    return EmptyDisposable
+                }
+            })
+        }
+    }
+
+    func audioSessionAcquired(headset: Bool) {
+        if let toneRenderer = self.toneRenderer, headset || self.beginWithTone {
+            self.beganWithTone(true)
+            if !self.toneRendererAudioSessionActivated {
+                self.toneRendererAudioSessionActivated = true
+                self.toneRendererAudioSession?.activate()
+            }
+            toneRenderer.setRate(1.0)
+        } else {
+            self.processSamples = true
+            self.beganWithTone(false)
+        }
+
+        if let audioUnit = self.audioUnit.with({ $0 }) {
+            guard AudioOutputUnitStart(audioUnit) == noErr else {
+                self.stop()
+                return
+            }
+        }
+    }
+
+    func pause() {
+        assert(self.queue.isCurrent())
+
+        return self.stop()
+    }
+
+    func resume() {
+        assert(self.queue.isCurrent())
+
+        if let trimRange = self.trimRange, trimRange.upperBound < self.oggWriter.encodedDuration() {
+            if self.oggWriter.writeFrame(nil, frameByteCount: 0), let data = self.dataItem.data() {
+                let tempSourceFile = EngineTempBox.shared.tempFile(fileName: "audio.ogg")
+                let tempDestinationFile = EngineTempBox.shared.tempFile(fileName: "audio.ogg")
+
+                try? data.write(to: URL(fileURLWithPath: tempSourceFile.path))
+
+                FFMpegOpusTrimmer.trim(tempSourceFile.path, to: tempDestinationFile.path, start: trimRange.lowerBound, end: trimRange.upperBound)
+
+                if let trimmedData = try? Data(contentsOf: URL(fileURLWithPath: tempDestinationFile.path), options: []) {
+                    self.dataItem = TGDataItem(data: trimmedData)
+                    self.oggWriter = TGOggOpusWriter()
+                    self.oggWriter.beginAppend(with: self.dataItem)
+                }
+
+                EngineTempBox.shared.dispose(tempSourceFile)
+                EngineTempBox.shared.dispose(tempDestinationFile)
+
+                self.trimRange = nil
+                self.previewState.set(AudioPreviewState(trimRange: self.trimRange))
+            }
+        }
+
+        self.start()
+    }
+
+    private var resumeData: Data?
+    func stop() {
+        assert(self.queue.isCurrent())
+
+        let state = self.oggWriter.pause()
+
+        self.paused = true
+
+        if let audioUnit = self.audioUnit.swap(nil) {
+            var status = noErr
+
+            status = AudioOutputUnitStop(audioUnit)
+            if status != noErr {
+                Logger.shared.log("ManagedAudioRecorder", "AudioOutputUnitStop returned \(status)")
+            }
+
+            status = AudioUnitUninitialize(audioUnit)
+            if status != noErr {
+                Logger.shared.log("ManagedAudioRecorder", "AudioUnitUninitialize returned \(status)")
+            }
+
+            status = AudioComponentInstanceDispose(audioUnit)
+            if status != noErr {
+                Logger.shared.log("ManagedAudioRecorder", "AudioComponentInstanceDispose returned \(status)")
+            }
+        }
+
+        if let toneRenderer = self.toneRenderer, self.toneRendererAudioSessionActivated {
+            self.toneRendererAudioSessionActivated = false
+            toneRenderer.stop()
+        }
+
+        let audioSessionDisposable = self.audioSessionDisposable
+        self.audioSessionDisposable = nil
+        audioSessionDisposable?.dispose()
+
+        if let stateDict = state as? [String: Any] {
+            do {
+                let jsonData = try JSONSerialization.data(withJSONObject: stateDict, options: [])
+                self.resumeData = jsonData
+            } catch {
+                Logger.shared.log("ManagedAudioRecorder", "Failed to JSON: \(error)")
+            }
+        }
+    }
+
+    func updateTrimRange(start: Double, end: Double, updatedEnd: Bool, apply: Bool) {
+        self.trimRange = start..<end
+    }
+
+    func processAndDisposeAudioBuffer(_ buffer: AudioBuffer) {
+        assert(self.queue.isCurrent())
+
+        defer {
+            free(buffer.mData)
+        }
+
+        if !self.processSamples {
+            return
+        }
+
+        let millisecondsPerPacket = 60
+        let encoderPacketSizeInBytes = 16000 / 1000 * millisecondsPerPacket * 2
+
+        let currentEncoderPacket = malloc(encoderPacketSizeInBytes)!
+        defer {
+            free(currentEncoderPacket)
+        }
+
+        var bufferOffset = 0
+
+        while true {
+            var currentEncoderPacketSize = 0
+
+            while currentEncoderPacketSize < encoderPacketSizeInBytes {
+                if self.audioBuffer.count != 0 {
+                    let takenBytes = min(self.audioBuffer.count, encoderPacketSizeInBytes - currentEncoderPacketSize)
+                    if takenBytes != 0 {
+                        self.audioBuffer.withUnsafeBytes { rawBytes -> Void in
+                            let bytes = rawBytes.baseAddress!.assumingMemoryBound(to: Int8.self)
+
+                            memcpy(currentEncoderPacket.advanced(by: currentEncoderPacketSize), bytes, takenBytes)
+                        }
+                        self.audioBuffer.replaceSubrange(0 ..< takenBytes, with: Data())
+                        currentEncoderPacketSize += takenBytes
+                    }
+                } else if bufferOffset < Int(buffer.mDataByteSize) {
+                    let takenBytes = min(Int(buffer.mDataByteSize) - bufferOffset, encoderPacketSizeInBytes - currentEncoderPacketSize)
+                    if takenBytes != 0 {
+                        memcpy(currentEncoderPacket.advanced(by: currentEncoderPacketSize), buffer.mData?.advanced(by: bufferOffset), takenBytes)
+
+                        bufferOffset += takenBytes
+                        currentEncoderPacketSize += takenBytes
+                    }
+                } else {
+                    break
+                }
+            }
+
+            if currentEncoderPacketSize < encoderPacketSizeInBytes {
+                self.audioBuffer.append(currentEncoderPacket.assumingMemoryBound(to: UInt8.self), count: currentEncoderPacketSize)
+                break
+            } else {
+                let audioSamples = currentEncoderPacket.assumingMemoryBound(to: Int16.self)
+                eahatGramApplyVoiceMod(samples: audioSamples, count: currentEncoderPacketSize / 2)
+                self.processWaveformPreview(samples: audioSamples, count: currentEncoderPacketSize / 2)
+
+                self.oggWriter.writeFrame(currentEncoderPacket.assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(currentEncoderPacketSize))
+
+                let timestamp = CACurrentMediaTime()
+                if self.recordingStateUpdateTimestamp == nil || self.recordingStateUpdateTimestamp! < timestamp + 0.1 {
+                    self.recordingStateUpdateTimestamp = timestamp
+                    self.recordingState.set(.recording(duration: oggWriter.encodedDuration(), durationMediaTimestamp: timestamp))
+                }
+            }
+        }
+    }
+
+    func processWaveformPreview(samples: UnsafePointer<Int16>, count: Int) {
+        for i in 0 ..< count {
+            var sample = samples.advanced(by: i).pointee
+            if sample < 0 {
+                if sample == Int16.min {
+                    sample = Int16.max
+                } else {
+                    sample = -sample
+                }
+            }
+
+            self.currentPeak = max(Int64(sample), self.currentPeak)
+            self.currentPeakCount += 1
+            if self.currentPeakCount == self.peakCompressionFactor {
+                var compressedPeak = self.currentPeak
+                withUnsafeBytes(of: &compressedPeak, { buffer in
+                    self.compressedWaveformSamples.append(buffer.bindMemory(to: UInt8.self))
+                })
+                self.currentPeak = 0
+                self.currentPeakCount = 0
+
+                let compressedSampleCount = self.compressedWaveformSamples.count / 2
+                if compressedSampleCount == 200 {
+                    self.compressedWaveformSamples.withUnsafeMutableBytes { rawCompressedSamples -> Void in
+                        let compressedSamples = rawCompressedSamples.baseAddress!.assumingMemoryBound(to: Int16.self)
+
+                        for i in 0 ..< 100 {
+                            let maxSample = Int64(max(compressedSamples[i * 2 + 0], compressedSamples[i * 2 + 1]))
+                            compressedSamples[i] = Int16(maxSample)
+                        }
+                    }
+                    self.compressedWaveformSamples.count = 100 * 2
+                    self.peakCompressionFactor *= 2
+                }
+            }
+
+            if self.micLevelPeak < sample {
+                self.micLevelPeak = sample
+            }
+            self.micLevelPeakCount += 1
+
+            if self.micLevelPeakCount >= 1200 {
+                let level = Float(self.micLevelPeak) / 4000.0
+                /*let timestamp = CFAbsoluteTimeGetCurrent()
+                if !self.audioLevelPeakUpdate.isZero {
+                    let delta = timestamp - self.audioLevelPeakUpdate
+                    print("level = \(level), delta = \(delta)")
+                }
+                self.audioLevelPeakUpdate = timestamp*/
+                self.micLevel.set(level)
+                self.micLevelPeak = 0
+                self.micLevelPeakCount = 0
+            }
+        }
+    }
+
+    func takeData() -> RecordedAudioData? {
+        if self.oggWriter.writeFrame(nil, frameByteCount: 0) {
+            let scaledSamplesMemory = malloc(100 * 2)!
+            let scaledSamples: UnsafeMutablePointer<Int16> = scaledSamplesMemory.assumingMemoryBound(to: Int16.self)
+            defer {
+                free(scaledSamplesMemory)
+            }
+            memset(scaledSamples, 0, 100 * 2);
+            var waveform: Data?
+
+            let count = self.compressedWaveformSamples.count / 2
+            self.compressedWaveformSamples.withUnsafeMutableBytes { rawSamples -> Void in
+                let samples = rawSamples.baseAddress!.assumingMemoryBound(to: Int16.self)
+
+                for i in 0 ..< count {
+                    let sample = samples[i]
+                    let index = i * 100 / count
+                    if (scaledSamples[index] < sample) {
+                        scaledSamples[index] = sample;
+                    }
+                }
+
+                var peak: Int16 = 0
+                var sumSamples: Int64 = 0
+                for i in 0 ..< 100 {
+                    let sample = scaledSamples[i]
+                    if peak < sample {
+                        peak = sample
+                    }
+                    sumSamples += Int64(sample)
+                }
+                var calculatedPeak: UInt16 = 0
+                calculatedPeak = UInt16((Double(sumSamples) * 1.8 / 100.0))
+
+                if calculatedPeak < 2500 {
+                    calculatedPeak = 2500
+                }
+
+                for i in 0 ..< 100 {
+                    let sample: UInt16 = UInt16(Int64(scaledSamples[i]))
+                    let minPeak = min(Int64(sample), Int64(calculatedPeak))
+                    let resultPeak = minPeak * 31 / Int64(calculatedPeak)
+                    scaledSamples[i] = Int16(clamping: min(31, resultPeak))
+                }
+
+                let resultWaveform = AudioWaveform(samples: Data(bytes: scaledSamplesMemory, count: 100 * 2), peak: 31)
+                let bitstream = resultWaveform.makeBitstream()
+                waveform = AudioWaveform(bitstream: bitstream, bitsPerSample: 5).makeBitstream()
+            }
+
+            return RecordedAudioData(
+                compressedData: self.dataItem.data(),
+                resumeData: self.resumeData,
+                duration: self.oggWriter.encodedDuration(),
+                waveform: waveform,
+                trimRange: nil
+            )
+        } else {
+            return nil
+        }
+    }
+}
+
+struct AudioPreviewState: Equatable {
+    let trimRange: Range<Double>?
+}
+
+final class ManagedAudioRecorderImpl: ManagedAudioRecorder {
+    private let queue = Queue()
+    private var contextRef: Unmanaged<ManagedAudioRecorderContext>?
+    private let micLevelValue = ValuePromise<Float>(0.0)
+    private let recordingStateValue = ValuePromise<AudioRecordingState>(.paused(duration: 0.0))
+    private let previewStateValue = ValuePromise<AudioPreviewState>(AudioPreviewState(trimRange: nil))
+
+    let beginWithTone: Bool
+
+    var micLevel: Signal<Float, NoError> {
+        return self.micLevelValue.get()
+    }
+
+    var recordingState: Signal<AudioRecordingState, NoError> {
+        return self.recordingStateValue.get()
+    }
+
+    init(
+        mediaManager: MediaManager,
+        resumeData: AudioRecorderResumeData?,
+        pushIdleTimerExtension: @escaping () -> Disposable,
+        beginWithTone: Bool,
+        beganWithTone: @escaping (Bool) -> Void
+    ) {
+        self.beginWithTone = beginWithTone
+        self.queue.async {
+            let context = ManagedAudioRecorderContext(queue: self.queue, mediaManager: mediaManager, resumeData: resumeData, pushIdleTimerExtension: pushIdleTimerExtension, micLevel: self.micLevelValue, recordingState: self.recordingStateValue, previewState: self.previewStateValue, beginWithTone: beginWithTone, beganWithTone: beganWithTone)
+            self.contextRef = Unmanaged.passRetained(context)
+        }
+    }
+
+    deinit {
+        let contextRef = self.contextRef
+        self.queue.async {
+            contextRef?.release()
+        }
+    }
+
+    func start() {
+        self.queue.async {
+            if let context = self.contextRef?.takeUnretainedValue() {
+                context.start()
+            }
+        }
+    }
+
+    func pause() {
+        self.queue.async {
+            if let context = self.contextRef?.takeUnretainedValue() {
+                context.pause()
+            }
+        }
+    }
+
+    func resume() {
+        self.queue.async {
+            if let context = self.contextRef?.takeUnretainedValue() {
+                context.resume()
+            }
+        }
+    }
+
+    func stop() {
+        self.queue.async {
+            if let context = self.contextRef?.takeUnretainedValue() {
+                context.stop()
+            }
+        }
+    }
+
+    func takenRecordedData() -> Signal<RecordedAudioData?, NoError> {
+        let dataState: Signal<RecordedAudioData?, NoError> = Signal { subscriber in
+            self.queue.async {
+                if let context = self.contextRef?.takeUnretainedValue() {
+                    subscriber.putNext(context.takeData())
+                    subscriber.putCompletion()
+                } else {
+                    subscriber.putNext(nil)
+                    subscriber.putCompletion()
+                }
+            }
+            return EmptyDisposable
+        }
+        let previewState = self.previewStateValue.get()
+
+        return combineLatest(
+            dataState,
+            previewState
+        ) |> map { data, preview -> RecordedAudioData? in
+            if let data {
+                return RecordedAudioData(
+                    compressedData: data.compressedData,
+                    resumeData: data.resumeData,
+                    duration: data.duration,
+                    waveform: data.waveform,
+                    trimRange: preview.trimRange
+                )
+            } else {
+                return nil
+            }
+        }
+    }
+
+    func updateTrimRange(start: Double, end: Double, updatedEnd: Bool, apply: Bool) {
+        self.previewStateValue.set(AudioPreviewState(trimRange: start ..< end))
+        self.queue.async {
+            if let context = self.contextRef?.takeUnretainedValue() {
+                context.updateTrimRange(start: start, end: end, updatedEnd: updatedEnd, apply: apply)
+            }
+        }
+    }
+}
