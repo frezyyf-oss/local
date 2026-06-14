@@ -559,11 +559,7 @@ public final class CallListController: TelegramBaseController {
         let contextController = makeContextController(presentationData: self.presentationData, source: .extracted(ExtractedContentSourceImpl(controller: self, sourceNode: buttonNode.contentNode, keepInPlace: false, blurBackground: false)), items: .single(ContextController.Items(content: .list(items))), gesture: nil)
         self.presentInGlobalOverlay(contextController)
     }
-    
-    private func getMainScreenBounds() -> CGRect {
-        return UIScreen.main.bounds
-    }
-    
+
     private func beginCallImpl() {
         guard !self.presentAccountFrozenInfoIfNeeded() else {
             return
