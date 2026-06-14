@@ -450,25 +450,16 @@ public class GlassBackgroundView: UIView {
             self.legacyHighlightContainerView = nil
 
             let nativeView: UIVisualEffectView
-            do {
-                // Try to use UIGlassEffect if available (iOS 26+)
-                if let glassEffectClass = NSClassFromString("UIGlassEffect") as AnyObject as? NSObjectProtocol,
-                   glassEffectClass.responds(to: NSSelectorFromString("effectWithStyle:")),
-                   let styleSelector = NSSelectorFromString("effectWithStyle:"),
-                   let glassEffect = glassEffectClass.perform(styleSelector, with: 0 as NSNumber)?.takeUnretainedValue() as? UIVisualEffect {
-                    
-                    nativeView = UIVisualEffectView(effect: glassEffect)
-                    
-                    // Set isInteractive if the API exists
-                    if glassEffect.responds(to: Selector(("setIsInteractive:"))) {
-                        glassEffect.setValue(false, forKey: "isInteractive")
-                    }
-                } else {
-                    // Fallback to blur effect if UIGlassEffect is not available
-                    nativeView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+            let styleSelector = NSSelectorFromString("effectWithStyle:")
+            if let glassEffectClass = NSClassFromString("UIGlassEffect") as AnyObject as? NSObjectProtocol,
+               glassEffectClass.responds(to: styleSelector),
+               let glassEffect = glassEffectClass.perform(styleSelector, with: 0 as NSNumber)?.takeUnretainedValue() as? UIVisualEffect {
+                nativeView = UIVisualEffectView(effect: glassEffect)
+
+                if glassEffect.responds(to: Selector(("setIsInteractive:"))) {
+                    glassEffect.setValue(false, forKey: "isInteractive")
                 }
-            } catch {
-                // Fallback to blur effect on any error
+            } else {
                 nativeView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
             }
             
