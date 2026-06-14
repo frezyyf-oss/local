@@ -196,21 +196,15 @@ public final class LiquidLensView: UIView {
         self.containerView.isUserInteractionEnabled = false
         
         if #available(iOS 26.0, *) {
-            do {
-                if let viewClass = NSClassFromString("_UILiquidLensView") as AnyObject as? NSObjectProtocol {
-                    let allocSelector = NSSelectorFromString("alloc")
-                    let initSelector = NSSelectorFromString("initWithRestingBackground:")
-                    if viewClass.responds(to: allocSelector),
-                       let objcAlloc = viewClass.perform(allocSelector)?.takeUnretainedValue() as AnyObject?,
-                       objcAlloc.responds(to: initSelector),
-                       let instance = objcAlloc.perform(initSelector, with: UIView())?.takeUnretainedValue() {
-                        self.lensView = instance as? UIView
-                    }
+            if let viewClass = NSClassFromString("_UILiquidLensView") as AnyObject as? NSObjectProtocol {
+                let allocSelector = NSSelectorFromString("alloc")
+                let initSelector = NSSelectorFromString("initWithRestingBackground:")
+                if viewClass.responds(to: allocSelector),
+                   let objcAlloc = viewClass.perform(allocSelector)?.takeUnretainedValue() as AnyObject?,
+                   objcAlloc.responds(to: initSelector),
+                   let instance = objcAlloc.perform(initSelector, with: UIView())?.takeUnretainedValue() {
+                    self.lensView = instance as? UIView
                 }
-            } catch {
-                // Fallback to legacy implementation if _UILiquidLensView is not available or fails
-                print("LiquidLensView: _UILiquidLensView initialization failed, using legacy implementation")
-                self.lensView = nil
             }
         }
         
